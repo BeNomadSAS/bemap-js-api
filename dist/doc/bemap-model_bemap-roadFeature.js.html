@@ -1,0 +1,368 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>JSDoc: Source: bemap-model/bemap-roadFeature.js</title>
+
+    <script src="scripts/prettify/prettify.js"> </script>
+    <script src="scripts/prettify/lang-css.js"> </script>
+    <!--[if lt IE 9]>
+      <script src="//html5shiv.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+    <link type="text/css" rel="stylesheet" href="styles/prettify-tomorrow.css">
+    <link type="text/css" rel="stylesheet" href="styles/jsdoc-default.css">
+</head>
+
+<body>
+
+<div id="main">
+
+    <h1 class="page-title">Source: bemap-model/bemap-roadFeature.js</h1>
+
+    
+
+
+
+    
+    <section>
+        <article>
+            <pre class="prettyprint source linenums"><code>/**
+ * BeNomad BeMap JavaScript API - RoadFeature
+ */
+
+/**
+ * @classdesc
+ * Base class for road features.
+ * @public
+ * @constructor
+ * @abstract
+ * @param {object} options see below the available values.
+ * @param {String} options.DirectionFlaw The direction of traffic flow per transportation modes. For each mode, possible values are: - CLOSE: closed in both directions.
+     - OPEN_POS: open in positive direction.
+     - OPEN_NEG: open in negative direction.
+     - OPEN: open in both directions.
+ * @param {Boolean} options.Urban Urban / not urban flag.
+ * @param {Boolean} options.Tunnel A flag that indicates if road is part of a tunnel or not.
+ * @param {Boolean} options.Bridge A flag that indicates if road is part of a bridge or not.
+ * @param {Boolean} options.MaxSpeedVerified Max speed verified flag(true: verified, false: calculated).
+ * @param {Boolean} options.CarPool : A flag that indicates if road is reserved to carpooling.
+ * @param {Boolean} options.MainCategory A flag that enables discrimination within road 's of a same FCC type (depends of map provider).
+ * @param {Int} options.DualCarriageway A flag that indicates if road is part of a dual carriageway(e.g.with physical separation between opposite traffic sides) .0: no or unknown, 1: yes.
+ * @param {Int} options.NoThroughTr No through traffic restriction(0: no restriction, 1: restriction, 2: restriction for trucks only).
+ * @param {Int} options.Toll Toll information: 0 no toll, 1 toll in positive direction, 2 toll in negative direction, 3 toll in both directions.
+ * @param {Int} options.Tax This fields indicates if road is submitted to a government tax(like German MAUT, etc) .0 means no tax, 1 - 3 defines the tax category(country dependent).
+ * @param {String} options.MatchDir The matching direction: - CLOSE: Undefined matched direction and closed in both directions.
+     - OPEN_POS: Matched in positive direction.
+     - OPEN_NEG: Matched in negative direction.
+     - OPEN: Undefined matched direction and open in both directions.
+ * @param {Int} options.NbLanePos The number of lanes in positive direction(0 if traffic closed in positive direction or if lane information is not available).
+ * @param {Int} options.NbLaneNeg The number of lanes in negative direction(0 if traffic closed in negative direction or if lane information is not available).
+ * @param {String} options.PedestrianInfrastructureType The pedestrian infrastructure type: -UNDEFINED = 0 Undefined.
+     - ZONE = 1: Pedestrian Zone.
+     - HIKING = 2 - Hiking.
+     - UNPAVED_ROAD = 3 - Unpaved Road.
+     - ROUGH_ROAD = 4 - Rough Road.
+     - POOR_CONDITION_ROAD = 5 - Poor Condition Road.
+     - STAIRS = 6 - Stairs.
+     - TUNNEL = 7 - Tunnel.
+     - ELEVATOR = 8 - Elevator.
+     - ESCALATOR = 9 - Escalator.
+     - FOOTBRIDGE = 10 - Footbridge.
+* @param {Int} options.MaxSpeed The speed limit in kph(0 if not available).
+* @param {Array.&lt;bemap.CondMaxSpeed>} options.CondMaxSpeed A conditional speed limit.
+* @param {Int} options.AverageSpeed The average speed in kph.
+* @param {Int} options.Lenght The length in meters.
+ */
+bemap.RoadFeature = function(options) {
+    var opts = options || {};
+
+    /**
+     * @type {String}
+     * @protected
+     */
+    this.DirectionFlow = opts.DirectionFlow ? opts.DirectionFlow : null;
+
+    /**
+     * @type {Boolean}
+     * @protected
+     */
+    this.Urban = opts.Urban !== undefined ? opts.Urban : null;
+
+    /**
+     * @type {Boolean}
+     * @protected
+     */
+    this.Tunnel = opts.Tunnel !== undefined ? opts.Tunnel : null;
+
+    /**
+     * @type {Boolean}
+     * @protected
+     */
+    this.Bridge = opts.Bridge !== undefined ? opts.Bridge : null;
+
+    /**
+     * @type {Boolean}
+     * @protected
+     */
+    this.MaxSpeedVerified = opts.MaxSpeedVerified !== undefined ? opts.MaxSpeedVerified : null;
+
+    /**
+     * @type {Boolean}
+     * @protected
+     */
+    this.CarPool = opts.CarPool !== undefined ? opts.CarPool : null;
+
+    /**
+     * @type {Boolean}
+     * @protected
+     */
+    this.MainCategory = opts.MainCategory !== undefined ? opts.MainCategory : null;
+
+    /**
+     * @type {Int}
+     * @protected
+     */
+    this.DualCarriageway = opts.hasOwnProperty("DualCarriageway") ? opts.DualCarriageway : null;
+
+    /**
+     * @type {Int}
+     * @protected
+     */
+    this.NoThroughTr = opts.hasOwnProperty("NoThroughTr") ? opts.NoThroughTr : null;
+
+    /**
+     * @type {Int}
+     * @protected
+     */
+    this.Toll = opts.hasOwnProperty("Toll") ? opts.Toll : null;
+
+    /**
+     * @type {Int}
+     * @protected
+     */
+    this.Tax = opts.hasOwnProperty("Tax") ? opts.Tax : null;
+
+    /**
+     * @type {String}
+     * @protected
+     */
+    this.MatchDir = opts.MatchDir ? opts.MatchDir : null;
+
+    /**
+     * @type {Int}
+     * @protected
+     */
+    this.NbLanePos = opts.hasOwnProperty("NbLanePos") ? opts.NbLanePos : null;
+
+    /**
+     * @type {Int}
+     * @protected
+     */
+    this.NbLaneNeg = opts.hasOwnProperty("NbLaneNeg") ? opts.NbLaneNeg : null;
+
+    /**
+     * @type {String}
+     * @protected
+     */
+    this.PedestrianInfrastructureType = opts.PedestrianInfrastructureType ? opts.PedestrianInfrastructureType : null;
+
+    /**
+     * @type {Int}
+     * @protected
+     */
+    this.MaxSpeed = opts.hasOwnProperty("MaxSpeed") ? opts.MaxSpeed : null;
+
+    /**
+     * @type {Int}
+     * @protected
+     */
+    this.AverageSpeed = opts.hasOwnProperty("AverageSpeed") ? opts.AverageSpeed : null;
+
+    /**
+     * @type {Array.&lt;bemap.CondMaxSpeed>}
+     * @protected
+     */
+    this.CondMaxSpeed = opts.CondMaxSpeed ? opts.CondMaxSpeed : [];
+
+    /**
+     * @type {Int}
+     * @protected
+     */
+    this.Length = opts.hasOwnProperty("Length") ? opts.Length : null;
+};
+
+
+/**
+* Get the direction of traffic flow per transportation modes.
+* @return {String}
+*/
+bemap.RoadFeature.prototype.getDirectionFlow = function() {
+  return this.DirectionFlow;
+};
+
+/**
+* Get the urban / not urban flag.
+* @return {Boolean}
+*/
+bemap.RoadFeature.prototype.getUrban = function() {
+  return this.Urban;
+};
+
+/**
+* Get the flag that indicates if road is part of a tunnel or not.
+* @return {Boolean}
+*/
+bemap.RoadFeature.prototype.getTunnel = function() {
+  return this.Tunnel;
+};
+
+/**
+* Get the flag that indicates if road is part of a bridge or not.
+* @return {Boolean}
+*/
+bemap.RoadFeature.prototype.getBridge = function() {
+  return this.Bridge;
+};
+
+/**
+* Get max speed verified flag.
+* @return {Boolean}
+*/
+bemap.RoadFeature.prototype.getMaxSpeedVerified = function() {
+  return this.MaxSpeedVerified;
+};
+
+/**
+* Get  the flag that indicates if road is reserved to carpooling.
+* @return {Boolean}
+*/
+bemap.RoadFeature.prototype.getCarPool = function() {
+  return this.CarPool;
+};
+
+/**
+* Get the flag that enables discrimination within road 's of a same FCC type.
+* @return {Boolean}
+*/
+bemap.RoadFeature.prototype.getMainCategory = function() {
+  return this.MainCategory;
+};
+
+/**
+* Get the flag that indicates if road is part of a dual carriageway(e.g.with physical separation between opposite traffic sides).
+* @return {Int}
+*/
+bemap.RoadFeature.prototype.getDualCarriageway = function() {
+  return this.DualCarriageway;
+};
+
+/**
+* Get
+* @return {Int}
+*/
+bemap.RoadFeature.prototype.getNoThroughTr = function() {
+  return this.NoThroughTr;
+};
+
+/**
+* Get toll information.
+* @return {Int}
+*/
+bemap.RoadFeature.prototype.getToll = function() {
+  return this.Toll;
+};
+
+/**
+* Get the fields that indicates if road is submitted to a government tax(like German MAUT, etc).
+* @return {Int}
+*/
+bemap.RoadFeature.prototype.getTax = function() {
+  return this.Tax;
+};
+
+/**
+* Get the matching direction.
+* @return {String}
+*/
+bemap.RoadFeature.prototype.getMatchDir = function() {
+  return this.MatchDir;
+};
+
+/**
+* Get The number of lanes in positive direction.
+* @return {Int}
+*/
+bemap.RoadFeature.prototype.getNbLanePos = function() {
+  return this.NbLanePos;
+};
+
+/**
+* Get The number of lanes in negative direction.
+* @return {Int}
+*/
+bemap.RoadFeature.prototype.getNbLaneNeg = function() {
+  return this.NbLaneNeg;
+};
+
+/**
+* Get the pedestrian infrastructure type
+* @return {String}
+*/
+bemap.RoadFeature.prototype.getPedestrianInfrastructureType = function() {
+  return this.PedestrianInfrastructureType;
+};
+
+/**
+* Get the speed limit in kph
+* @return {Int}
+*/
+bemap.RoadFeature.prototype.getMaxSpeed = function() {
+  return this.MaxSpeed;
+};
+
+/**
+* Get the average speed in kph.
+* @return {}
+*/
+bemap.RoadFeature.prototype.getAverageSpeed = function() {
+  return this.AverageSpeed;
+};
+
+/**
+* Get the conditional max speed.
+* @return {Array.&lt;bemap.CondMaxSpeed>}
+*/
+bemap.RoadFeature.prototype.getCondMaxSpeed = function() {
+  return this.CondMaxSpeed;
+};
+
+/**
+* Get the length in meters.
+* @return {Int}
+*/
+bemap.RoadFeature.prototype.getLength = function() {
+  return this.Length;
+};
+</code></pre>
+        </article>
+    </section>
+
+
+
+
+</div>
+
+<nav>
+    <h2><a href="index.html">Home</a></h2><h3>Classes</h3><ul><li><a href="bemap.AclDetailsResponse.html">AclDetailsResponse</a></li><li><a href="bemap.AclLabel.html">AclLabel</a></li><li><a href="bemap.AclService.html">AclService</a></li><li><a href="bemap.Address.html">Address</a></li><li><a href="bemap.AttributionWidget.html">AttributionWidget</a></li><li><a href="bemap.Autocomplete.html">Autocomplete</a></li><li><a href="bemap.AutocompleteElement.html">AutocompleteElement</a></li><li><a href="bemap.AutocompleteGeocodingRequest.html">AutocompleteGeocodingRequest</a></li><li><a href="bemap.AutocompleteGeocodingResponse.html">AutocompleteGeocodingResponse</a></li><li><a href="bemap.BemapLayer.html">BemapLayer</a></li><li><a href="bemap.BoundingBox.html">BoundingBox</a></li><li><a href="bemap.BrowserCache.html">BrowserCache</a></li><li><a href="bemap.BuildingsLayer.html">BuildingsLayer</a></li><li><a href="bemap.ChargingPoint.html">ChargingPoint</a></li><li><a href="bemap.ChargingStation.html">ChargingStation</a></li><li><a href="bemap.ChargingStationPool.html">ChargingStationPool</a></li><li><a href="bemap.ChargingStations.html">ChargingStations</a></li><li><a href="bemap.ChargingStationSearchRequest.html">ChargingStationSearchRequest</a></li><li><a href="bemap.ChargingStationSearchResponse.html">ChargingStationSearchResponse</a></li><li><a href="bemap.ChargingStationStep.html">ChargingStationStep</a></li><li><a href="bemap.ChargingTime.html">ChargingTime</a></li><li><a href="bemap.ChargingTimeRequest.html">ChargingTimeRequest</a></li><li><a href="bemap.ChargingTimeResponse.html">ChargingTimeResponse</a></li><li><a href="bemap.Circle.html">Circle</a></li><li><a href="bemap.CircleStyle.html">CircleStyle</a></li><li><a href="bemap.clusterStyle.html">clusterStyle</a></li><li><a href="bemap.Color.html">Color</a></li><li><a href="bemap.CondMaxSpeed.html">CondMaxSpeed</a></li><li><a href="bemap.Context.html">Context</a></li><li><a href="bemap.Coordinate.html">Coordinate</a></li><li><a href="bemap.CoordinateSat.html">CoordinateSat</a></li><li><a href="bemap.Destination.html">Destination</a></li><li><a href="bemap.Error.html">Error</a></li><li><a href="bemap.EvBrand.html">EvBrand</a></li><li><a href="bemap.EvReachableArea.html">EvReachableArea</a></li><li><a href="bemap.EvReachableAreaRequest.html">EvReachableAreaRequest</a></li><li><a href="bemap.EvReachableAreaResponse.html">EvReachableAreaResponse</a></li><li><a href="bemap.EvseRouting.html">EvseRouting</a></li><li><a href="bemap.EvSmartRouting.html">EvSmartRouting</a></li><li><a href="bemap.EvSmartRoutingRequest.html">EvSmartRoutingRequest</a></li><li><a href="bemap.EvSmartRoutingResponse.html">EvSmartRoutingResponse</a></li><li><a href="bemap.EvStepPoint.html">EvStepPoint</a></li><li><a href="bemap.EvVehicle.html">EvVehicle</a></li><li><a href="bemap.EvVehicles.html">EvVehicles</a></li><li><a href="bemap.Exception.html">Exception</a></li><li><a href="bemap.GeoAutocomplete.html">GeoAutocomplete</a></li><li><a href="bemap.Geocoder.html">Geocoder</a></li><li><a href="bemap.GeocodingItem.html">GeocodingItem</a></li><li><a href="bemap.GeocodingRequest.html">GeocodingRequest</a></li><li><a href="bemap.GeocodingResponse.html">GeocodingResponse</a></li><li><a href="bemap.GeoSearchInfo.html">GeoSearchInfo</a></li><li><a href="bemap.GeoServerInfoResponse.html">GeoServerInfoResponse</a></li><li><a href="bemap.GeoServerInfoService.html">GeoServerInfoService</a></li><li><a href="bemap.GeoServerServiceInfo.html">GeoServerServiceInfo</a></li><li><a href="bemap.GeoServerServiceLimit.html">GeoServerServiceLimit</a></li><li><a href="bemap.HeatmapLayer.html">HeatmapLayer</a></li><li><a href="bemap.Icon.html">Icon</a></li><li><a href="bemap.Isochrone.html">Isochrone</a></li><li><a href="bemap.Layer.html">Layer</a></li><li><a href="bemap.LeafletMap.html">LeafletMap</a></li><li><a href="bemap.LineStyle.html">LineStyle</a></li><li><a href="bemap.Listener.html">Listener</a></li><li><a href="bemap.Map.html">Map</a></li><li><a href="bemap.MapEvent.html">MapEvent</a></li><li><a href="bemap.MapLibreMap.html">MapLibreMap</a></li><li><a href="bemap.Marker.html">Marker</a></li><li><a href="bemap.MultiMarker.html">MultiMarker</a></li><li><a href="bemap.NearPoint.html">NearPoint</a></li><li><a href="bemap.NearPoiRequest.html">NearPoiRequest</a></li><li><a href="bemap.NearPoiResponse.html">NearPoiResponse</a></li><li><a href="bemap.NearPoiSearch.html">NearPoiSearch</a></li><li><a href="bemap.Object.html">Object</a></li><li><a href="bemap.Ol3Map.html">Ol3Map</a></li><li><a href="bemap.OlMap.html">OlMap</a></li><li><a href="bemap.OsmLayer.html">OsmLayer</a></li><li><a href="bemap.PMTilesLayer.html">PMTilesLayer</a></li><li><a href="bemap.Polygon.html">Polygon</a></li><li><a href="bemap.PolygonStyle.html">PolygonStyle</a></li><li><a href="bemap.Polyline.html">Polyline</a></li><li><a href="bemap.Popup.html">Popup</a></li><li><a href="bemap.PostalAddress.html">PostalAddress</a></li><li><a href="bemap.RasterLayer.html">RasterLayer</a></li><li><a href="bemap.ReverseGeocoder.html">ReverseGeocoder</a></li><li><a href="bemap.ReverseGeocodingRequest.html">ReverseGeocodingRequest</a></li><li><a href="bemap.RevGeoSearchInfo.html">RevGeoSearchInfo</a></li><li><a href="bemap.RoadFeature.html">RoadFeature</a></li><li><a href="bemap.Route.html">Route</a></li><li><a href="bemap.Route.Event.html">Event</a></li><li><a href="bemap.Route.RoutesheetInstruction.html">RoutesheetInstruction</a></li><li><a href="bemap.Routing.html">Routing</a></li><li><a href="bemap.RoutingDestination.html">RoutingDestination</a></li><li><a href="bemap.RoutingInstruction.html">RoutingInstruction</a></li><li><a href="bemap.RoutingRequest.html">RoutingRequest</a></li><li><a href="bemap.RoutingResponse.html">RoutingResponse</a></li><li><a href="bemap.RoutingRoute.html">RoutingRoute</a></li><li><a href="bemap.RoutingSummary.html">RoutingSummary</a></li><li><a href="bemap.RoutingV2.html">RoutingV2</a></li><li><a href="bemap.RoutingVehicleProfile.html">RoutingVehicleProfile</a></li><li><a href="bemap.RoutingWaypoint.html">RoutingWaypoint</a></li><li><a href="bemap.Service.html">Service</a></li><li><a href="bemap.TextStyle.html">TextStyle</a></li><li><a href="bemap.TilesAuth.html">TilesAuth</a></li><li><a href="bemap.TilesOverlayCatalog.html">TilesOverlayCatalog</a></li><li><a href="global.html#bemap#.TraceRoute">TraceRoute</a></li><li><a href="bemap.TraceRouteDestination.html">TraceRouteDestination</a></li><li><a href="bemap.TraceRouteRequest.html">TraceRouteRequest</a></li><li><a href="bemap.VectorLayer.html">VectorLayer</a></li><li><a href="bemap.VectorTileLayer.html">VectorTileLayer</a></li><li><a href="bemap.WmsLayer.html">WmsLayer</a></li></ul><h3>Global</h3><ul><li><a href="global.html#AC">AC</a></li><li><a href="global.html#AC_SINGLE_PHASE">AC_SINGLE_PHASE</a></li><li><a href="global.html#AC_THREE_PHASES">AC_THREE_PHASES</a></li><li><a href="global.html#bemap">bemap</a></li><li><a href="global.html#DC">DC</a></li><li><a href="global.html#NA">NA</a></li></ul>
+</nav>
+
+<br class="clear">
+
+<footer>
+    Documentation generated by <a href="https://github.com/jsdoc/jsdoc">JSDoc 3.6.3</a> on Tue Jun 02 2026 11:46:45 GMT+0200 (heure d’été d’Europe centrale)
+</footer>
+
+<script> prettyPrint(); </script>
+<script src="scripts/linenumber.js"> </script>
+</body>
+</html>

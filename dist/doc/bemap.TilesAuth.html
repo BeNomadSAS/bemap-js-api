@@ -1,0 +1,2025 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>JSDoc: Class: TilesAuth</title>
+
+    <script src="scripts/prettify/prettify.js"> </script>
+    <script src="scripts/prettify/lang-css.js"> </script>
+    <!--[if lt IE 9]>
+      <script src="//html5shiv.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+    <link type="text/css" rel="stylesheet" href="styles/prettify-tomorrow.css">
+    <link type="text/css" rel="stylesheet" href="styles/jsdoc-default.css">
+</head>
+
+<body>
+
+<div id="main">
+
+    <h1 class="page-title">Class: TilesAuth</h1>
+
+    
+
+
+
+
+<section>
+
+<header>
+    
+        <h2><span class="attribs"><span class="type-signature"></span></span>
+            <span class="ancestors"><a href="global.html#bemap">bemap</a>.</span>TilesAuth<span class="signature">(ctx, options<span class="signature-attributes">opt</span>)</span><span class="type-signature"></span></h2>
+        
+    
+</header>
+
+<article>
+    <div class="container-overview">
+    
+        
+
+    
+
+    
+    <h4 class="name" id="TilesAuth"><span class="type-signature"></span>new TilesAuth<span class="signature">(ctx, options<span class="signature-attributes">opt</span>)</span><span class="type-signature"></span></h4>
+    
+
+    
+
+
+
+<div class="description">
+    BeNomad BeMap JavaScript API — TilesAuth (v2.0)
+
+JWT lifecycle for the BeNomad Tiles Worker. Replaces the buggy
+global `window.fetch` patch that the v1 prototype shipped with.
+
+Responsibilities:
+ - POST credentials to `Context.getTilesLoginUrl()` and store the JWT.
+ - Parse the `exp` claim and schedule **proactive** renewal 5 min before
+   expiry; fall back to 55 min when `exp` is unparseable.
+ - Renew **reactively** on `401` errors caught from MapLibre's `error`
+   event, then trigger a `setStyle()` reload to retry pending tiles.
+ - On `document.visibilitychange` → `visible`: full re-login if the token
+   is already expired, proactive refresh if within 5 min, no-op otherwise.
+ - On `navigator.onLine === false`: queue the renewal until `online`.
+ - Expose `attachTransformRequest(nativeMap)` that injects the
+   `X-Session-Token` header on every request whose origin matches the
+   configured `tilesHost`. The closure captures `getToken()` not the
+   token value, so renewal is transparent.
+ - Keep the last 3 tokens in `_history` for diagnostics.
+
+Tokens are stored according to `Context.tokenStorage`:
+ - `'session'` — `sessionStorage` (default; cleared on tab close)
+ - `'local'`   — `localStorage` (persists across reloads)
+ - `'memory'`  — never persisted
+</div>
+
+
+
+
+
+
+
+
+
+    <h5>Parameters:</h5>
+    
+
+<table class="params">
+    <thead>
+    <tr>
+        
+        <th>Name</th>
+        
+
+        <th>Type</th>
+
+        
+        <th>Attributes</th>
+        
+
+        
+
+        <th class="last">Description</th>
+    </tr>
+    </thead>
+
+    <tbody>
+    
+
+        <tr>
+            
+                <td class="name"><code>ctx</code></td>
+            
+
+            <td class="type">
+            
+                
+<span class="param-type"><a href="bemap.Context.html">bemap.Context</a></span>
+
+
+            
+            </td>
+
+            
+                <td class="attributes">
+                
+
+                
+
+                
+                </td>
+            
+
+            
+
+            <td class="description last"></td>
+        </tr>
+
+    
+
+        <tr>
+            
+                <td class="name"><code>options</code></td>
+            
+
+            <td class="type">
+            
+                
+<span class="param-type">Object</span>
+
+
+            
+            </td>
+
+            
+                <td class="attributes">
+                
+                    &lt;optional><br>
+                
+
+                
+
+                
+                </td>
+            
+
+            
+
+            <td class="description last">
+                <h6>Properties</h6>
+                
+
+<table class="params">
+    <thead>
+    <tr>
+        
+        <th>Name</th>
+        
+
+        <th>Type</th>
+
+        
+        <th>Attributes</th>
+        
+
+        
+
+        <th class="last">Description</th>
+    </tr>
+    </thead>
+
+    <tbody>
+    
+
+        <tr>
+            
+                <td class="name"><code>onError</code></td>
+            
+
+            <td class="type">
+            
+                
+<span class="param-type">function</span>
+
+
+            
+            </td>
+
+            
+                <td class="attributes">
+                
+                    &lt;optional><br>
+                
+
+                
+
+                
+                </td>
+            
+
+            
+
+            <td class="description last">Called with a `bemap.Error` on auth / network failures.</td>
+        </tr>
+
+    
+
+        <tr>
+            
+                <td class="name"><code>onToken</code></td>
+            
+
+            <td class="type">
+            
+                
+<span class="param-type">function</span>
+
+
+            
+            </td>
+
+            
+                <td class="attributes">
+                
+                    &lt;optional><br>
+                
+
+                
+
+                
+                </td>
+            
+
+            
+
+            <td class="description last">Called with `{ reason, token }` on token changes.</td>
+        </tr>
+
+    
+    </tbody>
+</table>
+
+            </td>
+        </tr>
+
+    
+    </tbody>
+</table>
+
+
+
+
+
+
+<dl class="details">
+
+    
+
+    
+    <dt class="tag-since">Since:</dt>
+    <dd class="tag-since"><ul class="dummy"><li>2.0.0</li></ul></dd>
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+    <dt class="tag-source">Source:</dt>
+    <dd class="tag-source"><ul class="dummy"><li>
+        <a href="bemap-maplibre_bemap-tiles-auth.js.html">bemap-maplibre/bemap-tiles-auth.js</a>, <a href="bemap-maplibre_bemap-tiles-auth.js.html#line35">line 35</a>
+    </li></ul></dd>
+    
+
+    
+
+    
+
+    
+</dl>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+    
+    </div>
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+        <h3 class="subsection-title">Methods</h3>
+
+        
+            
+
+    
+
+    
+    <h4 class="name" id=".installFetchInterceptor"><span class="type-signature">(static) </span>installFetchInterceptor<span class="signature">(auth, tilesHost)</span><span class="type-signature"></span></h4>
+    
+
+    
+
+
+
+<div class="description">
+    Install a scoped `window.fetch` wrapper that injects `X-Session-Token`
+on every request whose host matches `tilesHost`. The wrapper awaits
+the in-flight login when the token is not yet available, so the very
+first PMTiles range request fired by `pmtiles.js` (which bypasses
+MapLibre's `transformRequest`) transparently waits for the JWT.
+
+Idempotent — calling it twice on the same page is a no-op. Multi-host
+scenarios accumulate by registering the second auth's host into a
+shared map.
+</div>
+
+
+
+
+
+
+
+
+
+    <h5>Parameters:</h5>
+    
+
+<table class="params">
+    <thead>
+    <tr>
+        
+        <th>Name</th>
+        
+
+        <th>Type</th>
+
+        
+
+        
+
+        <th class="last">Description</th>
+    </tr>
+    </thead>
+
+    <tbody>
+    
+
+        <tr>
+            
+                <td class="name"><code>auth</code></td>
+            
+
+            <td class="type">
+            
+                
+<span class="param-type"><a href="bemap.TilesAuth.html">bemap.TilesAuth</a></span>
+
+
+            
+            </td>
+
+            
+
+            
+
+            <td class="description last"></td>
+        </tr>
+
+    
+
+        <tr>
+            
+                <td class="name"><code>tilesHost</code></td>
+            
+
+            <td class="type">
+            
+                
+<span class="param-type">String</span>
+
+
+            
+            </td>
+
+            
+
+            
+
+            <td class="description last"></td>
+        </tr>
+
+    
+    </tbody>
+</table>
+
+
+
+
+
+
+<dl class="details">
+
+    
+
+    
+    <dt class="tag-since">Since:</dt>
+    <dd class="tag-since"><ul class="dummy"><li>2.0.0</li></ul></dd>
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+    <dt class="tag-source">Source:</dt>
+    <dd class="tag-source"><ul class="dummy"><li>
+        <a href="bemap-maplibre_bemap-tiles-auth.js.html">bemap-maplibre/bemap-tiles-auth.js</a>, <a href="bemap-maplibre_bemap-tiles-auth.js.html#line98">line 98</a>
+    </li></ul></dd>
+    
+
+    
+
+    
+
+    
+</dl>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+        
+            
+
+    
+
+    
+    <h4 class="name" id=".uninstallFetchInterceptor"><span class="type-signature">(static) </span>uninstallFetchInterceptor<span class="signature">()</span><span class="type-signature"></span></h4>
+    
+
+    
+
+
+
+<div class="description">
+    Uninstall the per-host registration. When the registry becomes empty,
+restore the original `window.fetch` so SPA navigation does not leak
+the patch across map lifecycles.
+</div>
+
+
+
+
+
+
+
+
+
+
+
+
+
+<dl class="details">
+
+    
+
+    
+    <dt class="tag-since">Since:</dt>
+    <dd class="tag-since"><ul class="dummy"><li>2.0.0</li></ul></dd>
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+    <dt class="tag-source">Source:</dt>
+    <dd class="tag-source"><ul class="dummy"><li>
+        <a href="bemap-maplibre_bemap-tiles-auth.js.html">bemap-maplibre/bemap-tiles-auth.js</a>, <a href="bemap-maplibre_bemap-tiles-auth.js.html#line148">line 148</a>
+    </li></ul></dd>
+    
+
+    
+
+    
+
+    
+</dl>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+        
+            
+
+    
+
+    
+    <h4 class="name" id="buildTransformRequest"><span class="type-signature"></span>buildTransformRequest<span class="signature">()</span><span class="type-signature"> &rarr; {function}</span></h4>
+    
+
+    
+
+
+
+<div class="description">
+    Build the MapLibre `transformRequest` function. Injects
+`X-Session-Token` on every request whose origin matches `ctx.tilesHost`.
+The closure captures `this.getToken` so token renewal is transparent.
+
+Surface the result as `map.native = new maplibregl.Map({ transformRequest: auth.buildTransformRequest() })`.
+</div>
+
+
+
+
+
+
+
+
+
+
+
+
+
+<dl class="details">
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+    <dt class="tag-source">Source:</dt>
+    <dd class="tag-source"><ul class="dummy"><li>
+        <a href="bemap-maplibre_bemap-tiles-auth.js.html">bemap-maplibre/bemap-tiles-auth.js</a>, <a href="bemap-maplibre_bemap-tiles-auth.js.html#line439">line 439</a>
+    </li></ul></dd>
+    
+
+    
+
+    
+
+    
+</dl>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<h5>Returns:</h5>
+
+        
+
+
+<dl>
+    <dt>
+        Type
+    </dt>
+    <dd>
+        
+<span class="param-type">function</span>
+
+
+    </dd>
+</dl>
+
+    
+
+
+
+
+
+        
+            
+
+    
+
+    
+    <h4 class="name" id="destroy"><span class="type-signature"></span>destroy<span class="signature">()</span><span class="type-signature"></span></h4>
+    
+
+    
+
+
+
+<div class="description">
+    Detach lifecycle listeners. Call from `MapLibreMap.remove()`.
+</div>
+
+
+
+
+
+
+
+
+
+
+
+
+
+<dl class="details">
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+    <dt class="tag-source">Source:</dt>
+    <dd class="tag-source"><ul class="dummy"><li>
+        <a href="bemap-maplibre_bemap-tiles-auth.js.html">bemap-maplibre/bemap-tiles-auth.js</a>, <a href="bemap-maplibre_bemap-tiles-auth.js.html#line524">line 524</a>
+    </li></ul></dd>
+    
+
+    
+
+    
+
+    
+</dl>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+        
+            
+
+    
+
+    
+    <h4 class="name" id="getHistory"><span class="type-signature"></span>getHistory<span class="signature">()</span><span class="type-signature"> &rarr; {Array.&lt;{exp:Number}>}</span></h4>
+    
+
+    
+
+
+
+<div class="description">
+    Returns the last-3 history of superseded tokens — only the `exp` claim,
+never the raw JWT.
+</div>
+
+
+
+
+
+
+
+
+
+
+
+
+
+<dl class="details">
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+    <dt class="tag-source">Source:</dt>
+    <dd class="tag-source"><ul class="dummy"><li>
+        <a href="bemap-maplibre_bemap-tiles-auth.js.html">bemap-maplibre/bemap-tiles-auth.js</a>, <a href="bemap-maplibre_bemap-tiles-auth.js.html#line352">line 352</a>
+    </li></ul></dd>
+    
+
+    
+
+    
+
+    
+</dl>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<h5>Returns:</h5>
+
+        
+
+
+<dl>
+    <dt>
+        Type
+    </dt>
+    <dd>
+        
+<span class="param-type">Array.&lt;{exp:Number}></span>
+
+
+    </dd>
+</dl>
+
+    
+
+
+
+
+
+        
+            
+
+    
+
+    
+    <h4 class="name" id="getToken"><span class="type-signature"></span>getToken<span class="signature">()</span><span class="type-signature"> &rarr; {String|null}</span></h4>
+    
+
+    
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<dl class="details">
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+    <dt class="tag-source">Source:</dt>
+    <dd class="tag-source"><ul class="dummy"><li>
+        <a href="bemap-maplibre_bemap-tiles-auth.js.html">bemap-maplibre/bemap-tiles-auth.js</a>, <a href="bemap-maplibre_bemap-tiles-auth.js.html#line337">line 337</a>
+    </li></ul></dd>
+    
+
+    
+
+    
+
+    
+</dl>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<h5>Returns:</h5>
+
+        
+
+
+<dl>
+    <dt>
+        Type
+    </dt>
+    <dd>
+        
+<span class="param-type">String</span>
+|
+
+<span class="param-type">null</span>
+
+
+    </dd>
+</dl>
+
+    
+
+
+
+
+
+        
+            
+
+    
+
+    
+    <h4 class="name" id="handle401"><span class="type-signature"></span>handle401<span class="signature">(nativeMap, currentStyleSpec<span class="signature-attributes">opt</span>)</span><span class="type-signature"> &rarr; {Promise.&lt;String>}</span></h4>
+    
+
+    
+
+
+
+<div class="description">
+    Mark a tile / style request as failed with HTTP 401 — triggers a refresh
+followed by a `setStyle` reload of the current style spec, so the renewed
+token is picked up by every pending request.
+</div>
+
+
+
+
+
+
+
+
+
+    <h5>Parameters:</h5>
+    
+
+<table class="params">
+    <thead>
+    <tr>
+        
+        <th>Name</th>
+        
+
+        <th>Type</th>
+
+        
+        <th>Attributes</th>
+        
+
+        
+
+        <th class="last">Description</th>
+    </tr>
+    </thead>
+
+    <tbody>
+    
+
+        <tr>
+            
+                <td class="name"><code>nativeMap</code></td>
+            
+
+            <td class="type">
+            
+                
+<span class="param-type">Object</span>
+
+
+            
+            </td>
+
+            
+                <td class="attributes">
+                
+
+                
+
+                
+                </td>
+            
+
+            
+
+            <td class="description last">MapLibre `map.native` instance.</td>
+        </tr>
+
+    
+
+        <tr>
+            
+                <td class="name"><code>currentStyleSpec</code></td>
+            
+
+            <td class="type">
+            
+                
+<span class="param-type">Object</span>
+
+
+            
+            </td>
+
+            
+                <td class="attributes">
+                
+                    &lt;optional><br>
+                
+
+                
+
+                
+                </td>
+            
+
+            
+
+            <td class="description last">Style currently displayed, for the reload.</td>
+        </tr>
+
+    
+    </tbody>
+</table>
+
+
+
+
+
+
+<dl class="details">
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+    <dt class="tag-source">Source:</dt>
+    <dd class="tag-source"><ul class="dummy"><li>
+        <a href="bemap-maplibre_bemap-tiles-auth.js.html">bemap-maplibre/bemap-tiles-auth.js</a>, <a href="bemap-maplibre_bemap-tiles-auth.js.html#line469">line 469</a>
+    </li></ul></dd>
+    
+
+    
+
+    
+
+    
+</dl>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<h5>Returns:</h5>
+
+        
+
+
+<dl>
+    <dt>
+        Type
+    </dt>
+    <dd>
+        
+<span class="param-type">Promise.&lt;String></span>
+
+
+    </dd>
+</dl>
+
+    
+
+
+
+
+
+        
+            
+
+    
+
+    
+    <h4 class="name" id="isValid"><span class="type-signature"></span>isValid<span class="signature">()</span><span class="type-signature"> &rarr; {Boolean}</span></h4>
+    
+
+    
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<dl class="details">
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+    <dt class="tag-source">Source:</dt>
+    <dd class="tag-source"><ul class="dummy"><li>
+        <a href="bemap-maplibre_bemap-tiles-auth.js.html">bemap-maplibre/bemap-tiles-auth.js</a>, <a href="bemap-maplibre_bemap-tiles-auth.js.html#line340">line 340</a>
+    </li></ul></dd>
+    
+
+    
+
+    
+
+    
+</dl>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<h5>Returns:</h5>
+
+        
+
+
+<dl>
+    <dt>
+        Type
+    </dt>
+    <dd>
+        
+<span class="param-type">Boolean</span>
+
+
+    </dd>
+</dl>
+
+    
+
+
+
+
+
+        
+            
+
+    
+
+    
+    <h4 class="name" id="login"><span class="type-signature"></span>login<span class="signature">(login<span class="signature-attributes">opt</span>, password<span class="signature-attributes">opt</span>)</span><span class="type-signature"> &rarr; {Promise.&lt;String>}</span></h4>
+    
+
+    
+
+
+
+<div class="description">
+    POST credentials and persist the new JWT.
+</div>
+
+
+
+
+
+
+
+
+
+    <h5>Parameters:</h5>
+    
+
+<table class="params">
+    <thead>
+    <tr>
+        
+        <th>Name</th>
+        
+
+        <th>Type</th>
+
+        
+        <th>Attributes</th>
+        
+
+        
+
+        <th class="last">Description</th>
+    </tr>
+    </thead>
+
+    <tbody>
+    
+
+        <tr>
+            
+                <td class="name"><code>login</code></td>
+            
+
+            <td class="type">
+            
+                
+<span class="param-type">String</span>
+
+
+            
+            </td>
+
+            
+                <td class="attributes">
+                
+                    &lt;optional><br>
+                
+
+                
+
+                
+                </td>
+            
+
+            
+
+            <td class="description last">Defaults to `ctx.login`.</td>
+        </tr>
+
+    
+
+        <tr>
+            
+                <td class="name"><code>password</code></td>
+            
+
+            <td class="type">
+            
+                
+<span class="param-type">String</span>
+
+
+            
+            </td>
+
+            
+                <td class="attributes">
+                
+                    &lt;optional><br>
+                
+
+                
+
+                
+                </td>
+            
+
+            
+
+            <td class="description last">Defaults to `ctx.password`.</td>
+        </tr>
+
+    
+    </tbody>
+</table>
+
+
+
+
+
+
+<dl class="details">
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+    <dt class="tag-source">Source:</dt>
+    <dd class="tag-source"><ul class="dummy"><li>
+        <a href="bemap-maplibre_bemap-tiles-auth.js.html">bemap-maplibre/bemap-tiles-auth.js</a>, <a href="bemap-maplibre_bemap-tiles-auth.js.html#line224">line 224</a>
+    </li></ul></dd>
+    
+
+    
+
+    
+
+    
+</dl>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<h5>Returns:</h5>
+
+        
+<div class="param-desc">
+    The new JWT.
+</div>
+
+
+
+<dl>
+    <dt>
+        Type
+    </dt>
+    <dd>
+        
+<span class="param-type">Promise.&lt;String></span>
+
+
+    </dd>
+</dl>
+
+    
+
+
+
+
+
+        
+            
+
+    
+
+    
+    <h4 class="name" id="logout"><span class="type-signature"></span>logout<span class="signature">(options<span class="signature-attributes">opt</span>)</span><span class="type-signature"> &rarr; {Promise.&lt;void>}</span></h4>
+    
+
+    
+
+
+
+<div class="description">
+    Clear the token, the history, the storage, and the renewal timer.
+Optionally POST to the Worker logout endpoint to revoke server-side.
+</div>
+
+
+
+
+
+
+
+
+
+    <h5>Parameters:</h5>
+    
+
+<table class="params">
+    <thead>
+    <tr>
+        
+        <th>Name</th>
+        
+
+        <th>Type</th>
+
+        
+        <th>Attributes</th>
+        
+
+        
+
+        <th class="last">Description</th>
+    </tr>
+    </thead>
+
+    <tbody>
+    
+
+        <tr>
+            
+                <td class="name"><code>options</code></td>
+            
+
+            <td class="type">
+            
+                
+<span class="param-type">Object</span>
+
+
+            
+            </td>
+
+            
+                <td class="attributes">
+                
+                    &lt;optional><br>
+                
+
+                
+
+                
+                </td>
+            
+
+            
+
+            <td class="description last">
+                <h6>Properties</h6>
+                
+
+<table class="params">
+    <thead>
+    <tr>
+        
+        <th>Name</th>
+        
+
+        <th>Type</th>
+
+        
+        <th>Attributes</th>
+        
+
+        
+        <th>Default</th>
+        
+
+        <th class="last">Description</th>
+    </tr>
+    </thead>
+
+    <tbody>
+    
+
+        <tr>
+            
+                <td class="name"><code>serverSide</code></td>
+            
+
+            <td class="type">
+            
+                
+<span class="param-type">Boolean</span>
+
+
+            
+            </td>
+
+            
+                <td class="attributes">
+                
+                    &lt;optional><br>
+                
+
+                
+
+                
+                </td>
+            
+
+            
+                <td class="default">
+                
+                    false
+                
+                </td>
+            
+
+            <td class="description last">When true, fire-and-forget POST `/api/logout`.</td>
+        </tr>
+
+    
+    </tbody>
+</table>
+
+            </td>
+        </tr>
+
+    
+    </tbody>
+</table>
+
+
+
+
+
+
+<dl class="details">
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+    <dt class="tag-source">Source:</dt>
+    <dd class="tag-source"><ul class="dummy"><li>
+        <a href="bemap-maplibre_bemap-tiles-auth.js.html">bemap-maplibre/bemap-tiles-auth.js</a>, <a href="bemap-maplibre_bemap-tiles-auth.js.html#line498">line 498</a>
+    </li></ul></dd>
+    
+
+    
+
+    
+
+    
+</dl>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<h5>Returns:</h5>
+
+        
+
+
+<dl>
+    <dt>
+        Type
+    </dt>
+    <dd>
+        
+<span class="param-type">Promise.&lt;void></span>
+
+
+    </dd>
+</dl>
+
+    
+
+
+
+
+
+        
+            
+
+    
+
+    
+    <h4 class="name" id="refresh"><span class="type-signature"></span>refresh<span class="signature">()</span><span class="type-signature"> &rarr; {Promise.&lt;String>}</span></h4>
+    
+
+    
+
+
+
+<div class="description">
+    Proactive renewal — re-uses the original credentials. Returns the new
+token. Subscribers see exactly one `_onToken({ reason: 'refresh' })`
+event per logical refresh; the synthetic `'login'` event is suppressed
+during refresh to avoid the 3-events-per-cycle problem.
+</div>
+
+
+
+
+
+
+
+
+
+
+
+
+
+<dl class="details">
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+    <dt class="tag-source">Source:</dt>
+    <dd class="tag-source"><ul class="dummy"><li>
+        <a href="bemap-maplibre_bemap-tiles-auth.js.html">bemap-maplibre/bemap-tiles-auth.js</a>, <a href="bemap-maplibre_bemap-tiles-auth.js.html#line363">line 363</a>
+    </li></ul></dd>
+    
+
+    
+
+    
+
+    
+</dl>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<h5>Returns:</h5>
+
+        
+
+
+<dl>
+    <dt>
+        Type
+    </dt>
+    <dd>
+        
+<span class="param-type">Promise.&lt;String></span>
+
+
+    </dd>
+</dl>
+
+    
+
+
+
+
+
+        
+            
+
+    
+
+    
+    <h4 class="name" id="whenTokenReady"><span class="type-signature"></span>whenTokenReady<span class="signature">()</span><span class="type-signature"> &rarr; {Promise.&lt;(String|null)>}</span></h4>
+    
+
+    
+
+
+
+<div class="description">
+    Resolve with the current valid JWT, kicking off (or joining) a login
+if no token is available. The synchronisation primitive that the
+fetch interceptor uses to delay PMTiles range requests until login
+completes — without making the MapLibreMap constructor itself async.
+</div>
+
+
+
+
+
+
+
+
+
+
+
+
+
+<dl class="details">
+
+    
+
+    
+    <dt class="tag-since">Since:</dt>
+    <dd class="tag-since"><ul class="dummy"><li>2.0.0</li></ul></dd>
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+    <dt class="tag-source">Source:</dt>
+    <dd class="tag-source"><ul class="dummy"><li>
+        <a href="bemap-maplibre_bemap-tiles-auth.js.html">bemap-maplibre/bemap-tiles-auth.js</a>, <a href="bemap-maplibre_bemap-tiles-auth.js.html#line330">line 330</a>
+    </li></ul></dd>
+    
+
+    
+
+    
+
+    
+</dl>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<h5>Returns:</h5>
+
+        
+
+
+<dl>
+    <dt>
+        Type
+    </dt>
+    <dd>
+        
+<span class="param-type">Promise.&lt;(String|null)></span>
+
+
+    </dd>
+</dl>
+
+    
+
+
+
+
+
+        
+    
+
+    
+
+    
+</article>
+
+</section>
+
+
+
+
+</div>
+
+<nav>
+    <h2><a href="index.html">Home</a></h2><h3>Classes</h3><ul><li><a href="bemap.AclDetailsResponse.html">AclDetailsResponse</a></li><li><a href="bemap.AclLabel.html">AclLabel</a></li><li><a href="bemap.AclService.html">AclService</a></li><li><a href="bemap.Address.html">Address</a></li><li><a href="bemap.AttributionWidget.html">AttributionWidget</a></li><li><a href="bemap.Autocomplete.html">Autocomplete</a></li><li><a href="bemap.AutocompleteElement.html">AutocompleteElement</a></li><li><a href="bemap.AutocompleteGeocodingRequest.html">AutocompleteGeocodingRequest</a></li><li><a href="bemap.AutocompleteGeocodingResponse.html">AutocompleteGeocodingResponse</a></li><li><a href="bemap.BemapLayer.html">BemapLayer</a></li><li><a href="bemap.BoundingBox.html">BoundingBox</a></li><li><a href="bemap.BrowserCache.html">BrowserCache</a></li><li><a href="bemap.BuildingsLayer.html">BuildingsLayer</a></li><li><a href="bemap.ChargingPoint.html">ChargingPoint</a></li><li><a href="bemap.ChargingStation.html">ChargingStation</a></li><li><a href="bemap.ChargingStationPool.html">ChargingStationPool</a></li><li><a href="bemap.ChargingStations.html">ChargingStations</a></li><li><a href="bemap.ChargingStationSearchRequest.html">ChargingStationSearchRequest</a></li><li><a href="bemap.ChargingStationSearchResponse.html">ChargingStationSearchResponse</a></li><li><a href="bemap.ChargingStationStep.html">ChargingStationStep</a></li><li><a href="bemap.ChargingTime.html">ChargingTime</a></li><li><a href="bemap.ChargingTimeRequest.html">ChargingTimeRequest</a></li><li><a href="bemap.ChargingTimeResponse.html">ChargingTimeResponse</a></li><li><a href="bemap.Circle.html">Circle</a></li><li><a href="bemap.CircleStyle.html">CircleStyle</a></li><li><a href="bemap.clusterStyle.html">clusterStyle</a></li><li><a href="bemap.Color.html">Color</a></li><li><a href="bemap.CondMaxSpeed.html">CondMaxSpeed</a></li><li><a href="bemap.Context.html">Context</a></li><li><a href="bemap.Coordinate.html">Coordinate</a></li><li><a href="bemap.CoordinateSat.html">CoordinateSat</a></li><li><a href="bemap.Destination.html">Destination</a></li><li><a href="bemap.Error.html">Error</a></li><li><a href="bemap.EvBrand.html">EvBrand</a></li><li><a href="bemap.EvReachableArea.html">EvReachableArea</a></li><li><a href="bemap.EvReachableAreaRequest.html">EvReachableAreaRequest</a></li><li><a href="bemap.EvReachableAreaResponse.html">EvReachableAreaResponse</a></li><li><a href="bemap.EvseRouting.html">EvseRouting</a></li><li><a href="bemap.EvSmartRouting.html">EvSmartRouting</a></li><li><a href="bemap.EvSmartRoutingRequest.html">EvSmartRoutingRequest</a></li><li><a href="bemap.EvSmartRoutingResponse.html">EvSmartRoutingResponse</a></li><li><a href="bemap.EvStepPoint.html">EvStepPoint</a></li><li><a href="bemap.EvVehicle.html">EvVehicle</a></li><li><a href="bemap.EvVehicles.html">EvVehicles</a></li><li><a href="bemap.Exception.html">Exception</a></li><li><a href="bemap.GeoAutocomplete.html">GeoAutocomplete</a></li><li><a href="bemap.Geocoder.html">Geocoder</a></li><li><a href="bemap.GeocodingItem.html">GeocodingItem</a></li><li><a href="bemap.GeocodingRequest.html">GeocodingRequest</a></li><li><a href="bemap.GeocodingResponse.html">GeocodingResponse</a></li><li><a href="bemap.GeoSearchInfo.html">GeoSearchInfo</a></li><li><a href="bemap.GeoServerInfoResponse.html">GeoServerInfoResponse</a></li><li><a href="bemap.GeoServerInfoService.html">GeoServerInfoService</a></li><li><a href="bemap.GeoServerServiceInfo.html">GeoServerServiceInfo</a></li><li><a href="bemap.GeoServerServiceLimit.html">GeoServerServiceLimit</a></li><li><a href="bemap.HeatmapLayer.html">HeatmapLayer</a></li><li><a href="bemap.Icon.html">Icon</a></li><li><a href="bemap.Isochrone.html">Isochrone</a></li><li><a href="bemap.Layer.html">Layer</a></li><li><a href="bemap.LeafletMap.html">LeafletMap</a></li><li><a href="bemap.LineStyle.html">LineStyle</a></li><li><a href="bemap.Listener.html">Listener</a></li><li><a href="bemap.Map.html">Map</a></li><li><a href="bemap.MapEvent.html">MapEvent</a></li><li><a href="bemap.MapLibreMap.html">MapLibreMap</a></li><li><a href="bemap.Marker.html">Marker</a></li><li><a href="bemap.MultiMarker.html">MultiMarker</a></li><li><a href="bemap.NearPoint.html">NearPoint</a></li><li><a href="bemap.NearPoiRequest.html">NearPoiRequest</a></li><li><a href="bemap.NearPoiResponse.html">NearPoiResponse</a></li><li><a href="bemap.NearPoiSearch.html">NearPoiSearch</a></li><li><a href="bemap.Object.html">Object</a></li><li><a href="bemap.Ol3Map.html">Ol3Map</a></li><li><a href="bemap.OlMap.html">OlMap</a></li><li><a href="bemap.OsmLayer.html">OsmLayer</a></li><li><a href="bemap.PMTilesLayer.html">PMTilesLayer</a></li><li><a href="bemap.Polygon.html">Polygon</a></li><li><a href="bemap.PolygonStyle.html">PolygonStyle</a></li><li><a href="bemap.Polyline.html">Polyline</a></li><li><a href="bemap.Popup.html">Popup</a></li><li><a href="bemap.PostalAddress.html">PostalAddress</a></li><li><a href="bemap.RasterLayer.html">RasterLayer</a></li><li><a href="bemap.ReverseGeocoder.html">ReverseGeocoder</a></li><li><a href="bemap.ReverseGeocodingRequest.html">ReverseGeocodingRequest</a></li><li><a href="bemap.RevGeoSearchInfo.html">RevGeoSearchInfo</a></li><li><a href="bemap.RoadFeature.html">RoadFeature</a></li><li><a href="bemap.Route.html">Route</a></li><li><a href="bemap.Route.Event.html">Event</a></li><li><a href="bemap.Route.RoutesheetInstruction.html">RoutesheetInstruction</a></li><li><a href="bemap.Routing.html">Routing</a></li><li><a href="bemap.RoutingDestination.html">RoutingDestination</a></li><li><a href="bemap.RoutingInstruction.html">RoutingInstruction</a></li><li><a href="bemap.RoutingRequest.html">RoutingRequest</a></li><li><a href="bemap.RoutingResponse.html">RoutingResponse</a></li><li><a href="bemap.RoutingRoute.html">RoutingRoute</a></li><li><a href="bemap.RoutingSummary.html">RoutingSummary</a></li><li><a href="bemap.RoutingV2.html">RoutingV2</a></li><li><a href="bemap.RoutingVehicleProfile.html">RoutingVehicleProfile</a></li><li><a href="bemap.RoutingWaypoint.html">RoutingWaypoint</a></li><li><a href="bemap.Service.html">Service</a></li><li><a href="bemap.TextStyle.html">TextStyle</a></li><li><a href="bemap.TilesAuth.html">TilesAuth</a></li><li><a href="bemap.TilesOverlayCatalog.html">TilesOverlayCatalog</a></li><li><a href="global.html#bemap#.TraceRoute">TraceRoute</a></li><li><a href="bemap.TraceRouteDestination.html">TraceRouteDestination</a></li><li><a href="bemap.TraceRouteRequest.html">TraceRouteRequest</a></li><li><a href="bemap.VectorLayer.html">VectorLayer</a></li><li><a href="bemap.VectorTileLayer.html">VectorTileLayer</a></li><li><a href="bemap.WmsLayer.html">WmsLayer</a></li></ul><h3>Global</h3><ul><li><a href="global.html#AC">AC</a></li><li><a href="global.html#AC_SINGLE_PHASE">AC_SINGLE_PHASE</a></li><li><a href="global.html#AC_THREE_PHASES">AC_THREE_PHASES</a></li><li><a href="global.html#bemap">bemap</a></li><li><a href="global.html#DC">DC</a></li><li><a href="global.html#NA">NA</a></li></ul>
+</nav>
+
+<br class="clear">
+
+<footer>
+    Documentation generated by <a href="https://github.com/jsdoc/jsdoc">JSDoc 3.6.3</a> on Tue Jun 02 2026 11:46:46 GMT+0200 (heure d’été d’Europe centrale)
+</footer>
+
+<script> prettyPrint(); </script>
+<script src="scripts/linenumber.js"> </script>
+</body>
+</html>

@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="en" dir="ltr">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>BeNomad BeMap JavaScript API</title>
+  <link rel="stylesheet" type="text/css" href="../../dist/ol.css">
+  <link rel="stylesheet" type="text/css" href="../../dist/leaflet.css">
+  <link rel="stylesheet" type="text/css" href="../../dist/MarkerCluster.Default.css" />
+  <link rel="stylesheet" type="text/css" href="../../lib/bootstrap/dist/css/bootstrap.min.css" />
+  <link rel="stylesheet" type="text/css" href="../../dist/bemap-js-api.css" media="screen">
+
+  <script language="JavaScript" type="text/javascript" src="../../lib/jquery/dist/jquery.min.js"></script>
+
+  <script language="JavaScript" type="text/javascript" src="../../dist/ol.js"></script>
+  <script language="JavaScript" type="text/javascript" src="../../dist/leaflet.js"></script>
+  <script language="JavaScript" src="../../dist/maplibre-gl.js"></script>
+  <script language="JavaScript" src="../../dist/pmtiles.js"></script>
+  <script language="JavaScript" type="text/javascript" src="../../dist/leaflet.markercluster.js"></script>
+  <script language="JavaScript" type="text/javascript" src="../../dist/bemap-js-api.js"></script>
+  <script language="JavaScript" type="text/javascript" src="../context.js"></script>
+  <script language="JavaScript" type="text/javascript" src="geocoding.js"></script>
+  <script language="JavaScript" type="text/javascript" src="geocoding-example.js"></script>
+  <style media="screen">
+    #map1 {
+      position: fixed;
+      width: 100%;
+      height: 100%;
+      left: 0;
+      top: 0;
+      transition: all .4s;
+    }
+
+    .glyphicon {
+      top: 2.6rem;
+      right: 1.5rem;
+    }
+  </style>
+</head>
+
+<body>
+  <div id="map1"></div>
+
+  <div class="container">
+
+    <div style="background-color:#5555558c; padding: 1rem; position: relative" class="row">
+      <div class="col-md-6">
+        <form class="form-horizontal" role="form">
+
+          <div class="row">
+            <div class="">
+              <label for="country" class="control-label">Country</label><span class="glyphicon form-control-feedback"></span>
+              <input type="text" class="form-control" id="country" value="" placeholder="Country" />
+            </div>
+          </div>
+
+          <div class="row">
+            <div class="">
+              <label for="city" class="control-label">City</label>
+              <input type="text" class="form-control" id="city" value="" placeholder="City" /><span class="glyphicon form-control-feedback"></span>
+            </div>
+          </div>
+
+          <div class="row">
+            <div class="">
+              <label for="inputType" class="control-label">Postal code</label>
+              <input type="text" class="form-control" id="postalCode" value="" placeholder="PostalCode" />
+            </div>
+          </div>
+
+          <div class="row">
+            <div class="">
+              <label for="inputType" class="control-label">Place (street name or POI)</label>
+              <input type="text" class="form-control" id="street" value="" placeholder="Street" />
+            </div>
+          </div>
+
+          <div class="row">
+            <div class="">
+              <label for="inputType" class="control-label">Language code (fr/en/us...)</label>
+              <input type="text" class="form-control" id="language" value="xx" placeholder="Language: fr/en/us..." />
+            </div>
+          </div>
+
+          <div class="row">
+            <div class="">
+              <label for="selectType" class="control-label">Search type</label><br />
+              <select id="searchType" class="form-control" title="Choose one of the following...">
+                <option value="CONTAINS">CONTAINS</option>
+                <option value="FUZZY" selected>FUZZY</option>
+                <option value="KEY_SEARCH">KEY_SEARCH</option>
+                <option value="STRICT">STRICT</option>
+                <option value="STRICT_BEGINNING">STRICT_BEGINNING</option>
+                <option value="WORD_BEGINNING">WORD_BEGINNING</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="row">
+            <div class="">
+              <label for="inputType" class="control-label">Quantity</label>
+              <input type="text" class="form-control" id="quantity" value="5" placeholder="Number of answers" />
+            </div>
+          </div>
+
+          <button type="button" style="margin:1rem 0 1rem 0" class="btn btn-block btn-primary" id="find"><span></span> Research</button>
+          <button type="button" style="margin:1rem 0 1rem 0" class="btn btn-block btn-primary" id="reset"><span></span> Reset</button>
+<button type="button" style="margin:1rem 0 1rem 0" class="btn btn-block btn-primary" id="marker"><span></span> marker</button>
+        </form>
+      </div>
+      <div class="col-md-6">
+        <div id="responseContainer"></div>
+      </div>
+    </div>
+
+  </div>
+
+  <div class="container">
+
+    <div style="background-color:#5555558c; padding: 1rem; position: relative" class="row">
+      <div class="col-md-6">
+        <form class="form-horizontal" role="form">
+
+          <div class="row">
+            <div class="">
+              <label for="longitude" class="control-label">longitude</label><span class="glyphicon form-control-feedback"></span>
+              <input type="number" class="form-control" id="longitude" value="" placeholder="Longitude" />
+            </div>
+          </div>
+
+          <div class="row">
+            <div class="">
+              <label for="latitude" class="control-label">latitude</label>
+              <input type="number" class="form-control" id="latitude" value="" placeholder="Latitude" /><span class="glyphicon form-control-feedback"></span>
+            </div>
+          </div>
+
+          <div class="row">
+            <div class="">
+              <label for="radius" class="control-label">radius</label>
+              <input type="number" class="form-control" id="radius" value="" placeholder="Radius" />
+            </div>
+          </div>
+
+          <div class="row">
+            <div class="">
+              <label for="languageRev" class="control-label">Language code (fr/en/us...)</label>
+              <input type="text" class="form-control" id="languageRev" value="xx" placeholder="Language: fr/en/us..." />
+            </div>
+          </div>
+
+          <div class="row">
+            <div class="">
+              <label for="maxResult" class="control-label">Quantity</label>
+              <input type="number" class="form-control" id="maxResult" value="5" placeholder="Number of answers" />
+            </div>
+          </div>
+
+          <button type="button" style="margin:1rem 0 1rem 0" class="btn btn-block btn-primary" id="findRev"><span></span> Research Rev</button>
+
+        </form>
+      </div>
+
+    </div>
+
+  </div>
+
+</body>
+
+</html>

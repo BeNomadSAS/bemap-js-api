@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>BeMap JS API — Container resize &amp; refresh()</title>
+
+  <!-- Engine deps (same set as functions.html) -->
+  <link rel="stylesheet" href="../dist/ol.css">
+  <link rel="stylesheet" href="../dist/leaflet.css">
+  <link rel="stylesheet" href="../dist/maplibre-gl.css">
+  <link rel="stylesheet" href="../dist/bemap-js-api.css">
+  <script src="../dist/ol.js"></script>
+  <script src="../dist/leaflet.js"></script>
+  <script src="../dist/maplibre-gl.js"></script>
+  <script src="../dist/pmtiles.js"></script>
+  <script src="../dist/bemap-js-api.js"></script>
+  <script src="context.js"></script>
+
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: system-ui, sans-serif; height: 100vh; display: flex; flex-direction: column; background: #0f1622; color: #e6edf3; }
+
+    .topbar { flex: 0 0 auto; display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+              padding: 8px 14px; background: #131c2b; border-bottom: 2px solid #00c9e5; }
+    .topbar h1 { font-size: 15px; margin: 0 10px 0 0; color: #00c9e5; white-space: nowrap; }
+    .topbar label, .topbar button, .topbar select { font-size: 13px; }
+    .topbar select, .topbar button { padding: 5px 10px; border-radius: 6px; border: 1px solid #2b3a52;
+              background: #1c2840; color: #e6edf3; cursor: pointer; }
+    .topbar button:hover { background: #243450; }
+    .topbar .spacer { flex: 1; }
+    .topbar .hint { font-size: 12px; color: #8aa0bd; }
+
+    /* --- the resizable stage: side panel + (map over bottom panel) --- */
+    .stage { flex: 1; display: flex; min-height: 0; }
+    .side   { flex: 0 0 auto; width: 300px; overflow: hidden; transition: width .35s ease;
+              background: #16203100; background: #162031; border-right: 1px solid #2b3a52; }
+    .side.collapsed { width: 0; }
+    .right  { flex: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+    #map    { flex: 1; min-height: 0; }                 /* the map fills the remaining space */
+    .bottom { flex: 0 0 auto; height: 200px; overflow: hidden; transition: height .35s ease;
+              background: #162031; border-top: 1px solid #2b3a52; }
+    .bottom.collapsed { height: 0; }
+    .panel-body { padding: 14px; font-size: 13px; color: #aebfd6; }
+
+    .log { flex: 0 0 auto; height: 120px; overflow: auto; padding: 6px 12px; background: #0a111c;
+           border-top: 1px solid #2b3a52; font-family: ui-monospace, monospace; font-size: 12px; }
+    .log div { padding: 1px 0; border-bottom: 1px solid #121c2b; }
+    .log .accent { color: #00c9e5; }
+    .badge { font-size: 10px; padding: 2px 6px; border-radius: 3px; font-weight: 700; margin-left: 4px; }
+    .b-ol { background: #3498db; } .b-lf { background: #27ae60; } .b-ml { background: #9b59b6; }
+    code { background: #1c2840; padding: 1px 5px; border-radius: 4px; }
+  </style>
+</head>
+<body>
+  <div class="topbar">
+    <h1>Container resize &amp; <code>refresh()</code></h1>
+
+    <label>Engine:
+      <select id="engine">
+        <option value="ol">OpenLayers</option>
+        <option value="lf">Leaflet</option>
+        <option value="ml" selected>MapLibre</option>
+      </select>
+    </label>
+
+    <button id="btn-side">Toggle side panel</button>
+    <button id="btn-bottom">Toggle bottom panel</button>
+    <button id="btn-refresh">Call <code>map.refresh()</code></button>
+
+    <label><input type="checkbox" id="auto" checked> auto <code>refresh()</code> on resize</label>
+
+    <span class="spacer"></span>
+    <span class="hint" id="hint"></span>
+  </div>
+
+  <div class="stage">
+    <aside class="side">
+      <div class="panel-body">
+        <strong>Side panel</strong>
+        <p>Toggling this changes the map's <em>width</em>. With auto-refresh ON the map re-fits;
+           turn it OFF, switch to <b>Leaflet</b>, and toggle — Leaflet leaves a stale/blank strip
+           until you press <code>refresh()</code>.</p>
+        <p>OpenLayers and MapLibre also observe their container internally, so they adapt even
+           without an explicit call — but <code>refresh()</code> is the uniform way to force it.</p>
+      </div>
+    </aside>
+
+    <div class="right">
+      <div id="map"></div>
+      <aside class="bottom">
+        <div class="panel-body">
+          <strong>Bottom panel</strong> — toggling this changes the map's <em>height</em>
+          (like collapsing a timeline / detail drawer). Watch the map fill the freed space.
+          On <b>MapLibre</b>, the freed strip fills with <em>tiles</em> (not grey) — that's the
+          resize → tile-reload fix.
+        </div>
+      </aside>
+    </div>
+  </div>
+
+  <div class="log" id="log"></div>
+
+  <script>
+    // ------------------------------------------------------------------
+    // refresh() is a COMMON bemap.Map method — every engine wrapper maps it
+    // to that engine's native "re-measure your container and redraw" call:
+    //   OpenLayers → native.updateSize()
+    //   Leaflet    → native.invalidateSize()
+    //   MapLibre   → native.resize()  + a camera nudge that reloads tiles for
+    //                the newly-exposed area (so the strip fills with map, not grey)
+    // ------------------------------------------------------------------
+    var REFRESH_OF = {
+      ol: 'native.updateSize()',
+      lf: 'native.invalidateSize()',
+      ml: 'native.resize() + tile reload'
+    };
+    var BADGE = { ol: 'b-ol', lf: 'b-lf', ml: 'b-ml' };
+
+    var ctx = bemapMainCtx;        // from context.js (same context functions.html uses)
+    var map = null;
+    var engine = document.getElementById('engine').value;
+    var autoRefresh = true;
+
+    var logEl = document.getElementById('log');
+    function log(msg, accent) {
+      var d = document.createElement('div');
+      if (accent) d.className = 'accent';
+      d.textContent = msg;
+      logEl.insertBefore(d, logEl.firstChild);
+    }
+
+    function teardown() {
+      if (map) {
+        try {
+          if (map.native && typeof map.native.remove === 'function') map.native.remove();        // ML / Leaflet
+          else if (map.native && typeof map.native.setTarget === 'function') map.native.setTarget(null); // OL
+        } catch (e) { /* ignore */ }
+      }
+      document.getElementById('map').innerHTML = '';
+      map = null;
+    }
+
+    function build() {
+      teardown();
+      // OL & Leaflet draw the WMS raster base via defaultLayers(); MapLibre uses
+      // the BeNomad PMTiles vector base automatically when ctx has a tilesHost.
+      if (engine === 'ol')      map = new bemap.Ol3Map(ctx, 'map').defaultLayers().move(2.35, 48.85, 12);
+      else if (engine === 'lf') map = new bemap.LeafletMap(ctx, 'map').defaultLayers().move(2.35, 48.85, 12);
+      else                      map = new bemap.MapLibreMap(ctx, 'map').move(2.35, 48.85, 12);
+      document.getElementById('hint').innerHTML =
+        'map.refresh() → <code>' + REFRESH_OF[engine] + '</code>';
+      log('Built ' + engine.toUpperCase() + ' map — refresh() maps to ' + REFRESH_OF[engine], true);
+    }
+
+    // --- resize the container by toggling panels ---
+    document.getElementById('btn-side').onclick = function () {
+      document.querySelector('.side').classList.toggle('collapsed');
+      log('Side panel toggled (map width changed)…');
+    };
+    document.getElementById('btn-bottom').onclick = function () {
+      document.querySelector('.bottom').classList.toggle('collapsed');
+      log('Bottom panel toggled (map height changed)…');
+    };
+
+    // When the CSS size transition ends, optionally re-fit the map.
+    function afterResize(what) {
+      if (autoRefresh && map) {
+        map.refresh();
+        log('→ map.refresh() after ' + what + '  [' + REFRESH_OF[engine] + ']', true);
+      } else {
+        log('→ auto-refresh OFF: map NOT refreshed after ' + what + ' (notice the stale strip on Leaflet)');
+      }
+    }
+    document.querySelector('.side').addEventListener('transitionend', function (e) {
+      if (e.propertyName === 'width') afterResize('side toggle');
+    });
+    document.querySelector('.bottom').addEventListener('transitionend', function (e) {
+      if (e.propertyName === 'height') afterResize('bottom toggle');
+    });
+
+    // --- manual refresh + controls ---
+    document.getElementById('btn-refresh').onclick = function () {
+      if (map) { map.refresh(); log('Manual map.refresh()  [' + REFRESH_OF[engine] + ']', true); }
+    };
+    document.getElementById('auto').onchange = function () { autoRefresh = this.checked; };
+    document.getElementById('engine').onchange = function () { engine = this.value; build(); };
+
+    build();
+    log('Tip: turn OFF auto-refresh, pick Leaflet, toggle a panel → it goes stale; press refresh() to fix it.');
+  </script>
+</body>
+</html>

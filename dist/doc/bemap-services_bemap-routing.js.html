@@ -1,0 +1,1083 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>JSDoc: Source: bemap-services/bemap-routing.js</title>
+
+    <script src="scripts/prettify/prettify.js"> </script>
+    <script src="scripts/prettify/lang-css.js"> </script>
+    <!--[if lt IE 9]>
+      <script src="//html5shiv.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+    <link type="text/css" rel="stylesheet" href="styles/prettify-tomorrow.css">
+    <link type="text/css" rel="stylesheet" href="styles/jsdoc-default.css">
+</head>
+
+<body>
+
+<div id="main">
+
+    <h1 class="page-title">Source: bemap-services/bemap-routing.js</h1>
+
+    
+
+
+
+    
+    <section>
+        <article>
+            <pre class="prettyprint source linenums"><code>/**
+ * BeNomad BeMap JavaScript API - Routing
+ */
+
+/**
+ * @classdesc
+ * Base class for routing calculation.
+ * @public
+ * @constructor
+ * @abstract
+ * @param {bemap.Context} context BeMap-JS-API Context. Mandatory.
+ * @param {object} options see below the available values.
+ */
+bemap.Routing = function(context, options) {
+  bemap.Service.call(this, context, options);
+
+  var opts = options || {};
+
+  /**
+   * Native parameters of BeMap server.
+   * @type {String}
+   * @protected
+   */
+  this.nativeBeMapParams = opts.nativeBeMapParams ? opts.nativeBeMapParams : null;
+
+  /**
+   * Calculated route(s).
+   * @type {bemap.Route}
+   * @protected
+   */
+  this.routes = [];
+
+  /**
+   * Marker(s) list.
+   * @type {bemap.Marker}
+   * @protected
+   */
+  this.markerMapObject = [];
+
+
+  /**
+   * Vias(s) list.
+   * @type {Object}
+   * @protected
+   */
+  this.stopPoints = [];
+
+
+  /**
+   * ID of geometry.
+   * @type {String}
+   * @protected
+   */
+  this.geometryId = 'routePolyline';
+
+  /**
+   * Draw a polygon with the polyline array.
+   * @type {boolean}
+   * @protected
+   */
+  this.poylineAsPolygon = false;
+
+  // Internal resource.
+
+  this.popup = undefined;
+
+};
+bemap.inherits(bemap.Routing, bemap.Service);
+
+/**
+ * Get the calculated route object.
+ * @public
+ * @param {integer} index of route.
+ * @return {bemap.Route} the calculated route.
+ */
+bemap.Routing.prototype.getRoute = function(index) {
+  return this.routes[index];
+};
+
+/**
+ * Get the calculated route object.
+ * @public
+ * @param {integer} index of route.
+ * @return {bemap.Route} the calculated route.
+ */
+bemap.Routing.prototype.getRoutes = function() {
+  return this.routes;
+};
+
+/**
+ * Get the calculated route object.
+ * @public
+ * @return {bemap.Route} the calculated route.
+ */
+bemap.Routing.prototype.getFirstRoute = function() {
+  return this.routes[0];
+};
+
+/**
+ * Reset the Routing object. Clear the previous result.
+ * @public
+ * @return {bemap.Routing} this
+ */
+bemap.Routing.prototype.reset = function() {
+  if (this.routes) {
+    for (var i = 0; i &lt; this.routes.length; i++) {
+      var route = this.routes[i];
+      this.resetRoute(route);
+    }
+  }
+
+  this.routes = [];
+
+  this.stopPoints = [];
+
+  if (this.popup) {
+    this.popup.remove();
+    this.popup = undefined;
+  }
+
+  //clear markers
+  if (this.markerMapObject) {
+    this.cleanMarkers();
+  };
+
+  return this;
+};
+/**
+ * Reset the Routing object. Clear the previous result.
+ * @public
+ * @return {bemap.Routing} this
+ */
+bemap.Routing.prototype.resetRoute = function(route) {
+  var i;
+
+  if (route.chargingStationSteps) {
+    for (i = 0; i &lt; route.chargingStationSteps.length; i++) {
+      var step = route.chargingStationSteps[i];
+      if (step.markerMapObject) {
+        step.markerMapObject.remove();
+        step.markerMapObject = undefined;
+      }
+    }
+  }
+
+  if (route.events) {
+    for (i = 0; i &lt; route.events.length; i++) {
+      var event = route.events[i];
+      if (event.geometryMapObject) {
+        event.geometryMapObject.remove();
+        event.geometryMapObject = undefined;
+      }
+    }
+  }
+
+  if (route.geometryMapObject) {
+    route.geometryMapObject.remove();
+    route.geometryMapObject = undefined;
+  }
+};
+
+/**
+ * Generate the BeMap request in URL encoded format.
+ * @private
+ * @param {object} options See below the available values.
+ * @param {String} options.geoserver Geoserver name will be used for this computation.
+ * @return {String} the request URL encoded.
+ */
+bemap.Routing.prototype.buildRequest = function(options) {
+
+  var opts = options || {};
+
+  var data = '&amp;geoserver=' + (opts.geoserver ? opts.geoserver : this.ctx.getGeoserver());
+
+  for (i = 0; i &lt; this.destinations.length; i++) {
+    var des = this.destinations[i];
+    if (des !== null &amp;&amp; bemap.inheritsof(des, bemap.Destination)) {
+      data += '&amp;xy=' + des.getLon() + "," + des.getLat();
+    } else if (des !== null &amp;&amp; bemap.inheritsof(des, bemap.Coordinate)) {
+      data += '&amp;xy=' + des.getLon() + "," + des.getLat();
+    } else {
+      console.error("One of destinations is not a bemap.Destination or bemap.Coordinate object!");
+      return;
+    }
+  }
+
+  if (this.criterias &amp;&amp; this.criterias !== null &amp;&amp; this.criterias.length > 0) {
+    data += '&amp;criterias=';
+    first = true;
+    for (i = 0; i &lt; this.criterias.length; i++) {
+      if (first) {
+        first = false;
+      } else {
+        data += ',';
+      }
+      data += this.criterias[i];
+    }
+  }
+
+  if (this.departureTime > 0) {
+    data += '&amp;departureTime=' + this.departureTime;
+  }
+
+  if (this.evCnnType) {
+    data += '&amp;evCnnType=' + this.evCnnType;
+  }
+
+  if (this.evf) {
+    data += '&amp;evf=' + this.evf;
+  }
+
+  if (this.evRange) {
+    data += '&amp;evRange=' + this.evRange;
+  }
+
+  if (this.isoChroneLimit > 0) {
+    data += '&amp;isoChroneLimit=' + this.isoChroneLimit;
+  }
+
+  if (this.language) {
+    data += '&amp;language=' + this.language;
+  }
+
+  if (this.maxAlter > 0) {
+    data += '&amp;maxAlter=' + this.maxAlter;
+  }
+
+  if (this.options &amp;&amp; this.options !== null &amp;&amp; this.options.length > 0) {
+    data += '&amp;options=';
+    first = true;
+    for (i = 0; i &lt; this.options.length; i++) {
+      if (first) {
+        first = false;
+      } else {
+        data += ',';
+      }
+      data += this.options[i];
+    }
+  }
+
+  if (this.speed > 0) {
+    data += '&amp;speed=' + this.speed;
+  }
+
+  if (this.speedType) {
+    data += '&amp;speedType=' + this.speedType;
+  }
+
+  if (this.transportType) {
+    data += '&amp;transportType=' + this.transportType;
+  }
+
+  if (this.vf) {
+    data += '&amp;vf=' + this.vf;
+  }
+
+  if (this.xyRadius > 0) {
+    data += '&amp;xyRadius=' + this.xyRadius;
+  }
+
+  if (this.nativeBeMapParams &amp;&amp; this.nativeBeMapParams !== null) {
+    data += this.nativeBeMapParams;
+  }
+  return data;
+};
+
+/**
+ * Execute the routing calculation.
+ * @public
+ * @param {object} options See below the available values.
+ * @param {String} options.geoserver Geoserver name will be used for this computation.
+ * @param {function} options.success the function to call in case of successed request.
+ * @param {function} options.failed the function to call in case of failed request.
+ * @return {bemap.Routing} this
+ */
+bemap.Routing.prototype.compute = function(options) {
+  this.reset();
+
+  var options = options || {};
+
+  var opts = options.request || {};
+
+  var geoserver = options.geoserver ? options.geoserver : this.ctx.getGeoserver();
+
+  /**
+   * Destinations
+   * @type {bemap.Coordinates}
+   * @protected
+   */
+  this.destinations = opts.destinations ? opts.destinations : [];
+
+  /**
+   * Array of route Criteria.
+   * @type {bemap.Criteria}
+   */
+  this.criterias = opts.criterias ? opts.criterias : [];
+
+  var d = new Date();
+  var t = d.getTime();
+  this.departureTime = opts.departureTime > 0 ? opts.departureTime : t;
+
+  this.evCnnType = opts.evCnnType > 0 ? opts.evCnnType : null;
+
+  this.evf = opts.evf > 0 ? opts.evf : null;
+
+  this.evRange = opts.evRange > 0 ? opts.evRange : null;
+
+  this.isoChroneLimit = opts.isoChroneLimit > 0 ? opts.isoChroneLimit : 0;
+
+  this.language = opts.language ? opts.language : "xx";
+
+  this.maxAlter = opts.maxAlter ? opts.maxAlter : 0;
+
+  this.options = opts.options &amp;&amp; opts.options.length > 0 ? opts.options : ['POLYLINE'];
+
+  this.speed = opts.speed > 0 ? opts.speed : 0;
+
+  this.speedType = opts.speedType > 0 ? opts.speedType : null;
+
+  this.transportType = opts.transportType ? opts.transportType : "CAR";
+
+  this.vf = opts.vf ? opts.vf : null;
+
+  this.xyRadius = opts.xyRadius > 0 ? opts.xyRadius : 40;
+
+  if (this.destinations &amp;&amp; this.destinations.length &lt; 2) {
+    console.error("Minimum of 2 destionations are required!");
+    return;
+  }
+  if (this.destinations &amp;&amp; this.destinations.length > 2 &amp;&amp; this.maxAlter !== 0) {
+    console.error("For alternative roads 2 destionations are required");
+    return;
+  }
+  var i = 0;
+  var first = true;
+  var url = this.ctx.getBaseUrl() + 'bnd';
+  var data = 'version=1.0.0&amp;action=routing&amp;mode=MODE_VIAS&amp;format=json';
+
+  if (this.ctx.isAuthInPost()) {
+    data += '&amp;' + this.ctx.getAuthUrlParams();
+  } else {
+    url += '?' + this.ctx.getAuthUrlParams();
+  }
+
+  data += this.buildRequest(options);
+
+  return this.execute(url, data, options);
+};
+
+/**
+ * Excute the request by calling the BeMap server and wait the answer.
+ * @private
+ * @param {object} options Request options.
+ * @return {bemap.Routing} this
+ */
+bemap.Routing.prototype.execute = function(url, data, options) {
+  var opts = options || {};
+  var _this = this;
+
+  bemap.ajax(
+    'POST',
+    url,
+    data,
+    function(xhr, doc) {
+      _this.responseParser(xhr, doc, opts);
+    },
+    function(xhr, doc) {
+      _this.responseParser(xhr, doc, opts);
+    }, {
+      'requestFormat': 'urlencoded'
+    }
+  );
+
+  return this;
+};
+
+/**
+ * Convert the BeMap response to the BeMap JS API object.
+ * @private
+ **/
+bemap.Routing.prototype.responseParser = function(xhr, doc, options) {
+  var opts = options || {};
+
+  doc = JSON.parse(doc);
+  if (!doc || this.checkErrorParser(xhr, doc, options)) {
+    return;
+  }
+
+  var bnd = doc.BND;
+  if (!bnd) {
+    return;
+  }
+  this.stopPointsParser(bnd);
+  this.routeParser(bnd, options);
+
+  if (opts.success) {
+    opts.success(this, bnd, doc, xhr);
+  }
+};
+
+/**
+ * Convert the BeMap route(s) to the BeMap JS API Route object(s) and save into the routes array.
+ * @private
+ **/
+bemap.Routing.prototype.routeParser = function(bnd, options) {
+  var i = 0;
+  var rts = bnd.Routes.Route;
+
+  if (rts &amp;&amp; rts.length > 0) {
+    for (i = 0; i &lt; rts.length; i++) {
+      var r = rts[i];
+      var route = new bemap.Route();
+
+      route.length = r.Length;
+      route.duration = r.Duration;
+      route.averageSpeed = r.AverageSpeed;
+
+      if (r.BoundingBox) {
+        var rbbox = r.BoundingBox;
+        route.extent = new bemap.BoundingBox(rbbox.minX, rbbox.minY, rbbox.maxX, rbbox.maxY);
+      }
+
+      if (r.Polyline &amp;&amp; r.Polyline.Line &amp;&amp; r.Polyline.Line.length > 0) {
+        this.polylineParser(route, r.Polyline.Line);
+      }
+      if (r.Events &amp;&amp; r.Events.length > 0) {
+        this.eventsParser(route, r.Events);
+      }
+      this.routes.push(route);
+    }
+  }
+};
+
+bemap.Routing.prototype.stopPointsParser = function(bnd) {
+  var sp = bnd.UsedDestinations.UsedDestination;
+
+  if (sp &amp;&amp; sp.length > 0) {
+    for (i = 0; i &lt; sp.length; i++) {
+      var s = sp[i];
+
+      s.hourMinute = this.toHourMinute(s.duration)
+      s.dateString = this.msToDateString(s.duration * 1000 + this.departureTime)
+      this.stopPoints.push(s);
+    }
+  }
+};
+
+/**
+ * Convert the this duration to hours minutes string ex "3 h 14 min".
+ * @private
+ **/
+bemap.Routing.prototype.toHourMinute = function(time) {
+  if (!time || time == 0) {
+    return '-';
+  }
+
+  var h = parseInt(time / 3600);
+  var m = String(parseInt((time / 60) % 60)).padStart(2, '0');
+
+  var v = '';
+  if (h > 0) {
+    v += h + ' h ';
+  }
+
+  return v + m + ' min';
+};
+
+/**
+ * Convert the this duration to data string ex "23/01/2020 12:52".
+ * @private
+ **/
+bemap.Routing.prototype.msToDateString = function(time) {
+  if (!time || time == 0) {
+    return '-';
+  }
+  var d = new Date(time);
+
+  return String(d.getDate()).padStart(2, '0') + '/' + String(d.getMonth() + 1).padStart(2, '0') + '/' + d.getFullYear() + ' ' + String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+};
+
+
+/**
+ * Convert the BeMap polyline to the BeMap JS API Polyline object and save into the route object.
+ * @private
+ **/
+bemap.Routing.prototype.polylineParser = function(route, line, options) {
+  route.polyline = [];
+  for (var i = 0; i &lt; line.length; i++) {
+    var pts = line[i];
+    route.polyline.push(new bemap.Coordinate(pts.X, pts.Y));
+  }
+};
+
+/**
+ * Convert the events.
+ * @private
+ **/
+bemap.Routing.prototype.eventsParser = function(route, events, options) {
+  route.events = [];
+  if (!events) {
+    return;
+  }
+  for (var i = 0; i &lt; events.length; i++) {
+    this.evtMarkersParser(route, events[i].markers, options);
+  }
+};
+
+/**
+ * Convert the markers.
+ * @private
+ **/
+bemap.Routing.prototype.evtMarkersParser = function(route, markers, options) {
+  if (!markers) {
+    return;
+  }
+
+  for (var i = 0; i &lt; markers.length; i++) {
+
+    this.evtEntriesParser(route, markers[i].entries, options);
+  }
+};
+
+/**
+ * Convert the entries.
+ * @private
+ **/
+bemap.Routing.prototype.evtEntriesParser = function(route, entries, options) {
+  if (!entries) {
+    return;
+  }
+
+  var routeEvent = new bemap.Route.Event();
+  route.events.push(routeEvent);
+  for (var i = 0; i &lt; entries.length; i++) {
+    var entry = entries[i];
+    if (entry.type === 'String' &amp;&amp; entry.name === 'countryCode' &amp;&amp; entry.value) {
+      routeEvent.countryCode = entry.value;
+
+    } else if (entry.type === 'long' &amp;&amp; entry.name === 'length' &amp;&amp; entry.value) {
+      routeEvent.length = entry.value;
+
+    } else if (entry.type === 'double' &amp;&amp; entry.name === 'duration' &amp;&amp; entry.value) {
+      routeEvent.duration = entry.value;
+
+    } else if (entry.type === 'Geometry' &amp;&amp; entry.name === 'polyline' &amp;&amp; entry.value) {
+      if (!routeEvent.polyline) {
+        routeEvent.polyline = [];
+      }
+
+      var line = entry.value.split(' ');
+      for (var j = 0; j &lt; line.length; j++) {
+        var pts = line[j].split(',');
+        var x = Number(pts[0]);
+        var y = Number(pts[1]);
+        routeEvent.polyline.push(new bemap.Coordinate(x, y));
+      }
+
+    } else if (entry.type === 'Routesheet' &amp;&amp; entry.name === 'routesheet' &amp;&amp; entry.instruction) {
+      this.evtEntryRoutesheetInstructionParser(routeEvent, entry.instruction, options);
+
+    } else if (entry.type === 'ChargingStationStep' &amp;&amp; entry.name === 'chargingStationStep') {
+      this.evtEntryChargingStationStepParser(routeEvent, entry, options);
+    }
+  }
+};
+
+/**
+ * Convert the entry route-sheet instruction.
+ * @private
+ **/
+bemap.Routing.prototype.evtEntryRoutesheetInstructionParser = function(routeEvent, instruction, options) {
+  var routesheetInstruction = new bemap.Route.RoutesheetInstruction();
+  var c = new bemap.Coordinate(instruction.coordinate.x, instruction.coordinate.y);
+  routesheetInstruction.coordinate = c;
+  bemap.fillFields(instruction, routesheetInstruction);
+  routeEvent.routesheetInstruction = routesheetInstruction;
+};
+
+/**
+ * Convert the entry ChargingStationStep.
+ * @private
+ **/
+bemap.Routing.prototype.evtEntryChargingStationStepParser = function(routeEvent, chargingStationStep, options) {
+  var step = new bemap.ChargingStationStep();
+  step.entrance = new bemap.Coordinate(chargingStationStep.longitude, chargingStationStep.latitude);
+  bemap.fillFields(chargingStationStep, step);
+  routeEvent.chargingStationSteps.push(step);
+};
+
+/**
+ * Show the route(s) on map.
+ * @param {bemap.Map} map the new color of text border to set.
+ * @param {Object} options See below the available values.
+ * @param {bemap.LineStyle} options.polylineStyle Style of line used by the renderer.
+ * @param {String} options.chargingStationStepImageSrc Image path of pool stations.
+ * @param {String} options.chargingStationStepNoPopup If set to true, disable the popup when the icon is clicked.
+ * @param {function} options.chargingStationPopupTextCallback Function called wehen a pool statiion is clicked, the called function get the step point object and return the text of popup.
+ * @return {bemap.Routing} Return this.
+ */
+bemap.Routing.prototype.showOnMap = function(map, options, listener) {
+  if (!this.routes) {
+    return;
+  }
+
+  var opts = options || {};
+
+  if (!opts.polylineStyle || !bemap.inheritsof(opts.polylineStyle, bemap.LineStyle)) {
+    opts.polylineStyle = new bemap.LineStyle({
+      width: 3,
+      color: new bemap.Color(13, 80, 157, 1)
+    });
+  }
+
+  if (!opts.polygonStyle || !bemap.inheritsof(opts.polygonStyle, bemap.PolygonStyle)) {
+    opts.polygonStyle = new bemap.PolygonStyle({
+      fillColor: new bemap.Color(255, 0, 255, 0.25),
+      borderColor: new bemap.Color(255, 0, 255, 0.25),
+      borderWidth: 3
+    });
+  }
+
+  var red = 13;
+  var green = 80;
+  var blue = 157;
+  for (var i = 0; i &lt; this.routes.length; i++) {
+
+    var color = new bemap.Color(red, green, blue)
+    red = red + 50;
+    green = green + 40;
+    blue = blue + 30
+
+    if (opts.changeColor) {
+      opts.polylineStyle.color = color
+    }
+
+    var route = this.routes[i];
+    opts.polylineId = i;
+
+    if (this.poylineAsPolygon) {
+      this.showPolygon(map, route, opts);
+    } else {
+      if (route.polyline) {
+        this.showPolyline(map, route, opts, function(data) {
+          if (listener) {
+            listener(data);
+          };
+        });
+      }
+      if (route.events &amp;&amp; route.events.length > 0) {
+        this.showEventPolyline(map, route, opts, function(data) {
+          if (listener) {
+            listener(data);
+          };
+        });
+      }
+    }
+
+    if (route.extent) {
+      map.moveToBoundingBox(route.extent);
+    }
+
+    this.showChargingStationSteps(map, route.chargingStationSteps, opts);
+  }
+
+  return this;
+};
+
+/**
+ * Show the destinations markers on map.
+ * @public
+ * @param {bemap.Map} map the new marker to set.
+ * @param {Object} options See below the available values.
+ * @param {bemap.Layer} options.layer Layer for markers.
+ * @param {Object} options.response Optionally response from geocoding or list of coords.
+ * @param {listener} listener return click on marker.
+ * @return {bemap.markerMapObject} Return this.
+ */
+bemap.Routing.prototype.showOnMapMarkers = function(options, listener) {
+
+  if (!options) {
+    console.error("Options required");
+  };
+  var map = options.map ? options.map : bemap.map;
+  var layer = options.layer ? options.layer : '';
+  var icone = options.icon ? options.icon : {};
+  var coord = options.coord ? options.coord : {};
+  var doc = {};
+
+  if (!options.response) {
+    doc.destinations = this.destinations;
+  } else {
+    doc = options.response;
+  };
+
+  var optionsMarker = {
+    map: map,
+    properties: '',
+    coord: coord,
+    icon: icone,
+    layer: layer
+  }
+
+  this.cleanMarkers();
+  //create merkers from parsed response - object UsedDestinations
+  if (doc.UsedDestinations) {
+
+    for (var i = 0; i &lt; doc.UsedDestinations.UsedDestination.length; i++) {
+      e = doc.UsedDestinations.UsedDestination[i]
+      optionsMarker.properties = doc.UsedDestinations.UsedDestination[i];
+      optionsMarker.coord = new bemap.Coordinate(e.usedX, e.usedY)
+      this.createMarker(optionsMarker, function(data) {
+        if (listener) {
+          listener(data);
+        };
+      });
+    };
+  }
+  //create merkers from notparsed response - object destinations
+  //or from this.destinations
+  else if (doc.destinations) {
+    for (var i = 0; i &lt; doc.destinations.length; i++) {
+      e = doc.destinations[i]
+      optionsMarker.properties = doc.stopPoints[i];
+      optionsMarker.coord = new bemap.Coordinate(e.lon, e.lat)
+      this.createMarker(optionsMarker, function(data) {
+        if (listener) {
+          listener(data);
+        };
+      });
+    };
+  } else {
+
+    optionsMarker.coord = options.coord;
+    this.createMarker(optionsMarker, function(data) {
+      if (listener) {
+        listener(data);
+      };
+    });
+  };
+
+  return this.markerMapObject;
+};
+
+/**
+ * Clean the markerMapObject object.
+ * @public
+ * @return {bemap.markerMapObject} this
+ */
+bemap.Routing.prototype.cleanMarkers = function() {
+  if (this.markerMapObject) {
+    for (i = 0; i &lt; this.markerMapObject.length; i++) {
+      var marker = this.markerMapObject[i];
+      marker.remove();
+      marker = undefined;
+    };
+    this.markerMapObject = [];
+  } else {
+    this.markerMapObject = [];
+  };
+};
+/**
+ * Show the destinations markers on map.
+ * @public
+ * @param {bemap.Map} options.map the new marker to set.
+ * @param {Object} options See below the available values.
+ * @param {listener} listener return click on marker.
+ * @return {bemap.markerMapObject} Return this.
+ */
+bemap.Routing.prototype.createMarker = function(options, listener) {
+
+  var opts = options ? options : {};
+  var map = opts.map ? opts.map : bemap.map;
+  var properties = opts.properties ? opts.properties : opts.coord;
+  var coord = opts.coord ? opts.coord : console.error("Coords required");
+  var icone = opts.icon ? opts.icon : '';
+  var layer = opts.layer ? opts.layer : false;
+  var icon = new bemap.Icon({
+    src: icone.src ? icone.src : console.error("required icon/icon adress is wrong"),
+    anchorX: icone.anchorX ? icone.anchorX : 0.25,
+    anchorY: icone.anchorY ? icone.anchorY : 1,
+    height: icone.height ? icone.height : '',
+    width: icone.width ? icone.width : '',
+    anchorXUnits: icone.anchorXUnits ? icone.anchorXUnits : 'fraction',
+    anchorYUnits: icone.anchorYUnits ? icone.anchorYUnits : 'fraction',
+    scale: icone.scale ? icone.scale : 1
+  });
+
+  var marker = new bemap.Marker(
+    coord, {
+      properties: properties,
+      icon: icon
+    }
+  );
+
+  if (layer) {
+    map.addMarker(marker, {
+      layer: layer
+    });
+  } else {
+    map.addMarker(marker);
+  };
+
+  this.markerMapObject.push(marker);
+
+  marker.on(bemap.Map.EventType.CLICK, function(mapEvent) {
+    if (listener) {
+      listener(mapEvent);
+    };
+  });
+
+  return marker
+};
+
+
+/**
+ * Show a polyline on map
+ * @private
+ **/
+bemap.Routing.prototype.showPolyline = function(map, route, options, listener) {
+
+  var opts = options || {};
+  var layer = opts.layer ? opts.layer : '';
+  var p = new bemap.Polyline(
+    route.polyline, {
+      style: opts.polylineStyle,
+      id: this.geometryId + opts.polylineId
+    }
+  );
+  route.geometryMapObject = p;
+
+  if (layer) {
+    map.addPolyline(p, {
+      layer: layer
+    });
+  } else {
+    map.addPolyline(p);
+  };
+
+
+  p.on(bemap.Map.EventType.CLICK, function(mapEvent) {
+    if (listener) {
+      listener(mapEvent);
+    };
+  })
+};
+
+/**
+ * Show a polygon on map
+ * @private
+ **/
+bemap.Routing.prototype.showPolygon = function(map, route, options) {
+  var opts = options || {};
+  var p = new bemap.Polygon(
+    route.polyline, {
+      style: opts.polygonStyle,
+      id: this.geometryId + opts.polygonId
+    }
+  );
+  route.geometryMapObject = p;
+  map.addPolygon(p);
+
+};
+
+/**
+ * Show a polyline on map
+ * @private
+ **/
+bemap.Routing.prototype.showEventPolyline = function(map, route, options, listener) {
+  var opts = options || {};
+  var layer = opts.layer ? opts.layer : '';
+  var events = route.events;
+  for (var i = 0; i &lt; events.length; i++) {
+    var event = events[i];
+    var polyline = event.polyline;
+
+    var p = new bemap.Polyline(
+      polyline, {
+        style: opts.polylineStyle,
+        id: this.geometryId + opts.polylineId + '#evt' + i
+      }
+    );
+    event.geometryMapObject = p;
+    if (layer) {
+      map.addPolyline(p, {
+        layer: layer
+      });
+    } else {
+      map.addPolyline(p);
+    };
+    p.on(bemap.Map.EventType.CLICK, function(mapEvent) {
+      if (listener) {
+        listener(mapEvent);
+      };
+    })
+  }
+};
+
+/**
+ * Show a charging station step(s) on map
+ * @param {object} options See below the available values.
+ * @param {String} options.chargingStationStepImageSrc Image path of pool stations.
+ * @param {String} options.chargingStationStepNoPopup If set to true, disable the popup when the icon is clicked.
+ * @param {function} options.chargingStationPopupTextCallback Function called wehen a pool statiion is clicked, the called function get the step point object and return the text of popup.
+ * @private
+ **/
+bemap.Routing.prototype.showChargingStationSteps = function(map, chargingStationSteps, options) {
+  if (!chargingStationSteps || chargingStationSteps.lengh == 0) {
+    return;
+  }
+
+  for (var i = 0; i &lt; chargingStationSteps.length; i++) {
+    this.showChargingStationStep(map, chargingStationSteps[i], options);
+  }
+};
+
+/**
+ * Show a charging station step on map
+ * @private
+ **/
+bemap.Routing.prototype.showChargingStationStep = function(map, step, options) {
+  if (!step.entrance) {
+    return;
+  }
+
+  var _this = this;
+  var src = options.chargingStationStepImageSrc ? options.chargingStationStepImageSrc : 'images/map-marker-red.svg';
+  var marker = new bemap.Marker(
+    step.entrance, {
+      icon: new bemap.Icon({
+        src: src,
+        anchorX: options.chargingStationStepImageAnchorX ? options.chargingStationStepImageAnchorX : 0.50,
+        anchorY: options.chargingStationStepImageAnchorY ? options.chargingStationStepImageAnchorY : 1,
+        anchorXUnits: 'fraction',
+        anchorYUnits: 'fraction'
+      })
+    });
+  map.addMarker(marker);
+
+  step.markerMapObject = marker;
+
+  if (!options.chargingStationStepNoPopup) {
+    marker.on(bemap.Map.EventType.CLICK, function() {
+      _this.popupChargingStationStep(map, step, options);
+    });
+  }
+};
+
+/**
+ * Show a charging station step on map
+ * @param {object} options See below the available values.
+ * @param {function} options.chargingStationPopupTextCallback Function called wehen a pool statiion is clicked, the called function get the step point object and return the text of popup.
+ * @private
+ **/
+bemap.Routing.prototype.popupChargingStationStep = function(map, step, options) {
+  if (!this.popup) {
+    this.popup = new bemap.Popup({
+      coordinate: step.entrance,
+      visible: false
+    });
+    map.addPopup(this.popup);
+  }
+
+  var html;
+  if (options.chargingStationPopupTextCallback) {
+    html = options.chargingStationPopupTextCallback(step);
+
+  } else {
+    html = '&lt;p>';
+
+    if (step.id) {
+      html += 'Id: ' + step.id + '&lt;br/>';
+    }
+
+    if (step.entrance) {
+      var entrance = step.entrance;
+      html += 'Latitude, longitude: ' + entrance.getLat() + ', ' + entrance.getLon() + '&lt;br/>';
+    }
+
+    if (step.country || step.city || step.street) {
+      html += 'Address:&lt;br/>';
+
+      if (step.streeNumber &amp;&amp; step.street) {
+        html += step.streeNumber + ' ' + step.street + '&lt;br/>';
+      } else {
+        if (step.streeNumber) {
+          html += step.streeNumber;
+        }
+        if (step.street) {
+          html += step.street;
+        }
+        html += '&lt;br/>';
+      }
+
+      if (step.postalCode &amp;&amp; step.city) {
+        html += step.postalCode + ' ' + step.city + '&lt;br/>';
+      } else {
+        if (step.postalCode) {
+          html += step.postalCode;
+        }
+        if (step.city) {
+          html += step.city;
+        }
+        html += '&lt;br/>';
+      }
+
+      if (step.country) {
+        html += step.country + '&lt;br/>';
+      }
+    }
+
+    if (step.batteryChargeLevel) {
+      html += 'Battery: ' + step.batteryChargeLevel + '%&lt;br/>';
+    }
+    if (step.chargingTime) {
+      html += 'Charging time: ' + step.chargingTime + 'ms&lt;br/>';
+    }
+    if (step.consumedFromPreviousStop) {
+      html += 'Consumed: ' + step.consumedFromPreviousStop + 'kW&lt;br/>';
+    }
+    if (step.maxNominalPower) {
+      html += 'Maximum power: ' + step.maxNominalPower + 'kW&lt;br/>';
+    }
+    if (step.numberOfChargingPoint) {
+      html += 'Number of charge points: ' + step.numberOfChargingPoint + '&lt;br/>';
+    }
+
+    html += '&lt;/p>';
+  }
+
+  this.popup.setInformation(html);
+  this.popup.setCoordinate(step.entrance).show();
+};
+</code></pre>
+        </article>
+    </section>
+
+
+
+
+</div>
+
+<nav>
+    <h2><a href="index.html">Home</a></h2><h3>Classes</h3><ul><li><a href="bemap.AclDetailsResponse.html">AclDetailsResponse</a></li><li><a href="bemap.AclLabel.html">AclLabel</a></li><li><a href="bemap.AclService.html">AclService</a></li><li><a href="bemap.Address.html">Address</a></li><li><a href="bemap.AttributionWidget.html">AttributionWidget</a></li><li><a href="bemap.Autocomplete.html">Autocomplete</a></li><li><a href="bemap.AutocompleteElement.html">AutocompleteElement</a></li><li><a href="bemap.AutocompleteGeocodingRequest.html">AutocompleteGeocodingRequest</a></li><li><a href="bemap.AutocompleteGeocodingResponse.html">AutocompleteGeocodingResponse</a></li><li><a href="bemap.BemapLayer.html">BemapLayer</a></li><li><a href="bemap.BoundingBox.html">BoundingBox</a></li><li><a href="bemap.BrowserCache.html">BrowserCache</a></li><li><a href="bemap.BuildingsLayer.html">BuildingsLayer</a></li><li><a href="bemap.ChargingPoint.html">ChargingPoint</a></li><li><a href="bemap.ChargingStation.html">ChargingStation</a></li><li><a href="bemap.ChargingStationPool.html">ChargingStationPool</a></li><li><a href="bemap.ChargingStations.html">ChargingStations</a></li><li><a href="bemap.ChargingStationSearchRequest.html">ChargingStationSearchRequest</a></li><li><a href="bemap.ChargingStationSearchResponse.html">ChargingStationSearchResponse</a></li><li><a href="bemap.ChargingStationStep.html">ChargingStationStep</a></li><li><a href="bemap.ChargingTime.html">ChargingTime</a></li><li><a href="bemap.ChargingTimeRequest.html">ChargingTimeRequest</a></li><li><a href="bemap.ChargingTimeResponse.html">ChargingTimeResponse</a></li><li><a href="bemap.Circle.html">Circle</a></li><li><a href="bemap.CircleStyle.html">CircleStyle</a></li><li><a href="bemap.clusterStyle.html">clusterStyle</a></li><li><a href="bemap.Color.html">Color</a></li><li><a href="bemap.CondMaxSpeed.html">CondMaxSpeed</a></li><li><a href="bemap.Context.html">Context</a></li><li><a href="bemap.Coordinate.html">Coordinate</a></li><li><a href="bemap.CoordinateSat.html">CoordinateSat</a></li><li><a href="bemap.Destination.html">Destination</a></li><li><a href="bemap.Error.html">Error</a></li><li><a href="bemap.EvBrand.html">EvBrand</a></li><li><a href="bemap.EvReachableArea.html">EvReachableArea</a></li><li><a href="bemap.EvReachableAreaRequest.html">EvReachableAreaRequest</a></li><li><a href="bemap.EvReachableAreaResponse.html">EvReachableAreaResponse</a></li><li><a href="bemap.EvseRouting.html">EvseRouting</a></li><li><a href="bemap.EvSmartRouting.html">EvSmartRouting</a></li><li><a href="bemap.EvSmartRoutingRequest.html">EvSmartRoutingRequest</a></li><li><a href="bemap.EvSmartRoutingResponse.html">EvSmartRoutingResponse</a></li><li><a href="bemap.EvStepPoint.html">EvStepPoint</a></li><li><a href="bemap.EvVehicle.html">EvVehicle</a></li><li><a href="bemap.EvVehicles.html">EvVehicles</a></li><li><a href="bemap.Exception.html">Exception</a></li><li><a href="bemap.GeoAutocomplete.html">GeoAutocomplete</a></li><li><a href="bemap.Geocoder.html">Geocoder</a></li><li><a href="bemap.GeocodingItem.html">GeocodingItem</a></li><li><a href="bemap.GeocodingRequest.html">GeocodingRequest</a></li><li><a href="bemap.GeocodingResponse.html">GeocodingResponse</a></li><li><a href="bemap.GeoSearchInfo.html">GeoSearchInfo</a></li><li><a href="bemap.GeoServerInfoResponse.html">GeoServerInfoResponse</a></li><li><a href="bemap.GeoServerInfoService.html">GeoServerInfoService</a></li><li><a href="bemap.GeoServerServiceInfo.html">GeoServerServiceInfo</a></li><li><a href="bemap.GeoServerServiceLimit.html">GeoServerServiceLimit</a></li><li><a href="bemap.HeatmapLayer.html">HeatmapLayer</a></li><li><a href="bemap.Icon.html">Icon</a></li><li><a href="bemap.Isochrone.html">Isochrone</a></li><li><a href="bemap.Layer.html">Layer</a></li><li><a href="bemap.LeafletMap.html">LeafletMap</a></li><li><a href="bemap.LineStyle.html">LineStyle</a></li><li><a href="bemap.Listener.html">Listener</a></li><li><a href="bemap.Map.html">Map</a></li><li><a href="bemap.MapEvent.html">MapEvent</a></li><li><a href="bemap.MapLibreMap.html">MapLibreMap</a></li><li><a href="bemap.Marker.html">Marker</a></li><li><a href="bemap.MultiMarker.html">MultiMarker</a></li><li><a href="bemap.NearPoint.html">NearPoint</a></li><li><a href="bemap.NearPoiRequest.html">NearPoiRequest</a></li><li><a href="bemap.NearPoiResponse.html">NearPoiResponse</a></li><li><a href="bemap.NearPoiSearch.html">NearPoiSearch</a></li><li><a href="bemap.Object.html">Object</a></li><li><a href="bemap.Ol3Map.html">Ol3Map</a></li><li><a href="bemap.OlMap.html">OlMap</a></li><li><a href="bemap.OsmLayer.html">OsmLayer</a></li><li><a href="bemap.PMTilesLayer.html">PMTilesLayer</a></li><li><a href="bemap.Polygon.html">Polygon</a></li><li><a href="bemap.PolygonStyle.html">PolygonStyle</a></li><li><a href="bemap.Polyline.html">Polyline</a></li><li><a href="bemap.Popup.html">Popup</a></li><li><a href="bemap.PostalAddress.html">PostalAddress</a></li><li><a href="bemap.RasterLayer.html">RasterLayer</a></li><li><a href="bemap.ReverseGeocoder.html">ReverseGeocoder</a></li><li><a href="bemap.ReverseGeocodingRequest.html">ReverseGeocodingRequest</a></li><li><a href="bemap.RevGeoSearchInfo.html">RevGeoSearchInfo</a></li><li><a href="bemap.RoadFeature.html">RoadFeature</a></li><li><a href="bemap.Route.html">Route</a></li><li><a href="bemap.Route.Event.html">Event</a></li><li><a href="bemap.Route.RoutesheetInstruction.html">RoutesheetInstruction</a></li><li><a href="bemap.Routing.html">Routing</a></li><li><a href="bemap.RoutingDestination.html">RoutingDestination</a></li><li><a href="bemap.RoutingInstruction.html">RoutingInstruction</a></li><li><a href="bemap.RoutingRequest.html">RoutingRequest</a></li><li><a href="bemap.RoutingResponse.html">RoutingResponse</a></li><li><a href="bemap.RoutingRoute.html">RoutingRoute</a></li><li><a href="bemap.RoutingSummary.html">RoutingSummary</a></li><li><a href="bemap.RoutingV2.html">RoutingV2</a></li><li><a href="bemap.RoutingVehicleProfile.html">RoutingVehicleProfile</a></li><li><a href="bemap.RoutingWaypoint.html">RoutingWaypoint</a></li><li><a href="bemap.Service.html">Service</a></li><li><a href="bemap.TextStyle.html">TextStyle</a></li><li><a href="bemap.TilesAuth.html">TilesAuth</a></li><li><a href="bemap.TilesOverlayCatalog.html">TilesOverlayCatalog</a></li><li><a href="global.html#bemap#.TraceRoute">TraceRoute</a></li><li><a href="bemap.TraceRouteDestination.html">TraceRouteDestination</a></li><li><a href="bemap.TraceRouteRequest.html">TraceRouteRequest</a></li><li><a href="bemap.VectorLayer.html">VectorLayer</a></li><li><a href="bemap.VectorTileLayer.html">VectorTileLayer</a></li><li><a href="bemap.WmsLayer.html">WmsLayer</a></li></ul><h3>Global</h3><ul><li><a href="global.html#AC">AC</a></li><li><a href="global.html#AC_SINGLE_PHASE">AC_SINGLE_PHASE</a></li><li><a href="global.html#AC_THREE_PHASES">AC_THREE_PHASES</a></li><li><a href="global.html#bemap">bemap</a></li><li><a href="global.html#DC">DC</a></li><li><a href="global.html#NA">NA</a></li></ul>
+</nav>
+
+<br class="clear">
+
+<footer>
+    Documentation generated by <a href="https://github.com/jsdoc/jsdoc">JSDoc 3.6.3</a> on Tue Jun 02 2026 11:46:45 GMT+0200 (heure d’été d’Europe centrale)
+</footer>
+
+<script> prettyPrint(); </script>
+<script src="scripts/linenumber.js"> </script>
+</body>
+</html>

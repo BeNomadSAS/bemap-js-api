@@ -1,0 +1,186 @@
+/* Shared layout for the v1.5 service demo pages */
+
+html, body { margin: 0; padding: 0; height: 100%; }
+#map1 {
+    position: absolute;
+    top: 0; left: 0; right: 0; bottom: 0;
+    width: 100%; height: 100%;
+}
+
+.panel-v2 {
+    position: absolute;
+    top: 12px; left: 12px;
+    z-index: 500;
+    max-width: 360px;
+    /* Cap the panel height to the viewport so the snippet panel at the
+       bottom is always reachable by scrolling inside the panel itself. */
+    max-height: calc(100vh - 24px);
+    overflow-y: auto;
+    background: rgba(255, 255, 255, 0.97);
+    border-radius: 6px;
+    box-shadow: 0 2px 12px rgba(0, 0, 0, 0.18);
+    padding: 12px 14px;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    font-size: 13px;
+    color: #222;
+}
+.panel-v2 h4 {
+    margin: 0 0 8px 0;
+    font-size: 15px;
+    font-weight: 600;
+    color: #2c3e50;
+}
+.panel-v2 .v2-badge {
+    display: inline-block;
+    padding: 1px 6px;
+    border-radius: 3px;
+    font-size: 9px;
+    font-weight: 700;
+    background: #8e44ad;
+    color: #fff;
+    letter-spacing: .5px;
+    margin-left: 6px;
+    vertical-align: middle;
+}
+.panel-v2 .field-row {
+    display: flex;
+    gap: 6px;
+    margin-bottom: 6px;
+}
+.panel-v2 label {
+    font-size: 11px;
+    color: #555;
+    margin: 0;
+    display: block;
+}
+.panel-v2 input[type=text],
+.panel-v2 input[type=number],
+.panel-v2 select {
+    width: 100%;
+    padding: 4px 6px;
+    border: 1px solid #cfd8dc;
+    border-radius: 3px;
+    font-size: 13px;
+    background: #fff;
+    box-sizing: border-box;
+}
+.panel-v2 button {
+    background: #2c3e50;
+    color: #fff;
+    border: 0;
+    padding: 6px 12px;
+    border-radius: 4px;
+    font-size: 12px;
+    cursor: pointer;
+    font-weight: 600;
+}
+.panel-v2 button:hover { background: #1a252f; }
+.panel-v2 button.secondary {
+    background: #95a5a6;
+}
+.panel-v2 button.secondary:hover { background: #7f8c8d; }
+.panel-v2 .status {
+    margin-top: 6px;
+    font-size: 11px;
+    color: #555;
+    min-height: 14px;
+}
+.panel-v2 .status.error { color: #c0392b; font-weight: 600; }
+.panel-v2 .status.ok { color: #16a085; font-weight: 600; }
+
+.panel-v2 .result-list {
+    list-style: none;
+    padding: 0;
+    margin: 8px 0 0 0;
+    max-height: 240px;
+    overflow-y: auto;
+}
+.panel-v2 .result-list li {
+    padding: 4px 6px;
+    border-top: 1px solid #ecf0f1;
+    font-size: 12px;
+    cursor: pointer;
+}
+.panel-v2 .result-list li:hover { background: #ecf0f1; }
+.panel-v2 .result-list li small { color: #888; }
+
+.panel-v2 code {
+    font-size: 11px;
+    color: #8e44ad;
+    background: #f4ecf7;
+    padding: 1px 4px;
+    border-radius: 2px;
+}
+
+/* ---- Demo code-example panel (snippet) ---- */
+.panel-v2 .demo-snippet {
+    margin-top: 10px;
+    border-top: 1px solid #ecf0f1;
+    padding-top: 8px;
+}
+.panel-v2 .demo-snippet > summary {
+    cursor: pointer;
+    font-size: 11px;
+    font-weight: 600;
+    color: #2c3e50;
+    user-select: none;
+    list-style: none;
+    padding: 4px 0;
+}
+.panel-v2 .demo-snippet > summary::-webkit-details-marker { display: none; }
+.panel-v2 .demo-snippet > summary::before {
+    content: '\25B6';
+    display: inline-block;
+    margin-right: 4px;
+    font-size: 9px;
+    transition: transform .15s ease;
+}
+.panel-v2 .demo-snippet[open] > summary::before { transform: rotate(90deg); }
+.panel-v2 .snippet-block {
+    margin: 6px 0;
+}
+.panel-v2 .snippet-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 2px;
+}
+.panel-v2 .snippet-label {
+    font-size: 10px;
+    font-weight: 700;
+    color: #7f8c8d;
+    text-transform: uppercase;
+    letter-spacing: .5px;
+}
+.panel-v2 .snippet-copy {
+    background: #ecf0f1;
+    color: #2c3e50;
+    border: 0;
+    padding: 2px 8px;
+    border-radius: 3px;
+    font-size: 10px;
+    font-weight: 600;
+    cursor: pointer;
+}
+.panel-v2 .snippet-copy:hover { background: #d6dbdd; }
+.panel-v2 .snippet-pre {
+    margin: 0;
+    padding: 6px 8px;
+    background: #2c3e50;
+    color: #ecf0f1;
+    border-radius: 3px;
+    font-family: ui-monospace, "SF Mono", Consolas, monospace;
+    font-size: 11px;
+    line-height: 1.35;
+    overflow-x: auto;
+    max-height: 220px;
+    white-space: pre;
+}
+.panel-v2 .snippet-pre code {
+    color: inherit;
+    background: transparent;
+    padding: 0;
+    font-family: inherit;
+}
+.panel-v2 .snippet-json { background: #1a252f; }
+

@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>BeMap JS API — Browser cache (Service Worker)</title>
+  <link rel="stylesheet" href="../dist/maplibre-gl.css">
+  <script src="../dist/maplibre-gl.js"></script>
+  <script src="https://unpkg.com/pmtiles@4.3.2/dist/pmtiles.js"></script>
+  <script src="../dist/bemap-js-api.js"></script>
+  <script src="effect-bridge.js"></script>
+  <script src="context.js"></script>
+  <style>
+    html, body { margin: 0; height: 100%; font-family: system-ui, sans-serif; }
+    #top { padding: 10px 16px; background: #16213e; color: #fff; display: flex; align-items: center; gap: 12px; }
+    #top h1 { margin: 0; font-size: 16px; flex: 1; }
+    .pill { display: inline-block; padding: 4px 10px; border-radius: 999px; font-family: monospace; font-size: 12px; background: #1a2a4a; }
+    .pill.hit  { background: #27ae60; }
+    .pill.miss { background: #e94560; }
+    button { padding: 6px 12px; border: 0; border-radius: 4px; background: #3498db; color: #fff; font-size: 12px; cursor: pointer; }
+    #map { position: absolute; top: 60px; left: 0; right: 0; bottom: 0; }
+  </style>
+</head>
+<body>
+  <div id="top">
+    <h1>Browser cache — live HIT / MISS pill</h1>
+    <span class="pill hit">HIT <span id="hits">0</span></span>
+    <span class="pill miss">MISS <span id="misses">0</span></span>
+    <button id="btnClear">Clear cache</button>
+    <button id="btnToggle">Disable cache</button>
+  </div>
+  <div id="map"></div>
+
+<script>
+var ctx = new bemap.Context({
+  host:     bemapMainCtx.host,
+  secure:   bemapMainCtx.protocol === 'https',
+  login:    bemapMainCtx.login,
+  password: bemapMainCtx.password,
+  tilesHost: 'mptiles-api.benomad.net'
+});
+
+// browserCache defaults to 'auto' — enabled on HTTPS or localhost.
+var map = new bemap.MapLibreMap(ctx, 'map', { zoom: 5, browserCache: true });
+map.move(2.35, 48.85, 5);
+
+var hitsEl = document.getElementById('hits');
+var missesEl = document.getElementById('misses');
+map.onCacheStats(function (stats) {
+  hitsEl.textContent = stats.hits;
+  missesEl.textContent = stats.misses;
+});
+
+document.getElementById('btnClear').addEventListener('click', function () {
+  map.clearBrowserCache();
+});
+var enabled = true;
+document.getElementById('btnToggle').addEventListener('click', function (e) {
+  enabled = !enabled;
+  if (enabled) { map.enableBrowserCache(); e.target.textContent = 'Disable cache'; }
+  else         { map.disableBrowserCache(); e.target.textContent = 'Enable cache'; }
+});
+</script>
+</body>
+</html>

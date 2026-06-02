@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>BeMap JS API - MapLibre Animation</title>
+  <link rel="stylesheet" href="../lib/bootstrap/dist/css/bootstrap.min.css" type="text/css">
+  <link rel="stylesheet" href="../dist/maplibre-gl.css" type="text/css">
+  <script src="../dist/maplibre-gl.js"></script>
+  <script src="../dist/pmtiles.js"></script>
+  <script src="../dist/bemap-js-api.js"></script>
+  <script src="effect-bridge.js"></script>
+  <script src="context.js"></script>
+</head>
+<body style="margin:0;padding:0;">
+  <div id="pageHeaderText" style="padding:10px 10px 4px;background:linear-gradient(135deg,#2980b9,#3498db);color:#fff;">
+    <h3 style="margin:0 0 4px 0;font-size:16px;">Route Animation <span style="font-size:11px;opacity:0.6;">MapLibre only</span></h3>
+    <p style="margin:0;font-size:13px;opacity:0.9;">Animate a point along a route between cities. Uses requestAnimationFrame + GeoJSON source updates.</p>
+  </div>
+  <div id="pageControls" style="padding:6px 10px;background:linear-gradient(135deg,#2980b9,#3498db);color:#fff;border-bottom:2px solid #1a5276;">
+    <button class="btn btn-sm btn-success" id="btnStart">Start</button>
+    <button class="btn btn-sm btn-danger" id="btnStop">Stop</button>
+    <button class="btn btn-sm btn-warning" id="btnReset">Reset</button>
+    <span id="progress" style="margin-left:10px;font-size:12px;opacity:0.8;">0%</span>
+  </div>
+  <div id="map1" style="height:calc(100vh - 90px);"></div>
+
+  <script>
+  // When embedded in the BeMap 2026 dashboard iframe, the dashboard top bar
+  // already shows the title — hide our text block, keep the control buttons.
+  try {
+    if (window.parent !== window) {
+      document.getElementById('pageHeaderText').style.display = 'none';
+      document.getElementById('map1').style.height = 'calc(100vh - 40px)';
+    }
+  } catch (e) {}
+
+  var map = new bemap.MapLibreMap(bemapMainCtx, 'map1').move(5, 46, 5);
+
+  // Route: Paris → Lyon → Marseille → Nice → Monaco
+  var route = [
+    [2.35, 48.85], [2.5, 48.5], [3.0, 47.5], [3.5, 46.8],
+    [4.0, 46.2], [4.83, 45.76], [4.9, 45.2], [4.8, 44.5],
+    [5.0, 44.0], [5.37, 43.29], [5.8, 43.4], [6.2, 43.5],
+    [6.8, 43.6], [7.0, 43.6], [7.26, 43.71], [7.42, 43.74]
+  ];
+
+  // Draw the route as a polyline
+  var polyline = new bemap.Polyline([], {
+    style: new bemap.LineStyle({ width: 4, color: new bemap.Color(41, 128, 185, 0.7) }),
+    id: 'route-line'
+  });
+  for (var i = 0; i < route.length; i++) {
+    polyline.addCoordinate(new bemap.Coordinate(route[i][0], route[i][1]));
+  }
+  map.addPolyline(polyline);
+
+  // Wait for the MapLibre style — but cover BOTH paths: if the style is
+  // already loaded by the time this code runs (cached in the SPA's shared
+  // bundle), `on('load',…)` never fires. Check `isStyleLoaded()` first.
+  function whenMapReady(cb) {
+    if (map.native.isStyleLoaded()) { cb(); }
+    else { map.native.once ? map.native.once('load', cb) : map.native.on('load', cb); }
+  }
+
+  whenMapReady(function () {
+    // Add the source + layer DIRECTLY on the native MapLibre map. The
+    // library's addGeoJsonSource wrapper has been deferring the addSource
+    // call past the moment we need it, so we skip it here.
+    try {
+      if (!map.native.getSource('vehicle')) {
+        map.native.addSource('vehicle', {
+          type: 'geojson',
+          data: { type: 'Feature', geometry: { type: 'Point', coordinates: route[0] } }
+        });
+      }
+      if (!map.native.getLayer('vehicle-dot')) {
+        map.native.addLayer({
+          id: 'vehicle-dot',
+          type: 'circle',
+          source: 'vehicle',
+          paint: { 'circle-radius': 10, 'circle-color': '#e74c3c', 'circle-stroke-width': 3, 'circle-stroke-color': '#fff' }
+        });
+      }
+    } catch (e) {
+      console.error('Animation: failed to add source/layer — ' + e.message);
+      return;
+    }
+
+    window.animCtrl = map.animateAlongRoute({
+      sourceId: 'vehicle',
+      coordinates: route,
+      speed: 0.02,
+      loop: true,
+      onUpdate: function(pos) {
+        var el = document.getElementById('progress');
+        if (el) el.textContent = Math.round(pos.progress * 100) + '%';
+      }
+    });
+  });
+
+  document.getElementById('btnStart').onclick = function() { if (window.animCtrl) window.animCtrl.resume(); };
+  document.getElementById('btnStop').onclick = function() { if (window.animCtrl) window.animCtrl.stop(); };
+  document.getElementById('btnReset').onclick = function() { if (window.animCtrl) { window.animCtrl.reset(); window.animCtrl.resume(); } };
+  </script>
+</body>
+</html>

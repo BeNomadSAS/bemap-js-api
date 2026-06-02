@@ -1,0 +1,416 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>JSDoc: Source: bemap-maplibre/bemap-browser-cache.js</title>
+
+    <script src="scripts/prettify/prettify.js"> </script>
+    <script src="scripts/prettify/lang-css.js"> </script>
+    <!--[if lt IE 9]>
+      <script src="//html5shiv.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+    <link type="text/css" rel="stylesheet" href="styles/prettify-tomorrow.css">
+    <link type="text/css" rel="stylesheet" href="styles/jsdoc-default.css">
+</head>
+
+<body>
+
+<div id="main">
+
+    <h1 class="page-title">Source: bemap-maplibre/bemap-browser-cache.js</h1>
+
+    
+
+
+
+    
+    <section>
+        <article>
+            <pre class="prettyprint source linenums"><code>/**
+ * BeNomad BeMap JavaScript API — BrowserCache (v2.0)
+ *
+ * Page-side companion to `dist/bemap-sw-tiles.js`. Wraps the Service
+ * Worker registration, the INIT handshake, and the enable/disable/stats
+ * message channel.
+ *
+ * The instance is owned by `bemap.MapLibreMap` and exposed through these
+ * map methods:
+ *   - `map.enableBrowserCache()`     → `cache.enable()`
+ *   - `map.disableBrowserCache()`    → `cache.disable()`
+ *   - `map.getBrowserCacheStats()`   → `cache.getStats()`
+ *   - `map.clearBrowserCache()`      → `cache.clear()`
+ *
+ * Persists the on/off toggle in `localStorage` under the key
+ * `bemap_browser_cache` so customer apps can wire it to a consent banner.
+ *
+ * @since 2.0.0
+ * @public
+ * @constructor
+ * @param {Object} [options]
+ * @param {String} [options.tilesHost]      Forwarded to the SW so it knows which host to intercept.
+ * @param {String} [options.serviceWorkerPath='/bemap-sw-tiles.js']
+ * @param {Function} [options.onStats]      Live `{ hits, misses }` updates.
+ * @param {Function} [options.onError]      Called with a `bemap.Error` on registration / message failures.
+ */
+bemap.BrowserCache = function (options) {
+  var opts = options || {};
+  this.tilesHost = opts.tilesHost || null;
+  // An explicit caller-supplied path turns off the auto-fallback chain so
+  // we never silently register a different file than they asked for.
+  this._explicitSwPath = (opts.serviceWorkerPath != null);
+  this.swPath = opts.serviceWorkerPath || '/bemap-sw-tiles.js';
+  this._onStats = typeof opts.onStats === 'function' ? opts.onStats : function () {};
+  this._onError = typeof opts.onError === 'function' ? opts.onError : function () {};
+  this._registration = null;
+  this._enabled = this._loadToggle();
+  this._stats = { enabled: this._enabled, hits: 0, misses: 0, entries: 0, bytesEstimated: 0 };
+  this._messageHandler = null;
+  this._lastAttempts = [];
+};
+
+bemap.BrowserCache.TOGGLE_KEY = 'bemap_browser_cache';
+
+/**
+ * Locate the directory the `bemap-js-api.js` (or `.min.js`) bundle was loaded
+ * from, so we can derive sensible default SW paths when the consumer hasn't
+ * pinned one. Returns a path ending in `/`, or `null` if not detectable.
+ */
+bemap.BrowserCache._findBemapScriptDir = function () {
+  var info = bemap.BrowserCache._findBemapScriptInfo();
+  return info ? info.dir : null;
+};
+
+/**
+ * Locate the bemap-js-api bundle's script tag. Returns `{ src, dir }` where
+ * `src` is the absolute URL we matched and `dir` is its directory (ending
+ * in `/`). Used both for SW path discovery and for diagnostic warnings.
+ */
+bemap.BrowserCache._findBemapScriptInfo = function () {
+  if (typeof document === 'undefined') return null;
+  var scripts = document.getElementsByTagName('script');
+  for (var i = scripts.length - 1; i >= 0; i--) {
+    var src = scripts[i].src || '';
+    if (/bemap-js-api(\.min)?\.js(\?|#|$)/.test(src)) {
+      try {
+        var u = new URL(src, window.location.href);
+        return { src: u.href, dir: u.pathname.replace(/[^/]*$/, '') };
+      } catch (e) { return null; }
+    }
+  }
+  return null;
+};
+
+bemap.BrowserCache.prototype._loadToggle = function () {
+  try {
+    if (typeof localStorage === 'undefined') return true;
+    var raw = localStorage.getItem(bemap.BrowserCache.TOGGLE_KEY);
+    if (raw === null) return true;
+    return raw !== 'false';
+  } catch (e) { return true; }
+};
+
+bemap.BrowserCache.prototype._saveToggle = function (on) {
+  try {
+    if (typeof localStorage === 'undefined') return;
+    localStorage.setItem(bemap.BrowserCache.TOGGLE_KEY, on ? 'true' : 'false');
+  } catch (e) { /* ignore */ }
+};
+
+/**
+ * Detect whether the current environment supports the Service Worker.
+ * @public
+ * @return {Boolean}
+ */
+bemap.BrowserCache.prototype.isSupported = function () {
+  if (typeof navigator === 'undefined' || !navigator.serviceWorker) return false;
+  if (typeof window !== 'undefined' &amp;&amp; window.location) {
+    var protocol = window.location.protocol;
+    var hostname = window.location.hostname;
+    if (protocol === 'http:' &amp;&amp; hostname !== 'localhost' &amp;&amp; hostname !== '127.0.0.1') return false;
+  }
+  return true;
+};
+
+/**
+ * Register the SW and send the INIT handshake.
+ *
+ * @public
+ * @return {Promise&lt;ServiceWorkerRegistration>}
+ */
+/**
+ * Build the ordered list of paths to try when registering the SW. When the
+ * caller explicitly passed `opts.serviceWorkerPath` we honour that exactly
+ * (single entry, no fallback). Otherwise we try, in order:
+ *   1. `/bemap-sw-tiles.js`               — canonical site-root install
+ *   2. `&lt;bemap-js-api.js dir>../bemap-sw-tiles.js`  — common: SW lives one
+ *      level up from the dist/ folder the bundle ships in (e.g. evmove root)
+ *   3. `&lt;bemap-js-api.js dir>bemap-sw-tiles.js`     — SW sits next to the
+ *      bundle inside dist/. Scope is narrower but still works for apps
+ *      whose pages live under that directory.
+ */
+bemap.BrowserCache.prototype._candidatePaths = function () {
+  if (this._explicitSwPath) return [this.swPath];
+  var paths = [];
+  var push = function (p) { if (p &amp;&amp; paths.indexOf(p) === -1) paths.push(p); };
+  push('/bemap-sw-tiles.js');
+  // Page-directory-relative — covers apps served from a sub-path (e.g.
+  // `/evmove/index.html` → `/evmove/bemap-sw-tiles.js`). For root pages
+  // this dedups against the canonical entry.
+  if (typeof window !== 'undefined' &amp;&amp; window.location) {
+    var pageDir = window.location.pathname.replace(/[^/]*$/, '');
+    if (pageDir) push(pageDir + 'bemap-sw-tiles.js');
+  }
+  var scriptDir = bemap.BrowserCache._findBemapScriptDir();
+  if (scriptDir) {
+    var parentDir = scriptDir.replace(/[^/]+\/$/, '');
+    if (parentDir &amp;&amp; parentDir !== scriptDir) push(parentDir + 'bemap-sw-tiles.js');
+    push(scriptDir + 'bemap-sw-tiles.js');
+  }
+  return paths;
+};
+
+bemap.BrowserCache.prototype.register = function () {
+  if (!this.isSupported()) {
+    console.warn('bemap.BrowserCache: Service Worker not supported (or page served over plain HTTP)');
+    return Promise.resolve(null);
+  }
+  var self = this;
+  var paths = this._candidatePaths();
+  self._lastAttempts = [];
+
+  var tryAt = function (i) {
+    if (i >= paths.length) {
+      self._onError(new bemap.Error({
+        code: bemap.Error.NETWORK,
+        message: 'BrowserCache.register failed — tried: ' + self._lastAttempts.join(' | ')
+      }));
+      return null;
+    }
+    var path = paths[i];
+    return navigator.serviceWorker.register(path)
+      .then(function (reg) {
+        self.swPath = path;
+        self._registration = reg;
+        self._installMessageHandler();
+        self._postMessage({ type: 'INIT', tilesHost: self.tilesHost, enabled: self._enabled });
+        return reg;
+      })
+      .catch(function (err) {
+        self._lastAttempts.push(path + ' → ' + (err &amp;&amp; err.message ? err.message : err));
+        return tryAt(i + 1);
+      });
+  };
+
+  return tryAt(0);
+};
+
+/**
+ * The full list of registration attempts from the last `register()` call —
+ * each entry is `"&lt;path> → &lt;error message>"`. Exposed so the wrapper can
+ * surface a useful warning when nothing worked.
+ * @public
+ * @return {Array&lt;String>}
+ */
+bemap.BrowserCache.prototype.getRegistrationAttempts = function () {
+  return (this._lastAttempts || []).slice();
+};
+
+bemap.BrowserCache.prototype._installMessageHandler = function () {
+  if (this._messageHandler) return;
+  var self = this;
+  // Scope to messages from the SW we registered. Multiple SW
+  // registrations on the same origin all broadcast through
+  // `navigator.serviceWorker` — without this filter, stats from a
+  // different SW would overwrite ours.
+  var ourScriptURL = (this._registration &amp;&amp; this._registration.active &amp;&amp; this._registration.active.scriptURL)
+    || this.swPath || null;
+  this._messageHandler = function (event) {
+    var data = event &amp;&amp; event.data;
+    if (!data || !data.type) return;
+    if (ourScriptURL &amp;&amp; event.source &amp;&amp; event.source.scriptURL &amp;&amp; event.source.scriptURL !== ourScriptURL) return;
+    // Live stats: ignore the sentinel -1 placeholders that the SW emits
+    // when computing them would be too expensive on the hot path.
+    function mergeNonSentinel(target, source) {
+      var out = Object.assign({}, target);
+      for (var k in source) {
+        if (!Object.prototype.hasOwnProperty.call(source, k)) continue;
+        if (k === 'entries' || k === 'bytesEstimated') {
+          if (typeof source[k] === 'number' &amp;&amp; source[k] >= 0) out[k] = source[k];
+        } else {
+          out[k] = source[k];
+        }
+      }
+      return out;
+    }
+    switch (data.type) {
+      case 'CACHE_STATS_LIVE':
+      case 'CACHE_STATS_RESULT':
+        self._stats = mergeNonSentinel(self._stats, data.stats || {});
+        self._stats.enabled = self._enabled;
+        self._onStats(self._stats);
+        break;
+      case 'CACHE_HOST_CONFLICT':
+        self._onError(new bemap.Error({
+          code: bemap.Error.CACHE_HOST_CONFLICT,
+          message: 'BrowserCache: too many concurrent tilesHosts registered with the Service Worker',
+          context: { rejectedHost: data.host }
+        }));
+        break;
+      default: break;
+    }
+  };
+  navigator.serviceWorker.addEventListener('message', this._messageHandler);
+};
+
+bemap.BrowserCache.prototype._postMessage = function (msg) {
+  var self = this;
+  // First visit: navigator.serviceWorker.controller is null until the
+  // freshly installed SW claims the page. If we post-and-bail here, the
+  // INIT / ENABLE / DISABLE message is lost. Use `serviceWorker.ready`
+  // (and the `controllerchange` event) to await the active controller.
+  if (navigator.serviceWorker.controller) {
+    try { navigator.serviceWorker.controller.postMessage(msg); } catch (e) { /* ignore */ }
+    return;
+  }
+  // Queue the message until a controller appears. We listen for both
+  // `controllerchange` and the explicit `ready` promise; whichever fires
+  // first wins (typically `ready` on first install).
+  this._pendingMessages = this._pendingMessages || [];
+  this._pendingMessages.push(msg);
+  if (this._pendingFlushScheduled) return;
+  this._pendingFlushScheduled = true;
+  var flush = function () {
+    if (!navigator.serviceWorker.controller) return;
+    self._pendingFlushScheduled = false;
+    var pending = self._pendingMessages || [];
+    self._pendingMessages = [];
+    for (var i = 0; i &lt; pending.length; i++) {
+      try { navigator.serviceWorker.controller.postMessage(pending[i]); } catch (e) { /* ignore */ }
+    }
+  };
+  navigator.serviceWorker.ready.then(function () { flush(); }).catch(function () {
+    self._pendingFlushScheduled = false;
+  });
+  navigator.serviceWorker.addEventListener('controllerchange', flush);
+};
+
+/** @public */
+bemap.BrowserCache.prototype.enable = function () {
+  this._enabled = true;
+  this._stats.enabled = true;
+  this._saveToggle(true);
+  this._postMessage({ type: 'ENABLE' });
+  return this;
+};
+
+/** @public */
+bemap.BrowserCache.prototype.disable = function () {
+  this._enabled = false;
+  this._stats.enabled = false;
+  this._saveToggle(false);
+  this._postMessage({ type: 'DISABLE' });
+  return this;
+};
+
+/** @public */
+bemap.BrowserCache.prototype.isEnabled = function () { return this._enabled; };
+
+/**
+ * Returns the latest known stats. The SW broadcasts updates regularly via
+ * `'cache:stats'` (see the map's `on()`); this method returns the locally
+ * cached snapshot synchronously.
+ * @public
+ * @return {{ enabled: Boolean, hits: Number, misses: Number, entries: Number, bytesEstimated: Number }}
+ */
+bemap.BrowserCache.prototype.getStats = function () {
+  return Object.assign({}, this._stats);
+};
+
+/**
+ * Request a fresh snapshot from the SW (one-shot). Resolves with the stats.
+ * @public
+ * @return {Promise&lt;Object>}
+ */
+bemap.BrowserCache.prototype.requestStats = function () {
+  var self = this;
+  return new Promise(function (resolve) {
+    if (!navigator.serviceWorker || !navigator.serviceWorker.controller) {
+      resolve(self.getStats());
+      return;
+    }
+    var channel = new MessageChannel();
+    var settled = false;
+    var done = function (data) {
+      if (settled) return;
+      settled = true;
+      if (data &amp;&amp; data.type === 'CACHE_STATS_RESULT') {
+        self._stats = Object.assign({}, self._stats, data.stats || {});
+        self._stats.enabled = self._enabled;
+      }
+      // Close the port so the SW side can release its handle; without
+      // this the channel leaks if the SW is replaced mid-flight.
+      try { channel.port1.close(); } catch (e) { /* ignore */ }
+      clearTimeout(timer);
+      resolve(self.getStats());
+    };
+    channel.port1.onmessage = function (event) { done(event.data); };
+    // 3 s safety net for SW updates mid-flight or unresponsive workers.
+    var timer = setTimeout(function () { done(null); }, 3000);
+    try {
+      navigator.serviceWorker.controller.postMessage({ type: 'CACHE_STATS' }, [channel.port2]);
+    } catch (e) {
+      done(null);
+    }
+  });
+};
+
+/**
+ * Empty the cache.
+ * @public
+ * @return {Promise&lt;void>}
+ */
+bemap.BrowserCache.prototype.clear = function () {
+  var self = this;
+  this._postMessage({ type: 'CACHE_CLEAR' });
+  this._stats.hits = 0;
+  this._stats.misses = 0;
+  this._stats.entries = 0;
+  this._stats.bytesEstimated = 0;
+  self._onStats(self.getStats());
+  return Promise.resolve();
+};
+
+/**
+ * Tear down. Removes the message listener; does NOT unregister the SW
+ * (other tabs may still be using it).
+ * @public
+ */
+bemap.BrowserCache.prototype.destroy = function () {
+  if (this._messageHandler &amp;&amp; navigator.serviceWorker) {
+    navigator.serviceWorker.removeEventListener('message', this._messageHandler);
+    this._messageHandler = null;
+  }
+};
+</code></pre>
+        </article>
+    </section>
+
+
+
+
+</div>
+
+<nav>
+    <h2><a href="index.html">Home</a></h2><h3>Classes</h3><ul><li><a href="bemap.AclDetailsResponse.html">AclDetailsResponse</a></li><li><a href="bemap.AclLabel.html">AclLabel</a></li><li><a href="bemap.AclService.html">AclService</a></li><li><a href="bemap.Address.html">Address</a></li><li><a href="bemap.AttributionWidget.html">AttributionWidget</a></li><li><a href="bemap.Autocomplete.html">Autocomplete</a></li><li><a href="bemap.AutocompleteElement.html">AutocompleteElement</a></li><li><a href="bemap.AutocompleteGeocodingRequest.html">AutocompleteGeocodingRequest</a></li><li><a href="bemap.AutocompleteGeocodingResponse.html">AutocompleteGeocodingResponse</a></li><li><a href="bemap.BemapLayer.html">BemapLayer</a></li><li><a href="bemap.BoundingBox.html">BoundingBox</a></li><li><a href="bemap.BrowserCache.html">BrowserCache</a></li><li><a href="bemap.BuildingsLayer.html">BuildingsLayer</a></li><li><a href="bemap.ChargingPoint.html">ChargingPoint</a></li><li><a href="bemap.ChargingStation.html">ChargingStation</a></li><li><a href="bemap.ChargingStationPool.html">ChargingStationPool</a></li><li><a href="bemap.ChargingStations.html">ChargingStations</a></li><li><a href="bemap.ChargingStationSearchRequest.html">ChargingStationSearchRequest</a></li><li><a href="bemap.ChargingStationSearchResponse.html">ChargingStationSearchResponse</a></li><li><a href="bemap.ChargingStationStep.html">ChargingStationStep</a></li><li><a href="bemap.ChargingTime.html">ChargingTime</a></li><li><a href="bemap.ChargingTimeRequest.html">ChargingTimeRequest</a></li><li><a href="bemap.ChargingTimeResponse.html">ChargingTimeResponse</a></li><li><a href="bemap.Circle.html">Circle</a></li><li><a href="bemap.CircleStyle.html">CircleStyle</a></li><li><a href="bemap.clusterStyle.html">clusterStyle</a></li><li><a href="bemap.Color.html">Color</a></li><li><a href="bemap.CondMaxSpeed.html">CondMaxSpeed</a></li><li><a href="bemap.Context.html">Context</a></li><li><a href="bemap.Coordinate.html">Coordinate</a></li><li><a href="bemap.CoordinateSat.html">CoordinateSat</a></li><li><a href="bemap.Destination.html">Destination</a></li><li><a href="bemap.Error.html">Error</a></li><li><a href="bemap.EvBrand.html">EvBrand</a></li><li><a href="bemap.EvReachableArea.html">EvReachableArea</a></li><li><a href="bemap.EvReachableAreaRequest.html">EvReachableAreaRequest</a></li><li><a href="bemap.EvReachableAreaResponse.html">EvReachableAreaResponse</a></li><li><a href="bemap.EvseRouting.html">EvseRouting</a></li><li><a href="bemap.EvSmartRouting.html">EvSmartRouting</a></li><li><a href="bemap.EvSmartRoutingRequest.html">EvSmartRoutingRequest</a></li><li><a href="bemap.EvSmartRoutingResponse.html">EvSmartRoutingResponse</a></li><li><a href="bemap.EvStepPoint.html">EvStepPoint</a></li><li><a href="bemap.EvVehicle.html">EvVehicle</a></li><li><a href="bemap.EvVehicles.html">EvVehicles</a></li><li><a href="bemap.Exception.html">Exception</a></li><li><a href="bemap.GeoAutocomplete.html">GeoAutocomplete</a></li><li><a href="bemap.Geocoder.html">Geocoder</a></li><li><a href="bemap.GeocodingItem.html">GeocodingItem</a></li><li><a href="bemap.GeocodingRequest.html">GeocodingRequest</a></li><li><a href="bemap.GeocodingResponse.html">GeocodingResponse</a></li><li><a href="bemap.GeoSearchInfo.html">GeoSearchInfo</a></li><li><a href="bemap.GeoServerInfoResponse.html">GeoServerInfoResponse</a></li><li><a href="bemap.GeoServerInfoService.html">GeoServerInfoService</a></li><li><a href="bemap.GeoServerServiceInfo.html">GeoServerServiceInfo</a></li><li><a href="bemap.GeoServerServiceLimit.html">GeoServerServiceLimit</a></li><li><a href="bemap.HeatmapLayer.html">HeatmapLayer</a></li><li><a href="bemap.Icon.html">Icon</a></li><li><a href="bemap.Isochrone.html">Isochrone</a></li><li><a href="bemap.Layer.html">Layer</a></li><li><a href="bemap.LeafletMap.html">LeafletMap</a></li><li><a href="bemap.LineStyle.html">LineStyle</a></li><li><a href="bemap.Listener.html">Listener</a></li><li><a href="bemap.Map.html">Map</a></li><li><a href="bemap.MapEvent.html">MapEvent</a></li><li><a href="bemap.MapLibreMap.html">MapLibreMap</a></li><li><a href="bemap.Marker.html">Marker</a></li><li><a href="bemap.MultiMarker.html">MultiMarker</a></li><li><a href="bemap.NearPoint.html">NearPoint</a></li><li><a href="bemap.NearPoiRequest.html">NearPoiRequest</a></li><li><a href="bemap.NearPoiResponse.html">NearPoiResponse</a></li><li><a href="bemap.NearPoiSearch.html">NearPoiSearch</a></li><li><a href="bemap.Object.html">Object</a></li><li><a href="bemap.Ol3Map.html">Ol3Map</a></li><li><a href="bemap.OlMap.html">OlMap</a></li><li><a href="bemap.OsmLayer.html">OsmLayer</a></li><li><a href="bemap.PMTilesLayer.html">PMTilesLayer</a></li><li><a href="bemap.Polygon.html">Polygon</a></li><li><a href="bemap.PolygonStyle.html">PolygonStyle</a></li><li><a href="bemap.Polyline.html">Polyline</a></li><li><a href="bemap.Popup.html">Popup</a></li><li><a href="bemap.PostalAddress.html">PostalAddress</a></li><li><a href="bemap.RasterLayer.html">RasterLayer</a></li><li><a href="bemap.ReverseGeocoder.html">ReverseGeocoder</a></li><li><a href="bemap.ReverseGeocodingRequest.html">ReverseGeocodingRequest</a></li><li><a href="bemap.RevGeoSearchInfo.html">RevGeoSearchInfo</a></li><li><a href="bemap.RoadFeature.html">RoadFeature</a></li><li><a href="bemap.Route.html">Route</a></li><li><a href="bemap.Route.Event.html">Event</a></li><li><a href="bemap.Route.RoutesheetInstruction.html">RoutesheetInstruction</a></li><li><a href="bemap.Routing.html">Routing</a></li><li><a href="bemap.RoutingDestination.html">RoutingDestination</a></li><li><a href="bemap.RoutingInstruction.html">RoutingInstruction</a></li><li><a href="bemap.RoutingRequest.html">RoutingRequest</a></li><li><a href="bemap.RoutingResponse.html">RoutingResponse</a></li><li><a href="bemap.RoutingRoute.html">RoutingRoute</a></li><li><a href="bemap.RoutingSummary.html">RoutingSummary</a></li><li><a href="bemap.RoutingV2.html">RoutingV2</a></li><li><a href="bemap.RoutingVehicleProfile.html">RoutingVehicleProfile</a></li><li><a href="bemap.RoutingWaypoint.html">RoutingWaypoint</a></li><li><a href="bemap.Service.html">Service</a></li><li><a href="bemap.TextStyle.html">TextStyle</a></li><li><a href="bemap.TilesAuth.html">TilesAuth</a></li><li><a href="bemap.TilesOverlayCatalog.html">TilesOverlayCatalog</a></li><li><a href="global.html#bemap#.TraceRoute">TraceRoute</a></li><li><a href="bemap.TraceRouteDestination.html">TraceRouteDestination</a></li><li><a href="bemap.TraceRouteRequest.html">TraceRouteRequest</a></li><li><a href="bemap.VectorLayer.html">VectorLayer</a></li><li><a href="bemap.VectorTileLayer.html">VectorTileLayer</a></li><li><a href="bemap.WmsLayer.html">WmsLayer</a></li></ul><h3>Global</h3><ul><li><a href="global.html#AC">AC</a></li><li><a href="global.html#AC_SINGLE_PHASE">AC_SINGLE_PHASE</a></li><li><a href="global.html#AC_THREE_PHASES">AC_THREE_PHASES</a></li><li><a href="global.html#bemap">bemap</a></li><li><a href="global.html#DC">DC</a></li><li><a href="global.html#NA">NA</a></li></ul>
+</nav>
+
+<br class="clear">
+
+<footer>
+    Documentation generated by <a href="https://github.com/jsdoc/jsdoc">JSDoc 3.6.3</a> on Tue Jun 02 2026 11:46:44 GMT+0200 (heure d’été d’Europe centrale)
+</footer>
+
+<script> prettyPrint(); </script>
+<script src="scripts/linenumber.js"> </script>
+</body>
+</html>

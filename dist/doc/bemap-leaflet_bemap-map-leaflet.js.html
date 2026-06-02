@@ -1,0 +1,930 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>JSDoc: Source: bemap-leaflet/bemap-map-leaflet.js</title>
+
+    <script src="scripts/prettify/prettify.js"> </script>
+    <script src="scripts/prettify/lang-css.js"> </script>
+    <!--[if lt IE 9]>
+      <script src="//html5shiv.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+    <link type="text/css" rel="stylesheet" href="styles/prettify-tomorrow.css">
+    <link type="text/css" rel="stylesheet" href="styles/jsdoc-default.css">
+</head>
+
+<body>
+
+<div id="main">
+
+    <h1 class="page-title">Source: bemap-leaflet/bemap-map-leaflet.js</h1>
+
+    
+
+
+
+    
+    <section>
+        <article>
+            <pre class="prettyprint source linenums"><code>/**
+ * BeNomad BeMap JavaScript API - Map - Leaflet
+ */
+
+//bemap.require('leaflet.js');
+
+/**
+ * @classdesc
+ * Base class for Leaflet.
+ * @public
+ * @constructor
+ * @extends {bemap.Map}
+ * @param {bemap.Context} context BeMap-JS-API Context.
+ * @param {string} target HTML element.
+ * @param options.
+ */
+bemap.LeafletMap = function (context, target, options) {
+  // Runtime dependency check — emits a loud console banner with the
+  // exact &lt;script>/&lt;link> tags to add when Leaflet is missing.
+  bemap.Map._checkDependencies('leaflet');
+
+  /**
+   * @protected
+   */
+  this.target = target;
+
+  bemap.Map.call(this, context, options);
+
+  // Resolve native-attribution + zoom-control options (uniform across engines).
+  // bemap.Map._resolveControlOptions hides Leaflet's built-in attribution by
+  // default when the BeMap AttributionWidget is enabled (avoids duplication
+  // of the legal mentions). The zoom buttons stay on unless opted out, with
+  // a configurable position across all engines.
+  var _ctrl = bemap.Map._resolveControlOptions(options);
+  var _leafletOpts = {};
+  if (options) {
+    for (var _k in options) {
+      if (Object.prototype.hasOwnProperty.call(options, _k)) _leafletOpts[_k] = options[_k];
+    }
+  }
+  // Strip bemap-only keys that would confuse Leaflet's option parser.
+  delete _leafletOpts.attribution;
+  delete _leafletOpts.nativeAttribution;
+  delete _leafletOpts.keyboard;
+  _leafletOpts.attributionControl = _ctrl.nativeAttribution;
+  // Always disable the auto-added zoom — we add a positioned one below so
+  // the same `zoomControl: 'top-right'` API works across every engine.
+  _leafletOpts.zoomControl = false;
+  // Keyboard (default OFF — see bemap.Map._resolveControlOptions). Leaflet
+  // bundles arrow-pan and +/- zoom under one `keyboard` option, so the
+  // granular `{pan, zoom}` form collapses to "either-or" here: keyboard is
+  // active iff at least one of pan/zoom is requested. Setting
+  // `keyboardPanDelta: 0` makes the arrow-pan a no-op when only zoom was
+  // asked for — Leaflet's `+`/`-` zoom keys keep firing.
+  _leafletOpts.keyboard = _ctrl.keyboard.pan || _ctrl.keyboard.zoom;
+  if (_ctrl.keyboard.zoom &amp;&amp; !_ctrl.keyboard.pan) _leafletOpts.keyboardPanDelta = 0;
+  this._keyboardEnabled = !!(_ctrl.keyboard.pan || _ctrl.keyboard.zoom);
+  this._keyboardOptions = _ctrl.keyboard;
+
+  /**
+   * @protected
+   */
+  this.native = L.map(target, _leafletOpts).setView([0, 0], 2);
+
+  if (_ctrl.zoomControl) {
+    L.control.zoom({
+      position: bemap.Map._translateZoomPosition('leaflet', _ctrl.zoomPosition)
+    }).addTo(this.native);
+  }
+
+  // overload the pointer events
+  bemap.Map.EventType.POINTERUP = 'mouseup';
+  bemap.Map.EventType.POINTERDOWN = 'mousedown';
+  bemap.Map.EventType.POINTERMOVE = 'mouseover';
+
+  // Attribution widget (v1.5.0) — auto-instantiated unless options.attribution === false
+  if (typeof bemap.AttributionWidget === 'function') {
+    var _attr = options ? options.attribution : undefined;
+    if (_attr !== false) {
+      var _attrOpts = (_attr &amp;&amp; typeof _attr === 'object') ? _attr : {};
+      this._attributionWidget = new bemap.AttributionWidget(this, _attrOpts);
+    }
+  }
+};
+bemap.inherits(bemap.LeafletMap, bemap.Map);
+
+/**
+ * Toggle keyboard navigation (arrow-pan + `+`/`-` zoom) at runtime.
+ * @public
+ * @param {Boolean} enabled
+ * @return {bemap.LeafletMap}
+ */
+bemap.LeafletMap.prototype.setKeyboard = function (enabled) {
+  if (this.native &amp;&amp; this.native.keyboard) {
+    if (enabled) this.native.keyboard.enable();
+    else this.native.keyboard.disable();
+  }
+  this._keyboardEnabled = !!enabled;
+  return this;
+};
+
+/** @public @return {Boolean} */
+bemap.LeafletMap.prototype.getKeyboard = function () { return !!this._keyboardEnabled; };
+
+
+/**
+ * Add a layer to the Leaflet map.
+ * @public
+ * @param {bemap.Layer} layer
+ * @param {object} options
+ * @return {bemap.LeafletMap} this
+ */
+bemap.LeafletMap.prototype.addLayer = function (layer, options) {
+  if (layer !== null &amp;&amp; bemap.inheritsof(layer, bemap.Layer)) {
+    if (bemap.inheritsof(layer, bemap.BemapLayer)) {
+      var layerOption = {
+        minZoom: layer.minZoom ? layer.minZoom : 2,
+        maxZoom: layer.maxZoom ? layer.maxZoom : 20,
+        'geoserver': layer.geoserver ? layer.geoserver : this.ctx.getGeoserver(),
+        'layers': layer.layers ? layer.layers : 'default',
+        'styles': layer.styles ? layer.styles : '',
+        'tiled': true,
+        'TRANSPARENT': layer.transparent === true ? true : false,
+        format: layer.format ? layer.format : 'image/png'
+      };
+
+      if (this.ctx.login) {
+        layerOption.appid = this.ctx.login;
+      }
+      if (this.ctx.password) {
+        layerOption.appcode = this.ctx.password;
+      }
+
+      layer.native = L.tileLayer.wms(this.ctx.getBaseUrl() + 'wms', layerOption);
+
+    } else if (bemap.inheritsof(layer, bemap.WmsLayer)) {
+      layer.native = L.tileLayer.wms(layer.url, {
+        minZoom: layer.minZoom ? layer.minZoom : 2,
+        maxZoom: layer.maxZoom ? layer.maxZoom : 20,
+        'geoserver': layer.geoserver ? layer.geoserver : this.ctx.getGeoserver(),
+        'layers': layer.layers ? layer.layers : 'default',
+        'styles': layer.styles ? layer.styles : '',
+        'tiled': true,
+        'TRANSPARENT': layer.transparent === true ? true : false,
+        format: layer.format ? layer.format : 'image/png'
+      });
+
+    } else if (bemap.inheritsof(layer, bemap.OsmLayer)) {
+      console.warn("TODO OsmLayer");
+
+    } else if (bemap.inheritsof(layer, bemap.VectorLayer)) {
+      // Default-layer names (MARKER / POLYLINE / ROUTE / BACKGROUND) KEEP
+      // Leaflet's native pane behaviour: markers go into markerPane (z=600)
+      // and polylines/polygons/circles into overlayPane (z=400), so markers
+      // always render above paths — the convention every existing consumer
+      // (BFleet, EVMove5, zone-optimizer, BeMap-Doc) depends on.
+      //
+      // USER-named VectorLayers get a PAIR of private panes:
+      //   `&lt;layer>-mark`  (z=600, markers + popups)
+      //   `&lt;layer>-path`  (z=400, polylines / polygons / circles)
+      // Mirrors Leaflet's native z-split so markers always render above
+      // paths WITHIN the layer. zIndexLayer(layer, high) shifts both sub-
+      // panes together (high: 750/550, low: 250/100) so the whole layer
+      // can still be re-stacked up or down as one unit.
+      var dl = bemap.Map.DEFAULT_LAYER || {};
+      var isDefaultName = layer.name &amp;&amp; (
+        layer.name === dl.MARKER || layer.name === dl.POLYLINE ||
+        layer.name === dl.ROUTE  || layer.name === dl.BACKGROUND
+      );
+      if (isDefaultName) {
+        layer.native = L.layerGroup();
+      } else {
+        if (!bemap.LeafletMap._paneCounter) bemap.LeafletMap._paneCounter = 0;
+        var seq = ++bemap.LeafletMap._paneCounter;
+        var markPane = 'bemap-pane-' + seq + '-mark';
+        var pathPane = 'bemap-pane-' + seq + '-path';
+        try {
+          layer._paneMark = this.native.createPane(markPane);
+          layer._panePath = this.native.createPane(pathPane);
+          layer._paneNameMarker = markPane;
+          layer._paneNamePath   = pathPane;
+          layer._paneMark.style.zIndex = 600;   // same band as markerPane
+          layer._panePath.style.zIndex = 400;   // same band as overlayPane
+          // The L.layerGroup itself doesn't render — only its children do.
+          // Children pick their pane from their own options (set in the
+          // addMarker / addPolyline / addPolygon / addCircle wrappers).
+          layer.native = L.layerGroup();
+        } catch (e) {
+          layer.native = L.layerGroup();        // fallback if pane API unavailable
+        }
+      }
+
+    } else if (bemap.inheritsof(layer, bemap.ClusterLayer)) {
+      layer.native = new L.MarkerClusterGroup({
+        showCoverageOnHover: false
+        //Icon Style
+        /*iconCreateFunction: function(cluster) {
+          return L.divIcon({
+            html: cluster.getChildCount(),
+            className: 'mycluster',
+            iconSize: null
+          });
+
+        }*/
+      });
+
+    } else {
+      console.warn("Unsupport layer");
+    }
+
+    if (layer.native !== null) {
+      // TODO
+      //bemap.OlMap.prototype._addOwnToProperties(layer);
+
+      layer.native.addTo(this.native);
+      bemap.Map.prototype.addLayer.call(this, layer);
+    }
+  }
+
+  if (layer.map === null) {
+    layer.map = this;
+  }
+
+  return this;
+};
+
+/**
+ * Re-stack a layer relative to the others. Leaflet has no native z-index on
+ * `L.layerGroup`, so we mutate the sub-layers individually:
+ *   • Markers (`L.Marker`)  → setZIndexOffset(±1000) so high vs low layers
+ *     visually separate even when the DOM order is unchanged.
+ *   • Paths  (polyline / polygon / circle, `L.Path` subclasses) →
+ *     bringToFront() / bringToBack().
+ *
+ * Threshold: zIndex ≥ 50 counts as "on top", everything else "behind".
+ * @public
+ * @param {bemap.Layer} layer
+ * @param {Number} zIndex
+ * @return {bemap.LeafletMap} this
+ */
+bemap.LeafletMap.prototype.zIndexLayer = function (layer, zIndex) {
+  if (!layer || !layer.native) return this;
+  layer.zIndex = zIndex;
+  var high = (zIndex >= 50);
+
+  // Primary mechanism: mutate the layer's TWO custom panes (markers and
+  // paths) together so the whole layer moves as one band while preserving
+  // markers-above-paths order WITHIN the layer.
+  // Default Leaflet pane z-indexes for reference:
+  //   tilePane=200, overlayPane=400, shadowPane=500, markerPane=600,
+  //   tooltipPane=650, popupPane=700.
+  // high → marker pane 750, path pane 550 (above everything else)
+  // low  → marker pane 350, path pane 250 (still above tilePane=200 so
+  //        the polyline doesn't get hidden under the basemap tiles)
+  if (layer._paneMark) layer._paneMark.style.zIndex = high ? 750 : 350;
+  if (layer._panePath) layer._panePath.style.zIndex = high ? 550 : 250;
+
+  // Fallback for legacy layers without a custom pane: walk sub-layers and
+  // use Leaflet's built-in reorder hooks (works for same-pane stacking).
+  if (typeof layer.native.eachLayer === 'function') {
+    layer.native.eachLayer(function (sub) {
+      if (!sub) return;
+      if (typeof sub.setZIndexOffset === 'function') sub.setZIndexOffset(high ? 1000 : -1000);
+      if (typeof sub.bringToFront === 'function' &amp;&amp; high) sub.bringToFront();
+      else if (typeof sub.bringToBack === 'function' &amp;&amp; !high) sub.bringToBack();
+    });
+  }
+  return this;
+};
+
+/**
+ * Move map to new coordinate.
+ * @public
+ * @param {double} lon Longitude in degres decimal (WGS84).
+ * @param {double} lat Latitude in degres decimal (WGS84).
+ * @param {int} zoom Zoom level (optional).
+ * @param {Object} options Options (optional).
+ * @param {String} options.animate Enable the animation.
+ * @param {String} options.fly Enable the animation (same as animate).
+ * @return {bemap.LeafletMap} this
+ */
+bemap.LeafletMap.prototype.move = function (lon, lat, zoom, options) {
+  if (zoom) {
+    this.native.setView([lat, lon], zoom);
+  } else {
+    this.native.setView([lat, lon]);
+  }
+
+  return this;
+};
+
+/**
+ * Fly map to new coordinate.
+ * @param {double} lon longitude
+ * @param {double} lat latitude
+ * @param {double} zoom zoom
+ * @param {Object} options options
+ */
+bemap.LeafletMap.prototype.flyTo = function (lon, lat, zoom, options) {
+  if (zoom) {
+    this.native.flyTo([lat, lon], zoom);
+  } else {
+    this.native.flyTo([lat, lon]);
+  }
+
+  return this;
+};
+
+/**
+ * Set the center and the zoom of the map to fit the bounding box.
+ * @param {bemap.BoundingBox} boundingBox the bounding box to fit.
+ * @return {bemap.LeafletMap} this.
+ */
+bemap.LeafletMap.prototype.moveToBoundingBox = function (boundingBox, options) {
+  if (boundingBox &amp;&amp; bemap.inheritsof(boundingBox, bemap.BoundingBox) &amp;&amp; boundingBox.maxLon &amp;&amp; boundingBox.maxLat &amp;&amp; boundingBox.minLon &amp;&amp; boundingBox.minLat) {
+    var ext = L.latLngBounds(
+      L.latLng(boundingBox.minLat, boundingBox.minLon),
+      L.latLng(boundingBox.maxLat, boundingBox.maxLon)
+    );
+
+    if (options &amp;&amp; (options.animate || options.fly)) {
+      this.native.flyToBounds(ext);
+    } else {
+      this.native.fitBounds(ext);
+    }
+  }
+  return this;
+};
+
+/**
+ * Zoom on map, set new zoom level.
+ * @public
+ * @param {int} zoom Zoom level (optional).
+ * @param {Object} options Options (optional).
+ * @return {bemap.LeafletMap} this
+ */
+bemap.LeafletMap.prototype.zoom = function (zoom, options) {
+  this.native.setZoom(zoom);
+  return this;
+};
+
+/**
+ * Get current zoom level of map.
+ * @public
+ * @return {int} current zoom level of map.
+ */
+bemap.LeafletMap.prototype.getZoom = function () {
+  return this.native.getZoom();
+};
+
+/**
+ * Refresh map.
+ * @public
+ * @abstract
+ * @param {Object} options Options (optional).
+ * @return {bemap.LeafletMap} this
+ */
+bemap.LeafletMap.prototype.refresh = function (options) {
+  this.native.invalidateSize();
+  return this;
+};
+
+/**
+ * Refresh all objects from a layer.
+ * @public
+ * @param {bemap.Layer} layer the layer object to refresh.
+ * @return {bemap.LeafletMap} this
+ */
+bemap.LeafletMap.prototype.refreshLayer = function (layer) {
+  if (layer !== null &amp;&amp; bemap.inheritsof(layer, bemap.Layer) &amp;&amp; layer.native) {
+    // Only L.TileLayer (and subclasses) have redraw(). LayerGroup-backed
+    // bemap layers (markers, polylines, polygons, etc.) have no redraw —
+    // their visual state mutates as features are added/removed.
+    if (typeof layer.native.redraw === 'function') {
+      layer.native.redraw();
+    } else if (typeof layer.native.clearLayers === 'function' &amp;&amp; typeof layer.native.eachLayer === 'function') {
+      // LayerGroup refresh = re-add visible layers, triggering DOM rerender.
+      var stash = [];
+      layer.native.eachLayer(function (l) { stash.push(l); });
+      layer.native.clearLayers();
+      for (var i = 0; i &lt; stash.length; i++) layer.native.addLayer(stash[i]);
+    }
+  }
+  return this;
+};
+
+/**
+ * Remove all objects from a layer.
+ * @public
+ * @param {bemap.Layer} layer the layer object to clear.
+ * @return {bemap.LeafletMap} this
+ */
+bemap.LeafletMap.prototype.clearLayer = function (layer) {
+  if (layer !== null &amp;&amp; bemap.inheritsof(layer, bemap.Layer)) {
+    layer.native.clearLayers();
+  }
+  return this;
+};
+
+/**
+ * Set the visibility of the layer.
+ * @public
+ * @param {bemap.Layer} layer the layer of wich to set the visibility.
+ * @param {boolean} visible.
+ * @return {bemap.LeafletMap} return this.
+ */
+bemap.LeafletMap.prototype.visibleLayer = function (layer, visible) {
+  if (visible !== null &amp;&amp; layer !== null &amp;&amp; layer.map !== null &amp;&amp; bemap.inheritsof(layer, bemap.Layer)) {
+    if (visible) {
+      layer.native.addTo(this.native);
+    } else {
+      layer.native.remove();
+    }
+
+    layer.visible = visible;
+  }
+  return this;
+};
+
+/**
+ * Remove a layer from the map.
+ * @param {bemap.Layer} layer layer to remove from the map.
+ * @return {bemap.LeafletMap} this.
+ */
+bemap.LeafletMap.prototype.removeLayer = function (layer) {
+  if (layer !== null &amp;&amp; bemap.inheritsof(layer, bemap.Layer)) {
+    this.native.removeLayer(layer.native);
+    layer.map = null;
+  }
+  return this;
+};
+
+/**
+ * Set the listner when an specified eventType occur on bemap.LeafletMap.
+ * @public
+ * @param {bemap.Map.EventType} eventType Event type.
+ * @param {function} callback Function will be called when the specified eventType is occur.
+ * @param {object} options options.
+ * @return {bemap.Listener} listner.
+ */
+bemap.LeafletMap.prototype.on = function (eventType, callback, options) {
+  var opts = options ? options : {};
+
+  var nativeListener = this.native.on(eventType, function (evt) {
+    var mapEvent = new bemap.MapEvent({
+      native: evt,
+      bemapObject: this,
+      x: evt.containerPoint ? evt.containerPoint.x : undefined,
+      y: evt.containerPoint ? evt.containerPoint.y : undefined,
+      coordinate: evt.latlng ? new bemap.Coordinate(evt.latlng.lng, evt.latlng.lat) : undefined,
+      properties: options,
+      map: this
+    });
+    callback(mapEvent);
+  });
+  var listener = new bemap.Listener({
+    native: nativeListener,
+    callback: callback,
+    key: eventType,
+    bemapObject: this
+  });
+  return listener;
+};
+
+/**
+ * Remove listener.
+ * @protected
+ * @param {bemap.Listener} listener Function will be called when the specified eventType is occur.
+ * @param {object} options Options.
+ * @return {bemap.LeafletMap} this.
+ */
+bemap.LeafletMap.prototype.removeListener = function (listener, options) {
+  if (listener &amp;&amp; bemap.inheritsof(listener, bemap.Listener) &amp;&amp; listener.bemapObject) {
+    this.native.off(listener.native);
+  }
+  return this;
+};
+
+/**
+ * Get the center of the map in bemap.Coordinate.
+ * @return {bemap.Coordinate} the center of the map.
+ */
+bemap.LeafletMap.prototype.getCenter = function () {
+  var center = this.native.getCenter();
+  return new bemap.Coordinate(center.lng, center.lat);
+};
+
+/**
+ * Get the limits of the map on the current zoom.
+ * @return {bemap.BoundingBox} the bounding box containing the limits.
+ */
+bemap.LeafletMap.prototype.getBoundingBox = function () {
+  var bounds = this.native.getBounds();
+  var box = new bemap.BoundingBox(bounds.getWest(), bounds.getSouth(), bounds.getEast(), bounds.getNorth());
+  return box;
+};
+
+/**
+ * Return drag pan status.
+ * @return {boolean}
+ */
+bemap.LeafletMap.prototype.isDragPan = function () {
+  return this.native.dragging ? this.native.dragging.enabled() : false;
+};
+
+/**
+ * Enable or disable drag pan. Caches the user's intent so
+ * `draggableMarker`'s internal mouseup-time `dragging.enable()` (in
+ * `bemap-map-leaflet-marker.js`) can restore it without overriding
+ * the customer's `setDragPan(false)` call.
+ * @param {boolean} active
+ * @return {bemap.LeafletMap} this
+ */
+bemap.LeafletMap.prototype.setDragPan = function (active) {
+  this._userDragPanEnabled = !!active;
+  if (active) {
+    this.native.dragging.enable();
+  } else {
+    this.native.dragging.disable();
+  }
+  return this;
+};
+
+/* ============================================================
+ * Cross-engine camera methods (v2.0)
+ *
+ * Same names as on `bemap.MapLibreMap`. Pitch / bearing are not
+ * supported by Leaflet — silently ignored with a one-time warn
+ * via `_maplibreOnly()` so customer code can stay identical
+ * across all three engines.
+ * ============================================================ */
+
+bemap.LeafletMap.prototype.easeTo = function (options) {
+  var opts = options || {};
+  if (opts.pitch || opts.bearing) this._maplibreOnly('easeTo:pitch/bearing');
+  var center = opts.center;
+  if (Array.isArray(center)) {
+    this.native.flyTo([center[1], center[0]], opts.zoom, { duration: (opts.duration || 1000) / 1000 });
+  } else if (typeof opts.zoom === 'number') {
+    this.native.setZoom(opts.zoom);
+  }
+  return this;
+};
+
+bemap.LeafletMap.prototype.jumpTo = function (options) {
+  var opts = options || {};
+  if (opts.pitch || opts.bearing) this._maplibreOnly('jumpTo:pitch/bearing');
+  var center = opts.center;
+  if (Array.isArray(center)) {
+    this.native.setView([center[1], center[0]], opts.zoom != null ? opts.zoom : this.native.getZoom(), { animate: false });
+  } else if (typeof opts.zoom === 'number') {
+    this.native.setZoom(opts.zoom, { animate: false });
+  }
+  return this;
+};
+
+bemap.LeafletMap.prototype.setBearing = function (deg) {
+  // Leaflet has no native rotation. Apply a CSS transform to the OUTER
+  // .leaflet-container (NOT the inner .leaflet-map-pane — Leaflet sets a
+  // `translate3d(...)` on the pane that we'd overwrite, snapping the map
+  // to (0,0) before rotating). The container's center is the visible
+  // center, so transform-origin 50% 50% pivots around the right point.
+  //
+  // We ALSO scale the container so its rotated bounding box always fills
+  // the parent cell — otherwise non-square cells show empty bars at the
+  // shorter dimension after rotation. Scale formula:
+  //   max( |cos θ| + (H/W)|sin θ|, (W/H)|sin θ| + |cos θ| )
+  // verified by hand: θ=0 → 1, θ=90° W:H=5:6 → 1.2, θ=45° square → √2.
+  //
+  // Visual-only effect:
+  //   - tiles, polylines, markers, popups, controls all rotate together
+  //   - click events still hit unrotated pixel positions — click-to-coord
+  //     is inaccurate at non-zero angles
+  //   - tile prefetch still uses the unrotated bounds — at large rotations
+  //     tiles get visually upscaled (~1.4x worst case at 45° square) so a
+  //     slight blur is expected
+  // For full-fidelity rotation use bemap.MapLibreMap or bemap.OlMap.
+  this._rotationDeg = +deg || 0;
+  try {
+    var container = this.native.getContainer();
+    if (container) {
+      container.style.transformOrigin = '50% 50%';
+      container.style.transition = 'transform 250ms ease';
+      if (this._rotationDeg) {
+        var ang = Math.abs(this._rotationDeg) * Math.PI / 180;
+        var c = Math.abs(Math.cos(ang));
+        var s = Math.abs(Math.sin(ang));
+        var W = container.clientWidth || 1;
+        var H = container.clientHeight || 1;
+        var scale = Math.max(c + (H / W) * s, (W / H) * s + c);
+        // CSS rotates positive-CW; OL + MapLibre rotate the view positive-CW
+        // (visible content appears to rotate CCW). Negate so direction matches.
+        container.style.transform = 'rotate(' + (-this._rotationDeg) + 'deg) scale(' + scale + ')';
+      } else {
+        container.style.transform = '';
+      }
+    }
+  } catch (e) { /* ignore */ }
+  if (!bemap.LeafletMap._rotationCaveatWarned) {
+    bemap.LeafletMap._rotationCaveatWarned = true;
+    if (typeof console !== 'undefined' &amp;&amp; console.info) {
+      console.info('bemap.LeafletMap.setBearing: visual rotation only — click coordinates remain in the unrotated frame. For full-fidelity rotation use bemap.MapLibreMap or bemap.OlMap.');
+    }
+  }
+  return this;
+};
+
+bemap.LeafletMap.prototype.getBearing = function () {
+  return this._rotationDeg || 0;
+};
+
+bemap.LeafletMap.prototype.setPitch = function (deg) {
+  this._maplibreOnly('setPitch');
+  return this;
+};
+
+/* --- Heatmap (Leaflet via leaflet.heat plugin when available) --- */
+bemap.LeafletMap.prototype.addHeatmap = function (data, options) {
+  var hasData = Array.isArray(data) &amp;&amp; data.length > 0;
+  if (!hasData || typeof L === 'undefined' || typeof L.heatLayer !== 'function') {
+    console.warn('addHeatmap() is only available with bemap.MapLibreMap');
+    return this;
+  }
+  var opts = options || {};
+  var id = opts.id || ('heatmap-' + (++this._layerCounter || (this._layerCounter = 1)));
+  var points = data.map(function (p) {
+    if (Array.isArray(p)) return [p[1], p[0], p[2] != null ? p[2] : 1];
+    if (p &amp;&amp; p.lat != null &amp;&amp; p.lng != null) return [p.lat, p.lng, p.value != null ? p.value : 1];
+    if (p &amp;&amp; typeof p.getLatitude === 'function') return [p.getLatitude(), p.getLongitude(), p.value != null ? p.value : 1];
+    return null;
+  }).filter(Boolean);
+  var layer = L.heatLayer(points, opts).addTo(this.native);
+  this._heatmaps = this._heatmaps || {};
+  this._heatmaps[id] = layer;
+  this._lastHeatmapId = id;
+  return this;
+};
+bemap.LeafletMap.prototype.removeHeatmap = function (id) {
+  var key = id || this._lastHeatmapId;
+  if (this._heatmaps &amp;&amp; this._heatmaps[key]) {
+    this.native.removeLayer(this._heatmaps[key]);
+    delete this._heatmaps[key];
+  }
+  return this;
+};
+
+/**
+ * Leaflet has no native rotation. Every available BSD/MIT rotation
+ * plugin is either GPL-licensed (`leaflet-rotate`), forks Leaflet
+ * (`leaflet-rotate-map` — replaces our dependency, dormant, only
+ * 2 stars, known re-center bug in Leaflet #7365), or breaks
+ * interactivity (CSS pane transform). Direct customers to
+ * MapLibreMap or OlMap for rotation.
+ *
+ * @deprecated Since 2.0 — use setBearing(deg) for the cross-engine
+ *             API. On Leaflet both methods warn and no-op identically.
+ * @param {Number} deg
+ * @return {bemap.LeafletMap} this
+ */
+/**
+ * Visually rotate the Leaflet map by applying a CSS `transform: rotate` to
+ * the layer panes (NOT the whole container — that would rotate +/- controls
+ * and the attribution widget too). Leaflet has no native rotation, so this
+ * is a presentation-only effect:
+ *   • Tiles, polylines, markers, popups all rotate together — looks right.
+ *   • Click events still hit unrotated pixel positions, so click-to-coord
+ *     becomes inaccurate at non-zero angles.
+ *   • Tile prefetch still uses the unrotated bounds — corner tiles may be
+ *     missing when angle is between rotations.
+ * For full-fidelity rotation with mouse/touch transforms and tile re-buffering,
+ * use bemap.MapLibreMap (setBearing) or bemap.OlMap (rotation), or replace
+ * leaflet.js with the Raruto/leaflet-rotate fork.
+ *
+ * @public
+ * @param {Number} deg
+ * @return {bemap.LeafletMap} this
+ */
+bemap.LeafletMap.prototype.rotation = function (deg) {
+  this._rotationDeg = +deg || 0;
+  // Apply to map panes (the inner wrappers). The outer container holds the
+  // controls, attribution + zoom +/-, which should stay upright.
+  try {
+    var mapPane = this.native.getContainer().querySelector('.leaflet-map-pane');
+    if (mapPane) {
+      // CSS rotates the layer CLOCKWISE for positive degrees; OL + MapLibre
+      // both rotate the VIEW positive-CW (so visible content appears to
+      // rotate counter-clockwise). Negate the CSS angle to match.
+      mapPane.style.transformOrigin = '50% 50%';
+      mapPane.style.transition = 'transform 250ms ease';
+      mapPane.style.transform = (deg ? 'rotate(' + (-this._rotationDeg) + 'deg)' : '');
+    }
+  } catch (e) {}
+  // Warn ONCE per session so customers know about the interactivity caveat.
+  if (!bemap.LeafletMap._rotationCaveatWarned) {
+    bemap.LeafletMap._rotationCaveatWarned = true;
+    if (typeof console !== 'undefined' &amp;&amp; console.info) {
+      console.info('bemap.LeafletMap.rotation: visual rotation only — click coordinates remain in the unrotated frame. For full-fidelity rotation use bemap.MapLibreMap (setBearing) or bemap.OlMap (rotation).');
+    }
+  }
+  return this;
+};
+
+bemap.LeafletMap.prototype.getRotation = function () {
+  return this._rotationDeg || 0;
+};
+
+/* ============================================================
+ * Cross-engine hillshade overlay (v2.0) — Leaflet implementation
+ *
+ * 2D hillshade only (Leaflet has no native tilt). Adds a raster
+ * `L.tileLayer` over the basemap, sourced from a `{z}/{x}/{y}`
+ * tile URL the customer provides. For Terrain-RGB shading the
+ * customer can pre-process server-side or use an XYZ hillshade
+ * tile service (e.g. ArcGIS World_Hillshade).
+ *
+ * For full 3D tilt, customers should switch to `bemap.MapLibreMap`
+ * and use `setTerrain` — this method is the cross-engine fallback.
+ * ============================================================ */
+bemap.LeafletMap.prototype.setHillshade = function (options) {
+  var opts = options || {};
+  if (typeof L === 'undefined') return this;
+  // Default: ArcGIS World_Hillshade (works without API key, low-res).
+  var url = opts.url || 'https://server.arcgisonline.com/ArcGIS/rest/services/Elevation/World_Hillshade/MapServer/tile/{z}/{y}/{x}';
+  var opacity = opts.opacity != null ? opts.opacity : 0.35;
+  this.removeHillshade();
+  this._hillshadeLayer = L.tileLayer(url, { opacity: opacity, attribution: opts.attribution || '' }).addTo(this.native);
+  var self = this;
+  if (typeof self._registerEffect === 'function') {
+    self._registerEffect('hillshade', function () { self.removeHillshade(); });
+  }
+  return this;
+};
+bemap.LeafletMap.prototype.removeHillshade = function () {
+  if (this._hillshadeLayer) {
+    try { this.native.removeLayer(this._hillshadeLayer); } catch (e) {}
+    this._hillshadeLayer = null;
+  }
+  if (typeof this._unregisterEffect === 'function') this._unregisterEffect('hillshade');
+  return this;
+};
+
+/* ============================================================
+ * Cross-engine camera tour (v2.0) — Leaflet pan-tour fallback
+ *
+ * Leaflet has no rotation (the GPL leaflet-rotate plugin can't be
+ * bundled), so the "camera tour" degrades to a chained `flyTo`
+ * between waypoints. Customers get the same API on every engine;
+ * MapLibre and OL provide a real orbit/animate, Leaflet provides
+ * sequential pans.
+ * ============================================================ */
+bemap.LeafletMap.prototype.cameraTour = function (options) {
+  var opts = options || {};
+  var waypoints = opts.waypoints || [];
+  if (!waypoints.length) return { stop: function () {}, resume: function () {} };
+  var self = this;
+  var i = 0, stopped = false;
+  function next() {
+    if (stopped || i >= waypoints.length) {
+      if (i >= waypoints.length &amp;&amp; opts.loop) i = 0;
+      else if (typeof opts.onComplete === 'function') opts.onComplete();
+      else return;
+    }
+    var wp = waypoints[i++];
+    self.native.flyTo([wp.lat, wp.lon], wp.zoom || self.native.getZoom(), {
+      duration: (wp.duration || 2000) / 1000
+    });
+    setTimeout(next, wp.duration || 2000);
+  }
+  next();
+  var controller = {
+    stop: function () { stopped = true; if (typeof self._unregisterEffect === 'function') self._unregisterEffect('cameraTour'); },
+    resume: function () { if (stopped) { stopped = false; next(); } }
+  };
+  if (typeof self._registerEffect === 'function') self._registerEffect('cameraTour', function () { controller.stop(); });
+  return controller;
+};
+
+/**
+ * Cross-engine `setStyle` for Leaflet — swaps the raster URL on any
+ * `L.TileLayer` currently in the map. The MapLibre wrapper has the
+ * same name with a different contract (it accepts a vector style
+ * object); on Leaflet/OL "style" really means "where the raster tiles
+ * come from". String argument = URL template; object argument with
+ * `.url` field also accepted.
+ *
+ * @public
+ * @since 2.0.0
+ * @param {String|Object} urlOrSpec  URL template (`https://.../{z}/{x}/{y}.png`)
+ *                                   OR `{ url: '...', attribution: '...' }`
+ * @return {bemap.LeafletMap} this
+ */
+bemap.LeafletMap.prototype.setStyle = function (urlOrSpec) {
+  var url = (typeof urlOrSpec === 'string') ? urlOrSpec : (urlOrSpec &amp;&amp; urlOrSpec.url);
+  if (!url) { this._maplibreOnly('setStyle:object'); return this; }
+  var self = this;
+  var swapped = false;
+  this.native.eachLayer(function (layer) {
+    if (typeof layer.setUrl === 'function' &amp;&amp; layer._url) {
+      layer.setUrl(url);
+      swapped = true;
+    }
+  });
+  if (!swapped) {
+    // No existing tile layer — create one.
+    L.tileLayer(url, urlOrSpec &amp;&amp; typeof urlOrSpec === 'object' ? urlOrSpec : {}).addTo(this.native);
+  }
+  if (typeof self._registerEffect === 'function') {
+    self._registerEffect('setStyle', function () { /* customer must call setStyle again to restore */ });
+  }
+  return this;
+};
+
+/* ============================================================
+ * Cross-engine animation (v2.0) — Leaflet implementation
+ *
+ * `animateAlongRoute({ coordinates, speed, loop, onUpdate, onComplete })`
+ * walks a marker along a polyline. Uses requestAnimationFrame and
+ * native `L.Marker.setLatLng` updates (no external plugin needed —
+ * Leaflet.MovingMarker would add a dependency we don't otherwise have).
+ * `marker` option lets the customer pre-add a marker; if absent we
+ * create one at the first coordinate.
+ * ============================================================ */
+bemap.LeafletMap.prototype.animateAlongRoute = function (options) {
+  var opts = options || {};
+  var route = opts.coordinates || [];
+  var speed = opts.speed || 0.005; // segments per frame
+  var loop = opts.loop !== false;
+  var onUpdate = opts.onUpdate;
+  var onComplete = opts.onComplete;
+  var self = this;
+  if (!route.length || typeof L === 'undefined') {
+    if (!route.length) console.warn('animateAlongRoute: opts.coordinates is empty');
+    return { stop: function(){}, resume: function(){} };
+  }
+
+  // Caller can pass a bemap.Marker via opts.marker; otherwise we make a
+  // plain Leaflet marker so the demo just shows movement.
+  var marker = opts.marker;
+  var native;
+  if (marker &amp;&amp; marker.native &amp;&amp; typeof marker.native.setLatLng === 'function') {
+    native = marker.native;
+  } else {
+    native = L.marker([route[0][1], route[0][0]]).addTo(this.native);
+  }
+
+  var pos = 0, animating = true, rafId = null;
+  var total = route.length - 1;
+  function step() {
+    if (!animating) return;
+    pos += speed;
+    if (pos >= total) {
+      if (loop) pos = 0;
+      else { animating = false; if (onComplete) onComplete(); return; }
+    }
+    var idx = Math.floor(pos);
+    var next = Math.min(idx + 1, route.length - 1);
+    var t = pos - idx;
+    var lon = route[idx][0] + (route[next][0] - route[idx][0]) * t;
+    var lat = route[idx][1] + (route[next][1] - route[idx][1]) * t;
+    native.setLatLng([lat, lon]);
+    if (onUpdate) onUpdate({ lon: lon, lat: lat, progress: pos / total });
+    rafId = requestAnimationFrame(step);
+  }
+  rafId = requestAnimationFrame(step);
+
+  var controller = {
+    stop: function () {
+      animating = false;
+      if (rafId) cancelAnimationFrame(rafId);
+      if (typeof self._unregisterEffect === 'function') self._unregisterEffect('animateAlongRoute');
+    },
+    resume: function () { if (!animating) { animating = true; rafId = requestAnimationFrame(step); } },
+    reset: function () { pos = 0; }
+  };
+  if (typeof self._registerEffect === 'function') {
+    self._registerEffect('animateAlongRoute', function () { controller.stop(); });
+  }
+  return controller;
+};
+</code></pre>
+        </article>
+    </section>
+
+
+
+
+</div>
+
+<nav>
+    <h2><a href="index.html">Home</a></h2><h3>Classes</h3><ul><li><a href="bemap.AclDetailsResponse.html">AclDetailsResponse</a></li><li><a href="bemap.AclLabel.html">AclLabel</a></li><li><a href="bemap.AclService.html">AclService</a></li><li><a href="bemap.Address.html">Address</a></li><li><a href="bemap.AttributionWidget.html">AttributionWidget</a></li><li><a href="bemap.Autocomplete.html">Autocomplete</a></li><li><a href="bemap.AutocompleteElement.html">AutocompleteElement</a></li><li><a href="bemap.AutocompleteGeocodingRequest.html">AutocompleteGeocodingRequest</a></li><li><a href="bemap.AutocompleteGeocodingResponse.html">AutocompleteGeocodingResponse</a></li><li><a href="bemap.BemapLayer.html">BemapLayer</a></li><li><a href="bemap.BoundingBox.html">BoundingBox</a></li><li><a href="bemap.BrowserCache.html">BrowserCache</a></li><li><a href="bemap.BuildingsLayer.html">BuildingsLayer</a></li><li><a href="bemap.ChargingPoint.html">ChargingPoint</a></li><li><a href="bemap.ChargingStation.html">ChargingStation</a></li><li><a href="bemap.ChargingStationPool.html">ChargingStationPool</a></li><li><a href="bemap.ChargingStations.html">ChargingStations</a></li><li><a href="bemap.ChargingStationSearchRequest.html">ChargingStationSearchRequest</a></li><li><a href="bemap.ChargingStationSearchResponse.html">ChargingStationSearchResponse</a></li><li><a href="bemap.ChargingStationStep.html">ChargingStationStep</a></li><li><a href="bemap.ChargingTime.html">ChargingTime</a></li><li><a href="bemap.ChargingTimeRequest.html">ChargingTimeRequest</a></li><li><a href="bemap.ChargingTimeResponse.html">ChargingTimeResponse</a></li><li><a href="bemap.Circle.html">Circle</a></li><li><a href="bemap.CircleStyle.html">CircleStyle</a></li><li><a href="bemap.clusterStyle.html">clusterStyle</a></li><li><a href="bemap.Color.html">Color</a></li><li><a href="bemap.CondMaxSpeed.html">CondMaxSpeed</a></li><li><a href="bemap.Context.html">Context</a></li><li><a href="bemap.Coordinate.html">Coordinate</a></li><li><a href="bemap.CoordinateSat.html">CoordinateSat</a></li><li><a href="bemap.Destination.html">Destination</a></li><li><a href="bemap.Error.html">Error</a></li><li><a href="bemap.EvBrand.html">EvBrand</a></li><li><a href="bemap.EvReachableArea.html">EvReachableArea</a></li><li><a href="bemap.EvReachableAreaRequest.html">EvReachableAreaRequest</a></li><li><a href="bemap.EvReachableAreaResponse.html">EvReachableAreaResponse</a></li><li><a href="bemap.EvseRouting.html">EvseRouting</a></li><li><a href="bemap.EvSmartRouting.html">EvSmartRouting</a></li><li><a href="bemap.EvSmartRoutingRequest.html">EvSmartRoutingRequest</a></li><li><a href="bemap.EvSmartRoutingResponse.html">EvSmartRoutingResponse</a></li><li><a href="bemap.EvStepPoint.html">EvStepPoint</a></li><li><a href="bemap.EvVehicle.html">EvVehicle</a></li><li><a href="bemap.EvVehicles.html">EvVehicles</a></li><li><a href="bemap.Exception.html">Exception</a></li><li><a href="bemap.GeoAutocomplete.html">GeoAutocomplete</a></li><li><a href="bemap.Geocoder.html">Geocoder</a></li><li><a href="bemap.GeocodingItem.html">GeocodingItem</a></li><li><a href="bemap.GeocodingRequest.html">GeocodingRequest</a></li><li><a href="bemap.GeocodingResponse.html">GeocodingResponse</a></li><li><a href="bemap.GeoSearchInfo.html">GeoSearchInfo</a></li><li><a href="bemap.GeoServerInfoResponse.html">GeoServerInfoResponse</a></li><li><a href="bemap.GeoServerInfoService.html">GeoServerInfoService</a></li><li><a href="bemap.GeoServerServiceInfo.html">GeoServerServiceInfo</a></li><li><a href="bemap.GeoServerServiceLimit.html">GeoServerServiceLimit</a></li><li><a href="bemap.HeatmapLayer.html">HeatmapLayer</a></li><li><a href="bemap.Icon.html">Icon</a></li><li><a href="bemap.Isochrone.html">Isochrone</a></li><li><a href="bemap.Layer.html">Layer</a></li><li><a href="bemap.LeafletMap.html">LeafletMap</a></li><li><a href="bemap.LineStyle.html">LineStyle</a></li><li><a href="bemap.Listener.html">Listener</a></li><li><a href="bemap.Map.html">Map</a></li><li><a href="bemap.MapEvent.html">MapEvent</a></li><li><a href="bemap.MapLibreMap.html">MapLibreMap</a></li><li><a href="bemap.Marker.html">Marker</a></li><li><a href="bemap.MultiMarker.html">MultiMarker</a></li><li><a href="bemap.NearPoint.html">NearPoint</a></li><li><a href="bemap.NearPoiRequest.html">NearPoiRequest</a></li><li><a href="bemap.NearPoiResponse.html">NearPoiResponse</a></li><li><a href="bemap.NearPoiSearch.html">NearPoiSearch</a></li><li><a href="bemap.Object.html">Object</a></li><li><a href="bemap.Ol3Map.html">Ol3Map</a></li><li><a href="bemap.OlMap.html">OlMap</a></li><li><a href="bemap.OsmLayer.html">OsmLayer</a></li><li><a href="bemap.PMTilesLayer.html">PMTilesLayer</a></li><li><a href="bemap.Polygon.html">Polygon</a></li><li><a href="bemap.PolygonStyle.html">PolygonStyle</a></li><li><a href="bemap.Polyline.html">Polyline</a></li><li><a href="bemap.Popup.html">Popup</a></li><li><a href="bemap.PostalAddress.html">PostalAddress</a></li><li><a href="bemap.RasterLayer.html">RasterLayer</a></li><li><a href="bemap.ReverseGeocoder.html">ReverseGeocoder</a></li><li><a href="bemap.ReverseGeocodingRequest.html">ReverseGeocodingRequest</a></li><li><a href="bemap.RevGeoSearchInfo.html">RevGeoSearchInfo</a></li><li><a href="bemap.RoadFeature.html">RoadFeature</a></li><li><a href="bemap.Route.html">Route</a></li><li><a href="bemap.Route.Event.html">Event</a></li><li><a href="bemap.Route.RoutesheetInstruction.html">RoutesheetInstruction</a></li><li><a href="bemap.Routing.html">Routing</a></li><li><a href="bemap.RoutingDestination.html">RoutingDestination</a></li><li><a href="bemap.RoutingInstruction.html">RoutingInstruction</a></li><li><a href="bemap.RoutingRequest.html">RoutingRequest</a></li><li><a href="bemap.RoutingResponse.html">RoutingResponse</a></li><li><a href="bemap.RoutingRoute.html">RoutingRoute</a></li><li><a href="bemap.RoutingSummary.html">RoutingSummary</a></li><li><a href="bemap.RoutingV2.html">RoutingV2</a></li><li><a href="bemap.RoutingVehicleProfile.html">RoutingVehicleProfile</a></li><li><a href="bemap.RoutingWaypoint.html">RoutingWaypoint</a></li><li><a href="bemap.Service.html">Service</a></li><li><a href="bemap.TextStyle.html">TextStyle</a></li><li><a href="bemap.TilesAuth.html">TilesAuth</a></li><li><a href="bemap.TilesOverlayCatalog.html">TilesOverlayCatalog</a></li><li><a href="global.html#bemap#.TraceRoute">TraceRoute</a></li><li><a href="bemap.TraceRouteDestination.html">TraceRouteDestination</a></li><li><a href="bemap.TraceRouteRequest.html">TraceRouteRequest</a></li><li><a href="bemap.VectorLayer.html">VectorLayer</a></li><li><a href="bemap.VectorTileLayer.html">VectorTileLayer</a></li><li><a href="bemap.WmsLayer.html">WmsLayer</a></li></ul><h3>Global</h3><ul><li><a href="global.html#AC">AC</a></li><li><a href="global.html#AC_SINGLE_PHASE">AC_SINGLE_PHASE</a></li><li><a href="global.html#AC_THREE_PHASES">AC_THREE_PHASES</a></li><li><a href="global.html#bemap">bemap</a></li><li><a href="global.html#DC">DC</a></li><li><a href="global.html#NA">NA</a></li></ul>
+</nav>
+
+<br class="clear">
+
+<footer>
+    Documentation generated by <a href="https://github.com/jsdoc/jsdoc">JSDoc 3.6.3</a> on Tue Jun 02 2026 11:46:44 GMT+0200 (heure d’été d’Europe centrale)
+</footer>
+
+<script> prettyPrint(); </script>
+<script src="scripts/linenumber.js"> </script>
+</body>
+</html>

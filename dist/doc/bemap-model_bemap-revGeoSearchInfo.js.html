@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>JSDoc: Source: bemap-model/bemap-revGeoSearchInfo.js</title>
+
+    <script src="scripts/prettify/prettify.js"> </script>
+    <script src="scripts/prettify/lang-css.js"> </script>
+    <!--[if lt IE 9]>
+      <script src="//html5shiv.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+    <link type="text/css" rel="stylesheet" href="styles/prettify-tomorrow.css">
+    <link type="text/css" rel="stylesheet" href="styles/jsdoc-default.css">
+</head>
+
+<body>
+
+<div id="main">
+
+    <h1 class="page-title">Source: bemap-model/bemap-revGeoSearchInfo.js</h1>
+
+    
+
+
+
+    
+    <section>
+        <article>
+            <pre class="prettyprint source linenums"><code>/**
+ * BeNomad BeMap JavaScript API - RevGeoSearchInfo
+ */
+
+/**
+ * @classdesc
+ * Base class for reverse geocoding search information.
+ * @public
+ * @constructor
+ * @abstract
+ * @param {object} options see below the available values.
+ * @param {String} options.xy Mandatory
+ * @param {String} options.radius Mandatory
+ * @param {String} options.angle Accessor to the GPS angle measure (in degrees). Default is -1.
+ * @param {String} options.speed Accessor to the GPS speed measure (in km/h).
+ * @param {String} options.transportType Transportation mode. Available values: PEDESTRIAN BICYCLE MOTORCYCLE CAR TAXI PUBLIC_BUS EMERGENCY DELIVERY_TRUCK TRUCK
+ * @param {String} options.language Define the language that will be used to perform the address lookup.
+ * @param {Int} options.maxResult The maximum number of items used to perform the research and returned items by the server. Default is 1.
+ * @param {String} options.options
+ */
+bemap.RevGeoSearchInfo = function(options) {
+    var opts = options || {};
+
+    /**
+     * @type {String}
+     * @protected
+     */
+    this.xy = opts.xy ? opts.xy : null;
+
+    /**
+     * @type {String}
+     * @protected
+     */
+    this.angle = opts.angle ? opts.angle : null;
+
+    /**
+     * @type {String}
+     * @protected
+     */
+    this.radius = opts.radius ? opts.radius : null;
+
+    /**
+     * @type {String}
+     * @protected
+     */
+    this.speed = opts.speed ? opts.speed : null;
+
+    /**
+     * @type {String}
+     * @protected
+     */
+    this.transportType = opts.transportType ? opts.transportType : null;
+
+    /**
+     * @type {String}
+     * @protected
+     */
+    this.language = opts.language ? opts.language : null;
+
+    /**
+     * @type {int}
+     * @protected
+     */
+    this.maxResult = opts.maxResult ? opts.maxResult : null;
+
+    /**
+     * @type {String}
+     * @protected
+     */
+    this.options = opts.options ? opts.options : null;
+};
+
+/**
+ * Get XY informations.
+ * @return {String} xy.
+ */
+bemap.RevGeoSearchInfo.prototype.getXy = function() {
+    return this.xy;
+};
+
+/**
+ * Get the angle information.
+ * @return {String} angle.
+ */
+bemap.RevGeoSearchInfo.prototype.getAngle = function() {
+    return this.angle;
+};
+
+/**
+ * Get the radius information.
+ * @return {String}
+ */
+bemap.RevGeoSearchInfo.prototype.getRadius = function() {
+    return this.radius;
+};
+
+/**
+ * Get the speed information.
+ * @return {String} speed.
+ */
+bemap.RevGeoSearchInfo.prototype.getSpeed = function() {
+    return this.speed;
+};
+
+/**
+ * Get then transport type information.
+ * @return {String} transportType.
+ */
+bemap.RevGeoSearchInfo.prototype.getTransporType = function() {
+    return this.transportType;
+};
+
+/**
+ * Get the language information.
+ * @return {String} language.
+ */
+bemap.RevGeoSearchInfo.prototype.getLanguage = function() {
+    return this.language;
+};
+
+/**
+ * Get the number maximum of result.
+ * @return {Int} maxResult.
+ */
+bemap.RevGeoSearchInfo.prototype.getMaxResult = function() {
+    return this.maxResult;
+};
+
+/**
+ * Get the options of the research.
+ * @return {String} options.
+ */
+bemap.RevGeoSearchInfo.prototype.getOptions = function() {
+    return this.options;
+};
+
+/**
+ * Set XY informations.
+ * @param {String} xy the new xy information to set.
+ * @return {bemap.RevGeoSearchInfo} this.
+ */
+bemap.RevGeoSearchInfo.prototype.setXy = function(xy) {
+    this.xy = xy;
+    return this;
+};
+
+/**
+ * Set the angle information.
+ * @param {String} angle the new angle to set.
+ * @return {bemap.RevGeoSearchInfo} this.
+ */
+bemap.RevGeoSearchInfo.prototype.setAngle = function(angle) {
+    this.angle = angle;
+    return this;
+};
+
+/**
+ * Set the radius information.
+ * @param {String} radius the new radius to set.
+ * @return {bemap.RevGeoSearchInfo} this.
+ */
+bemap.RevGeoSearchInfo.prototype.setRadius = function(radius) {
+    this.radius = radius;
+    return this;
+};
+
+/**
+ * Set the speed information.
+ * @param {String} speed the new speed to set.
+ * @return {bemap.RevGeoSearchInfo} this.
+ */
+bemap.RevGeoSearchInfo.prototype.setSpeed = function(speed) {
+    this.speed = speed;
+    return this;
+};
+
+/**
+ * Set then transport type information.
+ * @param {String} transportType the new transport type to set.
+ * @return {bemap.RevGeoSearchInfo} this.
+ */
+bemap.RevGeoSearchInfo.prototype.setTransporType = function(transportType) {
+    this.transportType = transportType;
+    return this;
+};
+
+/**
+ * Set the language information.
+ * @param {String} language the new language to set.
+ * @return {bemap.RevGeoSearchInfo} this.
+ */
+bemap.RevGeoSearchInfo.prototype.setLanguage = function(language) {
+    this.language = language;
+    return this;
+};
+
+/**
+ * Set the number maximum of result.
+ * @param {Int} maxResult the new number max of results to set.
+ * @return {bemap.RevGeoSearchInfo} this.
+ */
+bemap.RevGeoSearchInfo.prototype.setMaxResult = function(maxResult) {
+    this.maxResult = maxResult;
+    return this;
+};
+
+/**
+ * Set the research options.
+ * @param {String} options the new number max of results to set.
+ * @return {bemap.RevGeoSearchInfo} this.
+ */
+bemap.RevGeoSearchInfo.prototype.setOptions = function(options) {
+    this.options = options;
+    return this;
+};
+</code></pre>
+        </article>
+    </section>
+
+
+
+
+</div>
+
+<nav>
+    <h2><a href="index.html">Home</a></h2><h3>Classes</h3><ul><li><a href="bemap.AclDetailsResponse.html">AclDetailsResponse</a></li><li><a href="bemap.AclLabel.html">AclLabel</a></li><li><a href="bemap.AclService.html">AclService</a></li><li><a href="bemap.Address.html">Address</a></li><li><a href="bemap.AttributionWidget.html">AttributionWidget</a></li><li><a href="bemap.Autocomplete.html">Autocomplete</a></li><li><a href="bemap.AutocompleteElement.html">AutocompleteElement</a></li><li><a href="bemap.AutocompleteGeocodingRequest.html">AutocompleteGeocodingRequest</a></li><li><a href="bemap.AutocompleteGeocodingResponse.html">AutocompleteGeocodingResponse</a></li><li><a href="bemap.BemapLayer.html">BemapLayer</a></li><li><a href="bemap.BoundingBox.html">BoundingBox</a></li><li><a href="bemap.BrowserCache.html">BrowserCache</a></li><li><a href="bemap.BuildingsLayer.html">BuildingsLayer</a></li><li><a href="bemap.ChargingPoint.html">ChargingPoint</a></li><li><a href="bemap.ChargingStation.html">ChargingStation</a></li><li><a href="bemap.ChargingStationPool.html">ChargingStationPool</a></li><li><a href="bemap.ChargingStations.html">ChargingStations</a></li><li><a href="bemap.ChargingStationSearchRequest.html">ChargingStationSearchRequest</a></li><li><a href="bemap.ChargingStationSearchResponse.html">ChargingStationSearchResponse</a></li><li><a href="bemap.ChargingStationStep.html">ChargingStationStep</a></li><li><a href="bemap.ChargingTime.html">ChargingTime</a></li><li><a href="bemap.ChargingTimeRequest.html">ChargingTimeRequest</a></li><li><a href="bemap.ChargingTimeResponse.html">ChargingTimeResponse</a></li><li><a href="bemap.Circle.html">Circle</a></li><li><a href="bemap.CircleStyle.html">CircleStyle</a></li><li><a href="bemap.clusterStyle.html">clusterStyle</a></li><li><a href="bemap.Color.html">Color</a></li><li><a href="bemap.CondMaxSpeed.html">CondMaxSpeed</a></li><li><a href="bemap.Context.html">Context</a></li><li><a href="bemap.Coordinate.html">Coordinate</a></li><li><a href="bemap.CoordinateSat.html">CoordinateSat</a></li><li><a href="bemap.Destination.html">Destination</a></li><li><a href="bemap.Error.html">Error</a></li><li><a href="bemap.EvBrand.html">EvBrand</a></li><li><a href="bemap.EvReachableArea.html">EvReachableArea</a></li><li><a href="bemap.EvReachableAreaRequest.html">EvReachableAreaRequest</a></li><li><a href="bemap.EvReachableAreaResponse.html">EvReachableAreaResponse</a></li><li><a href="bemap.EvseRouting.html">EvseRouting</a></li><li><a href="bemap.EvSmartRouting.html">EvSmartRouting</a></li><li><a href="bemap.EvSmartRoutingRequest.html">EvSmartRoutingRequest</a></li><li><a href="bemap.EvSmartRoutingResponse.html">EvSmartRoutingResponse</a></li><li><a href="bemap.EvStepPoint.html">EvStepPoint</a></li><li><a href="bemap.EvVehicle.html">EvVehicle</a></li><li><a href="bemap.EvVehicles.html">EvVehicles</a></li><li><a href="bemap.Exception.html">Exception</a></li><li><a href="bemap.GeoAutocomplete.html">GeoAutocomplete</a></li><li><a href="bemap.Geocoder.html">Geocoder</a></li><li><a href="bemap.GeocodingItem.html">GeocodingItem</a></li><li><a href="bemap.GeocodingRequest.html">GeocodingRequest</a></li><li><a href="bemap.GeocodingResponse.html">GeocodingResponse</a></li><li><a href="bemap.GeoSearchInfo.html">GeoSearchInfo</a></li><li><a href="bemap.GeoServerInfoResponse.html">GeoServerInfoResponse</a></li><li><a href="bemap.GeoServerInfoService.html">GeoServerInfoService</a></li><li><a href="bemap.GeoServerServiceInfo.html">GeoServerServiceInfo</a></li><li><a href="bemap.GeoServerServiceLimit.html">GeoServerServiceLimit</a></li><li><a href="bemap.HeatmapLayer.html">HeatmapLayer</a></li><li><a href="bemap.Icon.html">Icon</a></li><li><a href="bemap.Isochrone.html">Isochrone</a></li><li><a href="bemap.Layer.html">Layer</a></li><li><a href="bemap.LeafletMap.html">LeafletMap</a></li><li><a href="bemap.LineStyle.html">LineStyle</a></li><li><a href="bemap.Listener.html">Listener</a></li><li><a href="bemap.Map.html">Map</a></li><li><a href="bemap.MapEvent.html">MapEvent</a></li><li><a href="bemap.MapLibreMap.html">MapLibreMap</a></li><li><a href="bemap.Marker.html">Marker</a></li><li><a href="bemap.MultiMarker.html">MultiMarker</a></li><li><a href="bemap.NearPoint.html">NearPoint</a></li><li><a href="bemap.NearPoiRequest.html">NearPoiRequest</a></li><li><a href="bemap.NearPoiResponse.html">NearPoiResponse</a></li><li><a href="bemap.NearPoiSearch.html">NearPoiSearch</a></li><li><a href="bemap.Object.html">Object</a></li><li><a href="bemap.Ol3Map.html">Ol3Map</a></li><li><a href="bemap.OlMap.html">OlMap</a></li><li><a href="bemap.OsmLayer.html">OsmLayer</a></li><li><a href="bemap.PMTilesLayer.html">PMTilesLayer</a></li><li><a href="bemap.Polygon.html">Polygon</a></li><li><a href="bemap.PolygonStyle.html">PolygonStyle</a></li><li><a href="bemap.Polyline.html">Polyline</a></li><li><a href="bemap.Popup.html">Popup</a></li><li><a href="bemap.PostalAddress.html">PostalAddress</a></li><li><a href="bemap.RasterLayer.html">RasterLayer</a></li><li><a href="bemap.ReverseGeocoder.html">ReverseGeocoder</a></li><li><a href="bemap.ReverseGeocodingRequest.html">ReverseGeocodingRequest</a></li><li><a href="bemap.RevGeoSearchInfo.html">RevGeoSearchInfo</a></li><li><a href="bemap.RoadFeature.html">RoadFeature</a></li><li><a href="bemap.Route.html">Route</a></li><li><a href="bemap.Route.Event.html">Event</a></li><li><a href="bemap.Route.RoutesheetInstruction.html">RoutesheetInstruction</a></li><li><a href="bemap.Routing.html">Routing</a></li><li><a href="bemap.RoutingDestination.html">RoutingDestination</a></li><li><a href="bemap.RoutingInstruction.html">RoutingInstruction</a></li><li><a href="bemap.RoutingRequest.html">RoutingRequest</a></li><li><a href="bemap.RoutingResponse.html">RoutingResponse</a></li><li><a href="bemap.RoutingRoute.html">RoutingRoute</a></li><li><a href="bemap.RoutingSummary.html">RoutingSummary</a></li><li><a href="bemap.RoutingV2.html">RoutingV2</a></li><li><a href="bemap.RoutingVehicleProfile.html">RoutingVehicleProfile</a></li><li><a href="bemap.RoutingWaypoint.html">RoutingWaypoint</a></li><li><a href="bemap.Service.html">Service</a></li><li><a href="bemap.TextStyle.html">TextStyle</a></li><li><a href="bemap.TilesAuth.html">TilesAuth</a></li><li><a href="bemap.TilesOverlayCatalog.html">TilesOverlayCatalog</a></li><li><a href="global.html#bemap#.TraceRoute">TraceRoute</a></li><li><a href="bemap.TraceRouteDestination.html">TraceRouteDestination</a></li><li><a href="bemap.TraceRouteRequest.html">TraceRouteRequest</a></li><li><a href="bemap.VectorLayer.html">VectorLayer</a></li><li><a href="bemap.VectorTileLayer.html">VectorTileLayer</a></li><li><a href="bemap.WmsLayer.html">WmsLayer</a></li></ul><h3>Global</h3><ul><li><a href="global.html#AC">AC</a></li><li><a href="global.html#AC_SINGLE_PHASE">AC_SINGLE_PHASE</a></li><li><a href="global.html#AC_THREE_PHASES">AC_THREE_PHASES</a></li><li><a href="global.html#bemap">bemap</a></li><li><a href="global.html#DC">DC</a></li><li><a href="global.html#NA">NA</a></li></ul>
+</nav>
+
+<br class="clear">
+
+<footer>
+    Documentation generated by <a href="https://github.com/jsdoc/jsdoc">JSDoc 3.6.3</a> on Tue Jun 02 2026 11:46:45 GMT+0200 (heure d’été d’Europe centrale)
+</footer>
+
+<script> prettyPrint(); </script>
+<script src="scripts/linenumber.js"> </script>
+</body>
+</html>

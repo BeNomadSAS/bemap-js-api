@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>BeMap JS API — Attribution Widget</title>
+
+  <link rel="stylesheet" href="../dist/leaflet.css">
+  <link rel="stylesheet" href="../dist/ol.css">
+  <link rel="stylesheet" href="../dist/maplibre-gl.css">
+  <link rel="stylesheet" href="../dist/bemap-js-api.css">
+  <link rel="stylesheet" href="bn-2026.css">
+
+  <script src="../dist/leaflet.js"></script>
+  <script src="../dist/ol.js"></script>
+  <script src="../dist/maplibre-gl.js"></script>
+  <script src="../dist/pmtiles.js"></script>
+  <script src="../dist/bemap-js-api.js"></script>
+  <script src="effect-bridge.js"></script>
+  <script src="context.js"></script>
+  <script src="bn-2026.js"></script>
+</head>
+<body data-bn-page
+      data-bn-title="Attribution Widget"
+      data-bn-subtitle="One <code>bemap.AttributionWidget</code> works on all three engines. Click the ⓘ icon in the corner of each map to see the live mention set."
+      data-bn-chips="Leaflet:lf,OpenLayers:ol,MapLibre:ml,v1.5+:brand">
+  <div class="bn-shell">
+    <div class="bn-stage">
+      <div class="bn-map-grid bn-map-grid--3">
+        <div class="bn-map-cell">
+          <div class="bn-map-cell__label bn--ol">
+            <span class="bn-chip bn-chip--ol">OL</span>
+            <span>bemap.Ol3Map</span>
+          </div>
+          <div id="mapOl" class="bn-map"></div>
+        </div>
+        <div class="bn-map-cell">
+          <div class="bn-map-cell__label bn--lf">
+            <span class="bn-chip bn-chip--lf">Leaflet</span>
+            <span>bemap.LeafletMap</span>
+          </div>
+          <div id="mapLf" class="bn-map"></div>
+        </div>
+        <div class="bn-map-cell">
+          <div class="bn-map-cell__label bn--ml">
+            <span class="bn-chip bn-chip--ml">MapLibre</span>
+            <span>bemap.MapLibreMap + BeNomad Tiles</span>
+          </div>
+          <div id="mapMl" class="bn-map"></div>
+        </div>
+      </div>
+
+      <aside class="bn-panel">
+        <div class="bn-panel__header">
+          <span class="bn-panel__header-title">Controls</span>
+        </div>
+        <div class="bn-panel__body">
+          <section class="bn-panel__section">
+            <h4>Position (all maps)</h4>
+            <div class="bn-row bn-row__inline">
+              <button class="bn-btn"           data-pos="top-left"     type="button">Top L</button>
+              <button class="bn-btn"           data-pos="top-right"    type="button">Top R</button>
+              <button class="bn-btn"           data-pos="bottom-left"  type="button">Bot L</button>
+              <button class="bn-btn bn-btn--primary" data-pos="bottom-right" type="button">Bot R</button>
+            </div>
+          </section>
+          <section class="bn-panel__section">
+            <h4>Visibility</h4>
+            <div class="bn-row bn-row__inline">
+              <button id="btnShow" class="bn-btn bn-btn--ok"  type="button">Show</button>
+              <button id="btnHide" class="bn-btn bn-btn--err" type="button">Hide</button>
+            </div>
+          </section>
+          <section class="bn-panel__section">
+            <h4>Zoom +/- arrows (all maps)</h4>
+            <div class="bn-row bn-row__inline">
+              <button id="btnZoomShow" class="bn-btn bn-btn--ok"  type="button">Show zoom</button>
+              <button id="btnZoomHide" class="bn-btn bn-btn--err" type="button">Hide zoom</button>
+            </div>
+          </section>
+          <section class="bn-panel__section">
+            <h4>Custom lines</h4>
+            <div class="bn-row">
+              <label>Append your own credits (one per line)</label>
+              <textarea id="customLines" rows="4" placeholder="© Your Company 2026&#10;Data © Some open dataset">© Your Company 2026
+Data © Some open dataset</textarea>
+            </div>
+            <div class="bn-row bn-row__inline">
+              <button id="btnApply" class="bn-btn bn-btn--primary" type="button">Apply</button>
+              <button id="btnClear" class="bn-btn bn-btn--ghost"   type="button">Clear</button>
+            </div>
+          </section>
+          <section class="bn-panel__section">
+            <h4>API</h4>
+            <div class="bn-stat"><span class="bn-stat__label">Engine OL</span> <span id="engOl"  class="bn-stat__value">—</span></div>
+            <div class="bn-stat"><span class="bn-stat__label">Engine LF</span> <span id="engLf"  class="bn-stat__value">—</span></div>
+            <div class="bn-stat"><span class="bn-stat__label">Engine ML</span> <span id="engMl"  class="bn-stat__value">—</span></div>
+          </section>
+        </div>
+      </aside>
+    </div>
+  </div>
+
+<script>
+var ctxTiles = new bemap.Context({
+  host:      bemapMainCtx.host,
+  secure:    bemapMainCtx.protocol === 'https',
+  login:     bemapMainCtx.login,
+  password:  bemapMainCtx.password,
+  tilesHost: 'mptiles-api.benomad.net'
+});
+
+// Each map constructor auto-creates an AttributionWidget and stashes it on
+// `map._attributionWidget`. We grab those defaults and manipulate them — NO
+// `new bemap.AttributionWidget(...)` here. Creating a second widget would
+// duplicate the ⓘ icon on every map.
+var mapOl = new bemap.Ol3Map(bemapMainCtx, 'mapOl', { enableRotation: true }).defaultLayers().move(2.35, 48.85, 5);
+var mapLf = new bemap.LeafletMap(bemapMainCtx, 'mapLf').defaultLayers().move(2.35, 48.85, 5);
+var mapMl = new bemap.MapLibreMap(ctxTiles, 'mapMl').move(2.35, 48.85, 5);
+
+bn.log('Three engines instantiated. Grabbing each map._attributionWidget default.', 'info');
+
+// Reference the DEFAULT widget each map auto-created. No new instantiation.
+var widgets = [mapOl._attributionWidget, mapLf._attributionWidget, mapMl._attributionWidget];
+
+// Apply the demo's initial customisation to the existing defaults.
+var initialLines = ['© Your Company 2026', 'Data © Some open dataset'];
+widgets.forEach(function (w) {
+  if (!w) return;
+  w.setCustomLines(initialLines);
+  // OL widget gets the open-source notices link for completeness.
+  if (w === widgets[0]) { w.noticesUrl = '../OPEN_SOURCE_NOTICES.txt'; w.refresh(); }
+});
+
+document.getElementById('engOl').textContent = widgets[0] ? widgets[0].getEngine() : 'unavailable';
+document.getElementById('engLf').textContent = widgets[1] ? widgets[1].getEngine() : 'unavailable';
+document.getElementById('engMl').textContent = widgets[2] ? widgets[2].getEngine() : 'unavailable';
+
+bn.log('Default widgets adopted — click the ⓘ icon on any map to expand.', 'ok');
+
+function eachWidget(fn) {
+  widgets.forEach(function (w) { if (w) try { fn(w); } catch (e) {} });
+}
+
+// Position controls — operate on the EXISTING default widgets
+document.querySelectorAll('[data-pos]').forEach(function (btn) {
+  btn.addEventListener('click', function () {
+    var pos = btn.getAttribute('data-pos');
+    eachWidget(function (w) { w.setPosition(pos); });
+    document.querySelectorAll('[data-pos]').forEach(function (b) {
+      b.classList.toggle('bn-btn--primary', b === btn);
+    });
+    bn.log('setPosition("' + pos + '") applied to existing defaults.', 'info');
+  });
+});
+
+// Show / Hide
+document.getElementById('btnShow').onclick = function () {
+  eachWidget(function (w) { w.show(); });
+  bn.log('show() applied to existing defaults.', 'ok');
+};
+document.getElementById('btnHide').onclick = function () {
+  eachWidget(function (w) { w.hide(); });
+  bn.log('hide() applied to existing defaults.', 'warn');
+};
+
+// Show / Hide native zoom (+/-) arrows on all maps
+var maps = [mapOl, mapLf, mapMl];
+document.getElementById('btnZoomShow').onclick = function () {
+  maps.forEach(function (m) { if (m && typeof m.setZoomControl === 'function') m.setZoomControl(true); });
+  bn.log('Zoom +/- shown on all maps.', 'ok');
+};
+document.getElementById('btnZoomHide').onclick = function () {
+  maps.forEach(function (m) { if (m && typeof m.setZoomControl === 'function') m.setZoomControl(false); });
+  bn.log('Zoom +/- hidden on all maps.', 'warn');
+};
+
+// Custom lines
+document.getElementById('btnApply').onclick = function () {
+  var raw = document.getElementById('customLines').value;
+  var lines = raw.split('\n').map(function (l) { return l.trim(); }).filter(Boolean);
+  eachWidget(function (w) { w.setCustomLines(lines); });
+  bn.log('setCustomLines(' + lines.length + ' lines) applied to existing defaults.', 'ok');
+};
+document.getElementById('btnClear').onclick = function () {
+  document.getElementById('customLines').value = '';
+  eachWidget(function (w) { w.setCustomLines([]); });
+  bn.log('Cleared custom lines — only library defaults remain.', 'info');
+};
+</script>
+</body>
+</html>

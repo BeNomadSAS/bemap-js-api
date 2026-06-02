@@ -1,0 +1,1705 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>JSDoc: Source: bemap-map.js</title>
+
+    <script src="scripts/prettify/prettify.js"> </script>
+    <script src="scripts/prettify/lang-css.js"> </script>
+    <!--[if lt IE 9]>
+      <script src="//html5shiv.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+    <link type="text/css" rel="stylesheet" href="styles/prettify-tomorrow.css">
+    <link type="text/css" rel="stylesheet" href="styles/jsdoc-default.css">
+</head>
+
+<body>
+
+<div id="main">
+
+    <h1 class="page-title">Source: bemap-map.js</h1>
+
+    
+
+
+
+    
+    <section>
+        <article>
+            <pre class="prettyprint source linenums"><code>/**
+ * BeNomad BeMap JavaScript API - Map abstract class
+ */
+
+/**
+ * @classdesc
+ * Base class for map.
+ * @public
+ * @constructor
+ * @abstract
+ * @param {bemap.Context} context BeMap-JS-API Context.
+ * @param {object} options.
+ */
+bemap.Map = function (context, options) {
+  /**
+   * @protected
+   */
+  this.ctx = context;
+
+  /**
+   * @protected
+   */
+  this.native = null;
+
+  /**
+   * @protected
+   */
+  this.layers = [];
+
+  /**
+   * @protected
+   */
+  this.events = [];
+
+  if (context === undefined) {
+    console.error("Context is required!");
+    return;
+  }
+
+  /**
+   * @protected
+   */
+  this.callback = [];
+
+  /**
+   * Whether the zoom (+/-) control is currently visible. Initialised from
+   * the resolved `zoomControl` option (default OFF — opt-in) and flipped at
+   * runtime by `setZoomControl()`. Kept in sync so `getZoomControl()` is
+   * accurate before any runtime toggle.
+   * @protected
+   */
+  this._zoomControlVisible = bemap.Map._resolveControlOptions(options).zoomControl;
+};
+
+/**
+ * Reserved name used to store the bemap object into the native properties of OpenLayers.
+ */
+bemap.Map.OWNREF = '__bemap_own_ref__';
+
+/**
+ * Cross-engine zoom-control positions. Each engine has its own naming —
+ * `bemap.Map._translateZoomPosition(engine, pos)` does the conversion.
+ *
+ * @public
+ * @since 1.5.0
+ * @enum {String}
+ */
+bemap.Map.ZoomPosition = Object.freeze({
+  TOP_LEFT: 'top-left',
+  TOP_RIGHT: 'top-right',
+  BOTTOM_LEFT: 'bottom-left',
+  BOTTOM_RIGHT: 'bottom-right'
+});
+
+/**
+ * Translate a `bemap.Map.ZoomPosition` value to the engine-specific
+ * convention.
+ *   - 'leaflet'   →  `'topleft'` / `'topright'` / `'bottomleft'` / `'bottomright'`
+ *   - 'ol'        →  the CSS-class suffix `'top-left'` (used as `bemap-zoom-pos-&lt;suffix>`)
+ *   - 'maplibre'  →  unchanged (`'top-left'` matches MapLibre's own convention)
+ *
+ * @public
+ * @since 1.5.0
+ * @param {String} engine 'leaflet' | 'ol' | 'maplibre'
+ * @param {String} pos    One of the `bemap.Map.ZoomPosition` values.
+ * @return {String}
+ */
+bemap.Map._translateZoomPosition = function (engine, pos) {
+  if (engine === 'leaflet') {
+    return (pos || 'top-left').replace(/-/g, '');
+  }
+  // OL and MapLibre both use the hyphenated form.
+  return pos || 'top-left';
+};
+
+/**
+ * Resolve the `nativeAttribution` and `zoomControl` map-constructor options
+ * into concrete flags + an optional explicit position. Shared by every
+ * engine adapter (Leaflet, OpenLayers, MapLibre) so the contract is
+ * uniform across them.
+ *
+ * **`nativeAttribution`** — Boolean, controls whether the engine-native
+ * attribution UI (Leaflet's `.leaflet-control-attribution`, OL's
+ * `.ol-attribution`, MapLibre's `.maplibregl-ctrl-attrib`) is rendered.
+ * When `bemap.AttributionWidget` is enabled (which is the default —
+ * `options.attribution !== false`), the native UI is hidden by default
+ * to avoid duplicating the legal mentions. When the BeMap widget is off,
+ * the native UI is shown by default so customers never end up with no
+ * attribution at all. Pass `nativeAttribution: true` to force-show, or
+ * `nativeAttribution: false` to force-hide regardless of the widget.
+ *
+ * **`zoomControl`** — controls whether the zoom (+/-) buttons are
+ * rendered and where. Accepted forms:
+ *
+ *   - omitted / `false` (default) — **hide the zoom buttons**. Zoom control
+ *     is OFF unless the consumer explicitly opts in, matching the
+ *     `keyboard` and `nativeAttribution` defaults (all controls opt-in).
+ *   - `true` — show at the engine default position (`top-left`). On
+ *     MapLibre this auto-adds a `NavigationControl` so the contract is
+ *     consistent across engines.
+ *   - `'top-left' | 'top-right' | 'bottom-left' | 'bottom-right'` — show
+ *     at that position. Same four values across every engine.
+ *   - `{ position: '&lt;position>', enabled?: boolean }` — long form. Set
+ *     `enabled: false` to hide while still recording the chosen position.
+ *
+ * **`keyboard`** — controls whether the engine-native keyboard interactions
+ * (arrow-key pan and `+`/`-` / arrow zoom on Leaflet, `KeyboardPan` +
+ * `KeyboardZoom` on OL, `KeyboardHandler` on MapLibre) are active.
+ * **Default: `false`** — keyboard navigation is OFF unless the consumer
+ * explicitly opts in, because it surprises users who expect arrow keys to
+ * scroll the page rather than the map. Accepted forms:
+ *
+ *   - omitted / `false` (default) — keyboard disabled (pan + zoom).
+ *   - `true` — full keyboard support enabled (arrow pan + `+`/`-` zoom).
+ *   - `{ pan?: boolean, zoom?: boolean }` — granular toggle; either omitted
+ *     half defaults to `false`.
+ *
+ * @public
+ * @since 1.5.0
+ * @param {Object} [options] Map-constructor options.
+ * @return {{nativeAttribution: Boolean, zoomControl: Boolean, zoomPosition: String, keyboard: {pan: Boolean, zoom: Boolean}}}
+ *         `zoomPosition` is always one of the four `bemap.Map.ZoomPosition`
+ *         values; defaults to `TOP_LEFT` when the user did not pick one.
+ */
+bemap.Map._resolveControlOptions = function (options) {
+  var o = options || {};
+
+  // Attribution
+  var widgetEnabled = (o.attribution !== false);
+  var nativeAttr = (o.nativeAttribution !== undefined)
+    ? !!o.nativeAttribution
+    : !widgetEnabled;
+
+  // Zoom — four accepted forms, normalised here.
+  var raw = o.zoomControl;
+  var enabled = false;
+  var position = bemap.Map.ZoomPosition.TOP_LEFT;
+
+  if (raw === undefined) {
+    // Not set → default OFF (opt-in). Pass `zoomControl: true` or a
+    // position string to render the +/- buttons.
+    enabled = false;
+  } else if (!raw) {
+    // Explicit falsy (`false`, `null`, `0`, `''`) → hide.
+    enabled = false;
+  } else if (typeof raw === 'string') {
+    enabled = true;
+    if (bemap.Map._isValidZoomPosition(raw)) position = raw;
+  } else if (typeof raw === 'object') {
+    // An object is an explicit opt-in (a position config) → enabled unless
+    // the caller sets `enabled: false`.
+    enabled = (raw.enabled !== false);
+    if (typeof raw.position === 'string' &amp;&amp; bemap.Map._isValidZoomPosition(raw.position)) {
+      position = raw.position;
+    }
+  } else {
+    // Truthy non-string / non-object (e.g. `true`, `1`) → enabled at default.
+    enabled = true;
+  }
+
+  // Keyboard — three accepted forms.
+  var kbRaw = o.keyboard;
+  var kbPan = false, kbZoom = false;
+  if (kbRaw === true) {
+    kbPan = true; kbZoom = true;
+  } else if (kbRaw &amp;&amp; typeof kbRaw === 'object') {
+    kbPan = !!kbRaw.pan;
+    kbZoom = !!kbRaw.zoom;
+  }
+  // kbRaw === false / undefined / null / falsy → both stay false (default).
+
+  return {
+    nativeAttribution: nativeAttr,
+    zoomControl: enabled,
+    zoomPosition: position,
+    keyboard: { pan: kbPan, zoom: kbZoom }
+  };
+};
+
+/**
+ * @private
+ * @param {String} pos
+ * @return {Boolean}
+ */
+bemap.Map._isValidZoomPosition = function (pos) {
+  return pos === 'top-left' || pos === 'top-right'
+      || pos === 'bottom-left' || pos === 'bottom-right';
+};
+
+/**
+ * Show or hide the engine's native zoom (+/-) buttons at runtime.
+ * Uniform across Leaflet, OpenLayers and MapLibre — toggles a class on
+ * the map container so the engine-specific selectors all hit at once.
+ * @public
+ * @since 1.5.0
+ * @param {Boolean} enabled
+ * @return {bemap.Map} this
+ */
+bemap.Map.prototype.setZoomControl = function (enabled) {
+  if (!this.native) return this;
+  var container = null;
+  if (typeof this.native.getContainer === 'function')        container = this.native.getContainer();
+  else if (typeof this.native.getTargetElement === 'function') container = this.native.getTargetElement();
+  if (!container &amp;&amp; typeof this.target === 'string' &amp;&amp; typeof document !== 'undefined') {
+    container = document.getElementById(this.target);
+  }
+  if (!container) return this;
+  if (enabled) container.classList.remove('bemap-zoomctrl-hidden');
+  else         container.classList.add('bemap-zoomctrl-hidden');
+  this._zoomControlVisible = !!enabled;
+  return this;
+};
+
+/** @public @return {Boolean} */
+bemap.Map.prototype.getZoomControl = function () { return this._zoomControlVisible !== false; };
+
+/**
+ * List of available layer name by default.
+ * @public
+ * @enum bemap.Map.DEFAULT_LAYER
+ */
+bemap.Map.DEFAULT_LAYER = {
+  BACKGROUND: 'background',
+  CIRCLE: 'circle',
+  POLYGON: 'polygon',
+  POLYLINE: 'polyline',
+  MARKER: 'marker',
+  ROUTE: 'route'
+};
+
+/**
+ * List of available projections.
+ * @public
+ * @enum bemap.Map.PROJ
+ */
+bemap.Map.PROJ = {
+  EPSG_WGS84: 'EPSG:4326',
+  EPSG_MERCATOR: 'EPSG:3857'
+};
+
+/* ============================================================
+ * Runtime dependency check (v2.0)
+ *
+ * Engine constructors call `bemap.Map._checkDependencies(engine, opts)`
+ * to verify every required JS + CSS asset is loaded before the map is
+ * instantiated. When something is missing, a styled multi-line console
+ * banner is emitted with the exact &lt;script>/&lt;link> tags the customer
+ * needs to add. The banner is loud (red background) and unmistakable.
+ *
+ * Each missing dependency also throws a `bemap.Error` so the call stack
+ * points at the constructor call site, making it trivial to debug from
+ * the customer's app code.
+ * ============================================================ */
+
+/**
+ * Test whether a CSS file is loaded by looking for any &lt;link> whose href
+ * contains the given substring. Conservative — false negatives are fine
+ * (we only emit a warning, not a hard fail, for missing CSS).
+ *
+ * @private
+ * @param {String} fragment
+ * @return {Boolean}
+ */
+bemap.Map._isCssLoaded = function (fragment) {
+  if (typeof document === 'undefined') return true;
+  var links = document.getElementsByTagName('link');
+  for (var i = 0; i &lt; links.length; i++) {
+    var href = links[i].href || '';
+    if (href.indexOf(fragment) !== -1) return true;
+  }
+  return false;
+};
+
+/**
+ * Engine → required dependency manifest. JS deps are global identifiers
+ * tested with `typeof X !== 'undefined'`. CSS deps are filename fragments
+ * tested via `&lt;link href>` substring match. Conditional deps (e.g.
+ * pmtiles only needed when BeNomad Tiles is on) are flagged with `when`.
+ * @private
+ */
+bemap.Map._DEPS = {
+  maplibre: {
+    js: [
+      { name: 'maplibregl', tag: '&lt;script src="dist/maplibre-gl.js">&lt;/script>', critical: true },
+      { name: 'pmtiles',    tag: '&lt;script src="dist/pmtiles.js">&lt;/script>',    critical: true, when: 'tilesHost' }
+    ],
+    css: [
+      { fragment: 'maplibre-gl', tag: '&lt;link rel="stylesheet" href="dist/maplibre-gl.css">', critical: false }
+    ]
+  },
+  leaflet: {
+    js: [
+      { name: 'L', tag: '&lt;script src="dist/leaflet.js">&lt;/script>', critical: true }
+    ],
+    css: [
+      { fragment: 'leaflet.css', tag: '&lt;link rel="stylesheet" href="dist/leaflet.css">', critical: false }
+    ]
+  },
+  ol: {
+    js: [
+      { name: 'ol', tag: '&lt;script src="dist/ol.js">&lt;/script>', critical: true }
+    ],
+    css: [
+      { fragment: 'ol.css', tag: '&lt;link rel="stylesheet" href="dist/ol.css">', critical: false }
+    ]
+  }
+};
+
+/**
+ * Verify the runtime dependencies for an engine. Emits a loud console
+ * banner and throws on missing critical (JS) deps. Missing CSS produces
+ * a single warn line — non-fatal because rendering still kinda works.
+ *
+ * @public
+ * @since 2.0.0
+ * @param {String} engine `'maplibre'` | `'leaflet'` | `'ol'`
+ * @param {Object} [opts]
+ * @param {Boolean} [opts.tilesHost] True if `ctx.tilesHost` is set —
+ *                                   gates conditional deps like pmtiles.
+ */
+bemap.Map._checkDependencies = function (engine, opts) {
+  var manifest = bemap.Map._DEPS[engine];
+  if (!manifest) return;
+  opts = opts || {};
+
+  var missingJs = [];
+  var missingCss = [];
+
+  // Probe JS globals.
+  for (var i = 0; i &lt; manifest.js.length; i++) {
+    var dep = manifest.js[i];
+    if (dep.when === 'tilesHost' &amp;&amp; !opts.tilesHost) continue;
+    var present = (typeof window !== 'undefined' &amp;&amp; typeof window[dep.name] !== 'undefined');
+    if (!present) missingJs.push(dep);
+  }
+
+  // Probe CSS via &lt;link> tags.
+  for (var j = 0; j &lt; manifest.css.length; j++) {
+    var cdep = manifest.css[j];
+    if (!bemap.Map._isCssLoaded(cdep.fragment)) missingCss.push(cdep);
+  }
+
+  if (!missingJs.length &amp;&amp; !missingCss.length) return;
+
+  // Build the banner. Each missing dep produces one human-readable line.
+  var engineLabel = engine.charAt(0).toUpperCase() + engine.slice(1);
+  var lines = [];
+  lines.push('bemap-js-api: missing runtime dependencies for bemap.' + engineLabel + 'Map');
+  lines.push('');
+
+  if (missingJs.length) {
+    lines.push('Missing JavaScript libraries:');
+    for (var k = 0; k &lt; missingJs.length; k++) {
+      lines.push('  - ' + missingJs[k].name + '   →   ' + missingJs[k].tag);
+    }
+    lines.push('');
+  }
+  if (missingCss.length) {
+    lines.push('Missing CSS files (rendering may break):');
+    for (var l = 0; l &lt; missingCss.length; l++) {
+      lines.push('  - ' + missingCss[l].fragment + '   →   ' + missingCss[l].tag);
+    }
+    lines.push('');
+  }
+  lines.push('Add the tag(s) above to your HTML BEFORE bemap-js-api.js.');
+  lines.push('All required files ship in the dist/ folder of bemap-js-api.');
+
+  var msg = lines.join('\n');
+
+  // Loud styled banner — red background, bold, multi-line.
+  if (typeof console !== 'undefined' &amp;&amp; console.error) {
+    console.error(
+      '%c bemap-js-api dependency error %c\n\n' + msg.split('\n').slice(1).join('\n'),
+      'background:#c0392b;color:#fff;padding:4px 10px;border-radius:3px;font-weight:bold;font-size:13px;',
+      'color:#c0392b;'
+    );
+  }
+
+  // Throw on the first missing critical (JS) dep so the stack points at
+  // the constructor call. Missing CSS alone is a warning, no throw.
+  if (missingJs.length) {
+    var first = missingJs[0];
+    throw new bemap.Error({
+      code: 'MISSING_DEPENDENCY',
+      message: 'bemap-js-api: ' + first.name + ' is required for bemap.' + engineLabel + 'Map. See console for the exact &lt;script> tag to add.',
+      context: { engine: engine, missing: missingJs.map(function (d) { return d.name; }) }
+    });
+  }
+};
+
+bemap.Map.EventType = {
+  LOAD: 'load',
+  CHANGE: 'change',
+  CHANGE_SIZE: 'change:size',
+  CHANGE_VIEW: 'change:view',
+  RESIZE: 'resize',
+  CLICK: 'click',
+  SINGLECLICK: 'singleclick',
+  DBLCLICK: 'dblclick',
+  MOVESTART: 'movestart',
+  MOVEEND: 'moveend',
+  POINTERUP: 'pointerup',
+  POINTERDOWN: 'pointerdown',
+  POINTERDRAG: 'pointerdrag',
+  POINTERMOVE: 'pointermove',
+  POSTCOMPOSE: 'postcompose',
+  POSTRENDER: 'postrender',
+  PRECOMPOSE: 'precompose',
+  PROPERTYCHANGE: 'propertychange',
+  WHEEL: 'wheel',
+  KEYDOWN: 'keydown',
+  KEYPRESS: 'keypress',
+  TOUCHSTART: 'touchstart',
+  TOUCHMOVE: 'touchmove',
+  TOUCHEND: 'touchend',
+  DRAWSTART: 'drawstart',
+  DRAWEND: 'drawend',
+  DRAWABORT: 'drawabort'
+};
+
+/**
+ * Add default layers.
+ * @public
+ * @param {object} options
+ * @param {boolean} options.markerAsCluster
+ * @return {bemap.Map} this
+ */
+bemap.Map.prototype.defaultLayers = function (options) {
+  var opts = options || {};
+
+  // Idempotent — calling defaultLayers() twice (or after defaultLayers()
+  // was already called during construction) used to add a SECOND opaque
+  // BACKGROUND tile layer on top of the existing overlay markers, hiding
+  // them on OL. Skip when the BACKGROUND layer already exists.
+  if (!this.getLayerByName(bemap.Map.DEFAULT_LAYER.BACKGROUND)) {
+    this.addLayer(new bemap.BemapLayer({
+      name: bemap.Map.DEFAULT_LAYER.BACKGROUND,
+      styles: opts.styles ? opts.styles : ''
+    }));
+  }
+
+  this.defaultOverlayLayers(opts);
+
+  return this;
+};
+
+/**
+ * Add default overlay layers, like dedicated for markers or polyline, etc.
+ * @public
+ * @param {object} options
+ * @param {boolean} options.markerAsCluster
+ * @return {bemap.Map} this
+ */
+bemap.Map.prototype.defaultOverlayLayers = function (options) {
+  var opts = options || {};
+  var self = this;
+
+  // Idempotent — only add overlay layers that don't already exist.
+  // Calling defaultLayers() or defaultOverlayLayers() multiple times used
+  // to silently duplicate layers, which breaks getLayerByName lookups and
+  // distorts the rendering stack.
+  function ensure(name, factory) {
+    if (!self.getLayerByName(name)) self.addLayer(factory());
+  }
+
+  ensure(bemap.Map.DEFAULT_LAYER.POLYGON,  function () { return new bemap.VectorLayer({ name: bemap.Map.DEFAULT_LAYER.POLYGON  }); });
+  ensure(bemap.Map.DEFAULT_LAYER.CIRCLE,   function () { return new bemap.VectorLayer({ name: bemap.Map.DEFAULT_LAYER.CIRCLE   }); });
+  ensure(bemap.Map.DEFAULT_LAYER.ROUTE,    function () { return new bemap.VectorLayer({ name: bemap.Map.DEFAULT_LAYER.ROUTE    }); });
+  ensure(bemap.Map.DEFAULT_LAYER.POLYLINE, function () { return new bemap.VectorLayer({ name: bemap.Map.DEFAULT_LAYER.POLYLINE }); });
+  ensure(bemap.Map.DEFAULT_LAYER.MARKER, function () {
+    return opts.markerAsCluster
+      ? new bemap.ClusterLayer({ name: bemap.Map.DEFAULT_LAYER.MARKER })
+      : new bemap.VectorLayer({  name: bemap.Map.DEFAULT_LAYER.MARKER });
+  });
+
+  return this;
+};
+
+/**
+ * Create a background layer for each geoserver name.
+ * @public
+ * @param {array} geoservers List of geoserver name.
+ * @return {bemap.Map} this
+ */
+bemap.Map.prototype.backgroundLayers = function (geoservers, options) {
+  var opts = options ? options : {};
+  for (var i = 0; i &lt; geoservers.length; i++) {
+    var geoserver = geoservers[i];
+    var layer = new bemap.BemapLayer({
+      name: bemap.Map.DEFAULT_LAYER.BACKGROUND + '_' + geoserver,
+      styles: opts.styles ? opts.styles : '',
+      geoserver: geoserver
+    });
+
+    this.addLayer(layer);
+
+    if (i == 0) {
+      layer.setVisible(true);
+    } else {
+      layer.setVisible(false);
+    }
+  }
+
+  return this;
+};
+
+/**
+ * Switch bytween several background layers.
+ * @public
+ * @param {String} geoserver Name of geoserver.
+ * @return {bemap.Map} this
+ */
+bemap.Map.prototype.switchBackgroundLayer = function (geoserver) {
+  var filter = bemap.Map.DEFAULT_LAYER.BACKGROUND + '_' + geoserver;
+  for (var j = 0; j &lt; this.layers.length; j++) {
+    var layer = this.layers[j];
+    if (layer.name.indexOf(bemap.Map.DEFAULT_LAYER.BACKGROUND) != 0) {
+      continue;
+    }
+    if (layer.name == filter) {
+      layer.setVisible(true);
+    } else {
+      layer.setVisible(false);
+    }
+  }
+
+  return this;
+};
+
+/**
+ * Add a layer to the map
+ * @public
+ * @param {bemap.Layer} layer
+ * @param {object} options
+ * @return {bemap.Map} this
+ */
+bemap.Map.prototype.addLayer = function (layer, options) {
+  if (layer !== null &amp;&amp; bemap.inheritsof(layer, bemap.Layer)) {
+    this.layers.push(layer);
+  }
+  return this;
+};
+
+/**
+ * Search the layer by name.
+ * @public
+ * @param {String} name of layer.
+ * @return {bemap.Layer} Return the layer or null if not found.
+ */
+bemap.Map.prototype.getLayerByName = function (name) {
+  var key, l;
+  for (key in this.layers) {
+    l = this.layers[key];
+    if (l.name == name) {
+      return l;
+    }
+  }
+  return null;
+};
+
+/**
+ * Return the satus of drag pan of map.
+ * @public
+ * @abstract
+ * @param {Object} options.dragPan.
+ * @return {boolean} true to enable the drag pan of map, otherwise false.
+ */
+bemap.Map.prototype.isDragPan = function (options) {
+  return false;
+};
+
+/**
+ * Enable or disable the drag pan of map.
+ * @public
+ * @abstract
+ * @param {boolean} active true to enable the drag pan of map, otherwise false.
+ * @param {Object} options.dragPan.
+ * @return {bemap.Map} this
+ */
+bemap.Map.prototype.setDragPan = function (active, options) {
+  return this;
+};
+
+
+/**
+ * Move map to new coordinate.
+ * @public
+ * @abstract
+ * @param {double} lon Longitude in degres decimal (WGS84).
+ * @param {double} lat Latitude in degres decimal (WGS84).
+ * @param {int} zoom Zoom level (optional).
+ * @param {Object} options Options (optional).
+ * @return {bemap.Map} this
+ */
+bemap.Map.prototype.move = function (lon, lat, zoom, options) {
+  return this;
+};
+
+/**
+ * Fly map to new coordinate.
+ * @param {double} lon longitude
+ * @param {double} lat latitude
+ * @param {double} zoom zoom
+ * @param {Object} options options
+ */
+bemap.Map.prototype.flyTo = function (lon, lat, zoom, options) {
+  return this;
+};
+
+/**
+ * Set the center and the zoom of the map to fit the bounding box.
+ * @param {bemap.BoundingBox} boundingBox the bounding box to fit.
+ * @param {Object} options Options (optional).
+ * @return {bemap.Map} this.
+ */
+bemap.Map.prototype.moveToBoundingBox = function (boundingBox, options) {
+  return this;
+};
+
+/**
+ * Move map and zoom on data contains in layers.
+ * @public
+ * @abstract
+ * @param {bemap.Layer} layer Layer.
+ * @param {Object} options Options (optional).
+ * @return {bemap.Map} this
+ */
+bemap.Map.prototype.moveToLayerData = function (layer, options) {
+  return this;
+};
+
+/**
+ * Zoom on map, set new zoom level.
+ * @public
+ * @abstract
+ * @param {int} zoom Zoom level (optional).
+ * @param {Object} options Options (optional).
+ * @return {bemap.Map} this
+ */
+bemap.Map.prototype.zoom = function (zoom, options) {
+  return this;
+};
+
+/**
+ * Get current zoom of map.
+ * @public
+ * @return {int} -1 if not supported.
+ */
+bemap.Map.prototype.getZoom = function () {
+  return -1;
+};
+
+/**
+ * Rotation of map, set new angle of map.
+ * @public
+ * @abstract
+ * @param {int} angle in degrees.
+ * @param {Object} options Options (optional).
+ * @return {bemap.Map} this
+ */
+bemap.Map.prototype.rotation = function (angle, options) {
+  return this;
+};
+
+/**
+ * Get current rotation angle of map.
+ * @public
+ * @return {int} -1 if not supported.
+ */
+bemap.Map.prototype.getRotation = function () {
+  return -1;
+};
+
+/**
+ * Refresh map.
+ * @public
+ * @abstract
+ * @param {Object} options Options (optional).
+ * @return {bemap.Map} this
+ */
+bemap.Map.prototype.refresh = function (options) {
+  return this;
+};
+
+/**
+ * Build icon resource.
+ * @public
+ * @abstract
+ * @param {bemap.Icon} icon
+ * @param {object} options
+ * @return {bemap.Map} this
+ */
+bemap.Map.prototype.buildIcon = function (icon, options) {
+  return this;
+};
+
+/**
+ * Add a marker to the layer
+ * @public
+ * @abstract
+ * @param {bemap.Marker} marker
+ * @param {object} options
+ * @return {bemap.Map} this
+ */
+bemap.Map.prototype.addMarker = function (marker, options) {
+  return this;
+};
+
+/**
+ * Remove a marker from the layer
+ * @public
+ * @abstract
+ * @param {bemap.Marker} marker
+ * @return {bemap.Map} this
+ */
+bemap.Map.prototype.removeMarker = function (marker) {
+  return this;
+};
+
+/**
+ * Add a multipoint to the layer
+ * @public
+ * @abstract
+ * @param {bemap.MultiPoint} multipoint
+ * @param {object} options
+ * @return {bemap.Map} this
+ */
+bemap.Map.prototype.addMultiMarker = function (multipoint, options) {
+  return this;
+};
+
+/**
+ * Remove a multimarker from the layer
+ * @public
+ * @abstract
+ * @param {bemap.MultiMarker} multimarker
+ * @return {bemap.Map} this
+ */
+bemap.Map.prototype.removeMultimarker = function (multimarker) {
+  return this;
+};
+
+/**
+ * Build LineStyle resource.
+ * @public
+ * @abstract
+ * @param {bemap.LineStyle} LineStyle
+ * @param {object} options
+ * @return {bemap.Map} this
+ */
+bemap.Map.prototype.buildLineStyle = function (style, options) {
+  return this;
+};
+
+/**
+ * Add a Polyline to the layer
+ * @public
+ * @abstract
+ * @param {bemap.Polyline} Polyline
+ * @param {object} options
+ * @return {bemap.Map} this
+ */
+bemap.Map.prototype.addPolyline = function (multiline, options) {
+  return this;
+};
+
+/**
+ * Remove a polyline from the layer
+ * @public
+ * @abstract
+ * @param {bemap.Polyline} polyline
+ * @return {bemap.Map} this
+ */
+bemap.Map.prototype.removePolyline = function (polyline) {
+  return this;
+};
+
+/**
+ * Refresh all objects from a layer.
+ * @public
+ * @param {bemap.Layer} layer the layer object to refresh.
+ * @return {bemap.Map} this
+ */
+bemap.Map.prototype.refreshLayer = function (layer) {
+  return this;
+};
+
+/**
+ * Remove all objects from a layer.
+ * @public
+ * @abstract
+ * @param {bemap.Layer} layer the layer object to clear.
+ * @return {bemap.Map} this
+ */
+bemap.Map.prototype.clearLayer = function (layer) {
+  return this;
+};
+
+/**
+ * Set the visibility of the layer.
+ * @public
+ * @abstract
+ * @param {bemap.Layer} layer the layer of wich to set the visibility.
+ * @param {boolean} visible.
+ * @return {bemap.Map} return this.
+ */
+bemap.Map.prototype.visibleLayer = function (layer, visible) {
+  return this;
+};
+
+/**
+ * Set the zIndex of the layer.
+ * @public
+ * @abstract
+ * @param {bemap.Layer} layer the layer of wich to set the zIndex.
+ * @param {boolean} zIndex.
+ * @return {bemap.Map} return this.
+ */
+bemap.Map.prototype.zIndexLayer = function (layer, zIndex) {
+  return this;
+};
+
+/**
+ * Remove a layer from the map.
+ * @public
+ * @abstract
+ * @param {bemap.Layer} layer layer to remove from the map.
+ * @return {bemap.Map} this.
+ */
+bemap.Map.prototype.removeLayer = function (layer) {
+  return this;
+};
+
+/**
+ * Set the listner when an specified eventType occur on bemap.Map.
+ * @public
+ * @abstract
+ * @param {bemap.Map.EventType} eventType Event type.
+ * @param {function} callback Function will be called when the specified eventType is occur.
+ * @param {object} options options.
+ * @return {bemap.Listener} this.
+ */
+bemap.Map.prototype.on = function (eventType, callback, options) {
+  return new bemap.Listener();
+};
+
+/**
+ * Set the listner when an specified eventType occur on bemap.Marker.
+ * @public
+ * @abstract
+ * @param {bemap.Marker} marker
+ * @param {bemap.Map.EventType} eventType Event type.
+ * @param {function} callback Function will be called when the specified eventType is occur.
+ * @param {object} options options.
+ * @return {bemap.Listener} this.
+ */
+bemap.Map.prototype.onMarker = function (marker, eventType, callback, options) {
+  return new bemap.Listener();
+};
+
+/**
+ * Set the listner when an specified eventType occur on all bemap.Marker.
+ * @public
+ * @abstract
+ * @param {bemap.Map.EventType} eventType Event type.
+ * @param {function} callback Function will be called when the specified eventType is occur.
+ * @param {object} options options.
+ * @return {bemap.Listener} this.
+ */
+bemap.Map.prototype.onMarkers = function (eventType, callback, options) {
+  return new bemap.Listener();
+};
+
+/**
+ * Set the listner when an specified eventType occur on all bemap.MultiMarker.
+ * @public
+ * @abstract
+ * @param {bemap.Map.EventType} eventType Event type.
+ * @param {function} callback Function will be called when the specified eventType is occur.
+ * @param {object} options options.
+ * @return {bemap.Listener} this.
+ */
+bemap.Map.prototype.onMultiMarkers = function (eventType, callback, options) {
+  return new bemap.Listener();
+};
+
+/**
+ * Set the listner when an specified eventType occur on bemap.Polyline.
+ * @public
+ * @abstract
+ * @param {bemap.Polyline} polyline
+ * @param {bemap.Map.EventType} eventType Event type.
+ * @param {function} callback Function will be called when the specified eventType is occur.
+ * @param {object} options options.
+ * @return {bemap.Listener} this.
+ */
+bemap.Map.prototype.onPolyline = function (polyline, eventType, callback, options) {
+  return new bemap.Listener();
+};
+
+/**
+ * Set the listner when an specified eventType occur on all bemap.Polyline.
+ * @public
+ * @abstract
+ * @param {bemap.Map.EventType} eventType Event type.
+ * @param {function} callback Function will be called when the specified eventType is occur.
+ * @param {object} options options.
+ * @return {bemap.Listener} this.
+ */
+bemap.Map.prototype.onPolylines = function (eventType, callback, options) {
+  return new bemap.Listener();
+};
+
+/**
+ * Set get feature info call back.
+ * @param {bemap.Layer} layer set the bemap layer.
+ * @param {object} options options.
+ * @param {function} options.beforeCallback callback called at data reception and before display the popup.
+ * @param {function} options.afterCallback callback called after display the popup.
+ * @return {bemap.Listener} listener;
+ */
+bemap.Map.prototype.onGetFeatureInfo = function (layer, options) {
+  console.warn("onGetFeatureInfo is not supported by this browser");
+  return new bemap.Listener();
+};
+
+/**
+ * Define the draggable capability for bemap.Marker.
+ * @protected
+ * @param {bemap.Marker} marker bemap object.
+ * @param {function} callback Function will be called when the specified eventType is occur.
+ * @param {object} options Options.
+ * @param {bemap.Layer} options.layerFilter set the bemap layer used as filter.
+ * @return {bemap.Listener} bemap.listener.
+ */
+bemap.Map.prototype.draggableMarker = function (marker, callback, options) {
+  return new bemap.Listener();
+};
+
+/**
+ * Define the draggable capability for all bemap.Marker.
+ * @protected
+ * @param {function} callback Function will be called when the specified eventType is occur.
+ * @param {object} options Options.
+ * @param {bemap.Layer} options.layerFilter set the bemap layer used as filter.
+ * @return {bemap.Listener} bemap.listener.
+ */
+bemap.Map.prototype.draggableMarkers = function (callback, options) {
+  return new bemap.Listener();
+};
+
+/**
+ * Define the draggable capability for all bemap.MultiMarkers.
+ * @protected
+ * @param {function} callback Function will be called when the specified eventType is occur.
+ * @param {object} options Options.
+ * @param {bemap.Layer} options.layerFilter set the bemap layer used as filter.
+ * @return {bemap.Listener} bemap.listener.
+ */
+bemap.Map.prototype.draggableMultiMarkers = function (callback, options) {
+  return new bemap.Listener();
+};
+
+/**
+ * Define the draggable capability for bemap.Polyline.
+ * @protected
+ * @param {bemap.Polyline} polyline bemap object.
+ * @param {function} callback Function will be called when the specified eventType is occur.
+ * @param {object} options Options.
+ * @param {bemap.Layer} options.layerFilter set the bemap layer used as filter.
+ * @return {bemap.Listener} bemap.listener.
+ */
+bemap.Map.prototype.draggablePolyline = function (polyline, callback, options) {
+  return new bemap.Listener();
+};
+
+/**
+ * Define the draggable capability for all bemap.Polyline.
+ * @protected
+ * @param {function} callback Function will be called when the specified eventType is occur.
+ * @param {object} options Options.
+ * @param {bemap.Layer} options.layerFilter set the bemap layer used as filter.
+ * @return {bemap.Listener} bemap.listener.
+ */
+bemap.Map.prototype.draggablePolylines = function (callback, options) {
+  return new bemap.Listener();
+};
+
+/**
+ * Add a popup to the map
+ * @public
+ * @param {bemap.Popup} popup
+ * @param {object} options
+ * @return {bemap.Map} this
+ */
+bemap.Map.prototype.addPopup = function (popup, options) {
+  return this;
+};
+
+/**
+ * Remove a popup from the map.
+ * @public
+ * @param {bemap.Popup} popup the popup to remove from the map.
+ * @return {bemap.Map} this;
+ */
+bemap.Map.prototype.removePopup = function (popup) {
+  return this;
+};
+
+/**
+ * Set the visiblility of the popup.
+ * @param {bemap.Popup} popup the popup.
+ * @param {Boolean} visible true for visible and false for hidden.
+ * @return {bemap.Popup} this.
+ */
+bemap.Map.prototype.setVisiblePopup = function (popup, visible) {
+  return this;
+};
+
+/**
+ * Remove all the popups from the map.
+ * @return {bemap.Map} this;
+ */
+bemap.Map.prototype.clearPopup = function () {
+  return this;
+};
+
+/**
+ * Set the coordinate of the popup.
+ * @param {bemap.Popup} popup the popup of wich to set the coordinate.
+ * @param {bemap.Coordinate} coordinate the new coordinate.
+ * @param {object} options Options.
+ * @param {bemap.Layer} options.panningMap enable the map panning animation. move map from the current position to the popup anchor at the center of map.
+ * @return {bemap.Map} this.
+ */
+bemap.Map.prototype.setCoordinatePopup = function (popup, coordinate, options) {
+  return this;
+};
+
+/**
+ * Get the center of the map in bemap.Coordinate.
+ * @return {bemap.Coordinate} the center of the map.
+ */
+bemap.Map.prototype.getCenter = function () {
+  return new bemap.Coordinate();
+};
+
+/**
+ * Get the limits of the map on the current zoom.
+ * @return {bemap.BoundingBox} the bounding box containing the limits.
+ */
+bemap.Map.prototype.getBoundingBox = function () {
+  return new bemap.BoundingBox();
+};
+
+// --- MapLibre-exclusive features (no-op defaults for OlMap/LeafletMap) ---
+
+/**
+ * Set the pitch (tilt) angle of the map in degrees. MapLibre only.
+ * @param {number} pitch Pitch angle (0-85).
+ * @return {bemap.Map} this
+ */
+bemap.Map.prototype.setPitch = function (pitch) { return this; };
+
+/**
+ * Get the current pitch angle. MapLibre only.
+ * @return {number} pitch in degrees (0 if not supported).
+ */
+bemap.Map.prototype.getPitch = function () { return 0; };
+
+/**
+ * Set the bearing (compass rotation) of the map. MapLibre only.
+ * @param {number} bearing Bearing in degrees (0-360).
+ * @return {bemap.Map} this
+ */
+bemap.Map.prototype.setBearing = function (bearing) { return this; };
+
+/**
+ * Get the current bearing. MapLibre only.
+ * @return {number} bearing in degrees (0 if not supported).
+ */
+bemap.Map.prototype.getBearing = function () { return 0; };
+
+/**
+ * Enable 3D terrain rendering. MapLibre only.
+ * @param {object} options terrain options (source, exaggeration).
+ * @return {bemap.Map} this
+ */
+bemap.Map.prototype.setTerrain = function (options) { return this; };
+
+/**
+ * Disable 3D terrain. MapLibre only.
+ * @return {bemap.Map} this
+ */
+bemap.Map.prototype.removeTerrain = function () { return this; };
+
+/**
+ * Set map projection ('mercator' or 'globe'). MapLibre only.
+ * @param {string} type projection type.
+ * @return {bemap.Map} this
+ */
+bemap.Map.prototype.setProjection = function (type) { return this; };
+
+/**
+ * Set sky/atmosphere effects. MapLibre only.
+ * @param {object} options sky options.
+ * @return {bemap.Map} this
+ */
+bemap.Map.prototype.setSky = function (options) { return this; };
+
+/**
+ * Set the map style URL or object. MapLibre only.
+ * @param {string|object} style Style URL or JSON object.
+ * @return {bemap.Map} this
+ */
+bemap.Map.prototype.setStyle = function (style) { return this; };
+
+/**
+ * Add a GeoJSON data source. MapLibre only.
+ * @param {string} id Source identifier.
+ * @param {object} data GeoJSON data.
+ * @return {bemap.Map} this
+ */
+bemap.Map.prototype.addGeoJsonSource = function (id, data) { return this; };
+
+/**
+ * Update an existing GeoJSON source data. MapLibre only.
+ * @param {string} id Source identifier.
+ * @param {object} data New GeoJSON data.
+ * @return {bemap.Map} this
+ */
+bemap.Map.prototype.updateGeoJsonSource = function (id, data) { return this; };
+
+/**
+ * Register a custom image for use in symbol layers. MapLibre only.
+ * @param {string} id Image identifier.
+ * @param {object} image Image data.
+ * @return {bemap.Map} this
+ */
+bemap.Map.prototype.addImage = function (id, image) { return this; };
+
+/**
+ * Remove a registered image. MapLibre only.
+ * @param {string} id Image identifier.
+ * @return {bemap.Map} this
+ */
+bemap.Map.prototype.removeImage = function (id) { return this; };
+
+/**
+ * Instant camera change with pitch/bearing support. MapLibre only.
+ * @param {object} options center, zoom, pitch, bearing.
+ * @return {bemap.Map} this
+ */
+bemap.Map.prototype.jumpTo = function (options) { return this; };
+
+/**
+ * Smooth animated camera transition. MapLibre only.
+ * @param {object} options center, zoom, pitch, bearing, duration.
+ * @return {bemap.Map} this
+ */
+bemap.Map.prototype.easeTo = function (options) { return this; };
+
+/**
+ * Query rendered features at a point or in a box. MapLibre only.
+ * @param {object} point Screen point or bounding box.
+ * @param {object} options Query options (layers, filter).
+ * @return {Array} Array of feature objects.
+ */
+bemap.Map.prototype.queryRenderedFeatures = function (point, options) { return []; };
+
+/**
+ * Add polygon to the map.
+ * @param {bemap.Polygon} polygon
+ * @param {object} options
+ * @return {bemap.Map} this
+ */
+bemap.Map.prototype.addPolygon = function (polygon, options) { return this; };
+
+/**
+ * Remove polygon from the map.
+ * @param {bemap.Polygon} polygon
+ * @return {bemap.Map} this
+ */
+bemap.Map.prototype.removePolygon = function (polygon) { return this; };
+
+/**
+ * Add circle to the map.
+ * @param {bemap.Circle} circle
+ * @param {object} options
+ * @return {bemap.Map} this
+ */
+bemap.Map.prototype.addCircle = function (circle, options) { return this; };
+
+/**
+ * Remove circle from the map.
+ * @param {bemap.Circle} circle
+ * @return {bemap.Map} this
+ */
+bemap.Map.prototype.removeCircle = function (circle) { return this; };
+
+// --- Advanced MapLibre features (no-ops for OlMap/LeafletMap) ---
+
+/**
+ * Add 3D extruded buildings. MapLibre only.
+ * @param {object} options Building configuration.
+ * @return {bemap.Map} this
+ */
+bemap.Map.prototype.add3DBuildings = function (options) { this._maplibreOnly('add3DBuildings'); return this; };
+bemap.Map.prototype.remove3DBuildings = function () { this._maplibreOnly('remove3DBuildings'); return this; };
+bemap.Map.prototype.addHeatmap = function (layer) { this._maplibreOnly('addHeatmap'); return this; };
+bemap.Map.prototype.removeHeatmap = function (layer) { this._maplibreOnly('removeHeatmap'); return this; };
+bemap.Map.prototype.updateHeatmap = function (layer, data) { this._maplibreOnly('updateHeatmap'); return this; };
+bemap.Map.prototype.animateAlongRoute = function (options) { this._maplibreOnly('animateAlongRoute'); return { stop: function(){}, resume: function(){} }; };
+
+/**
+ * Set 3D light position and properties. MapLibre only.
+ * @param {object} options Light options (position, color, intensity, anchor).
+ * @return {bemap.Map} this
+ */
+bemap.Map.prototype.setLight = function (options) { this._maplibreOnly('setLight'); return this; };
+bemap.Map.prototype.loadPMTiles = function (layer, callback) { this._maplibreOnly('loadPMTiles'); return this; };
+bemap.Map.prototype.loadBeMapTiles = function (options) { this._maplibreOnly('loadBeMapTiles'); return this; };
+
+/**
+ * Draw a polygon interactively. User clicks vertices, double-clicks to finish.
+ * @public
+ * @param {Object} options See below.
+ * @param {bemap.PolygonStyle} options.style Style for the preview polygon.
+ * @param {function} callback Called with bemap.MapEvent when drawing is complete. evt.bemapObject = bemap.Polygon.
+ * @return {bemap.Listener}
+ */
+bemap.Map.prototype.drawPolygon = function (options, callback) { return new bemap.Listener(); };
+bemap.Map.prototype.drawPolyline = function (options, callback) { return new bemap.Listener(); };
+bemap.Map.prototype.drawRectangle = function (options, callback) { return new bemap.Listener(); };
+bemap.Map.prototype.drawCircle = function (options, callback) { return new bemap.Listener(); };
+bemap.Map.prototype.drawMarker = function (options, callback) { return new bemap.Listener(); };
+bemap.Map.prototype.cancelDraw = function () { return this; };
+bemap.Map.prototype.editPolygon = function (polygon, callback) { return new bemap.Listener(); };
+
+/**
+ * Add a drawing toolbar to the map.
+ * @public
+ * @param {Object} options See below.
+ * @param {boolean} options.polygon Enable polygon drawing (default: true).
+ * @param {boolean} options.polyline Enable polyline drawing (default: false).
+ * @param {boolean} options.rectangle Enable rectangle drawing (default: false).
+ * @param {boolean} options.circle Enable circle drawing (default: false).
+ * @param {boolean} options.marker Enable marker drawing (default: false).
+ * @param {String} options.position Toolbar position: 'topright','topleft','bottomright','bottomleft' (default: 'topright').
+ * @param {function} options.onDrawEnd Callback when a shape is drawn.
+ * @return {bemap.Map} this
+ */
+bemap.Map.prototype.addDrawControl = function(options) {
+  var opts = options || {};
+  var _this = this;
+
+  // Get the map container
+  var container = typeof this.target === 'string' ? document.getElementById(this.target) : this.target;
+  if (!container) return this;
+
+  // Remove existing toolbar
+  if (this._drawToolbar) {
+    this._drawToolbar.parentNode.removeChild(this._drawToolbar);
+    this._drawToolbar = null;
+  }
+
+  var pos = opts.position || 'topright';
+  var toolbar = document.createElement('div');
+  toolbar.className = 'bemap-draw-toolbar bemap-draw-' + pos;
+  toolbar.style.cssText = 'position:absolute;z-index:1000;display:flex;flex-direction:column;gap:2px;padding:4px;background:rgba(255,255,255,0.95);border-radius:4px;box-shadow:0 2px 6px rgba(0,0,0,0.3);';
+
+  if (pos.indexOf('top') > -1) toolbar.style.top = '10px';
+  else toolbar.style.bottom = '10px';
+  if (pos.indexOf('right') > -1) toolbar.style.right = '10px';
+  else toolbar.style.left = '10px';
+
+  // Track drawn shapes so the Clear button can remove them
+  if (!this._drawnShapes) this._drawnShapes = [];
+  var _self = this;
+  var userCallback = opts.onDrawEnd || function() {};
+  var drawCallback = function(evt) {
+    if (evt &amp;&amp; evt.bemapObject &amp;&amp; _self._drawnShapes.indexOf(evt.bemapObject) === -1) {
+      _self._drawnShapes.push(evt.bemapObject);
+    }
+    userCallback(evt);
+  };
+
+  var btnStyle = 'border:none;padding:6px 10px;border-radius:3px;cursor:pointer;font-size:12px;font-weight:600;display:flex;align-items:center;gap:4px;';
+
+  // Helper: prevents button click from bubbling to the map
+  var stopBubble = function(handler) {
+    return function(evt) {
+      if (evt) { evt.stopPropagation(); evt.preventDefault(); }
+      // Delay so the map click doesn't fire in the same cycle
+      setTimeout(handler, 0);
+    };
+  };
+
+  if (opts.polygon !== false) {
+    var btnPoly = document.createElement('button');
+    btnPoly.innerHTML = '&amp;#9650; Polygon';
+    btnPoly.style.cssText = btnStyle + 'background:#27ae60;color:#fff;';
+    btnPoly.title = 'Draw polygon';
+    btnPoly.onclick = stopBubble(function() { _this.drawPolygon(opts, drawCallback); });
+    toolbar.appendChild(btnPoly);
+  }
+
+  if (opts.polyline) {
+    var btnLine = document.createElement('button');
+    btnLine.innerHTML = '&amp;#9135; Line';
+    btnLine.style.cssText = btnStyle + 'background:#3498db;color:#fff;';
+    btnLine.title = 'Draw polyline';
+    btnLine.onclick = stopBubble(function() { _this.drawPolyline(opts, drawCallback); });
+    toolbar.appendChild(btnLine);
+  }
+
+  if (opts.rectangle) {
+    var btnRect = document.createElement('button');
+    btnRect.innerHTML = '&amp;#9633; Rectangle';
+    btnRect.style.cssText = btnStyle + 'background:#9b59b6;color:#fff;';
+    btnRect.title = 'Draw rectangle';
+    btnRect.onclick = stopBubble(function() { _this.drawRectangle(opts, drawCallback); });
+    toolbar.appendChild(btnRect);
+  }
+
+  if (opts.circle) {
+    var btnCirc = document.createElement('button');
+    btnCirc.innerHTML = '&amp;#9675; Circle';
+    btnCirc.style.cssText = btnStyle + 'background:#e67e22;color:#fff;';
+    btnCirc.title = 'Draw circle';
+    btnCirc.onclick = stopBubble(function() { _this.drawCircle(opts, drawCallback); });
+    toolbar.appendChild(btnCirc);
+  }
+
+  if (opts.marker) {
+    var btnMark = document.createElement('button');
+    btnMark.innerHTML = '&amp;#128204; Marker';
+    btnMark.style.cssText = btnStyle + 'background:#e74c3c;color:#fff;';
+    btnMark.title = 'Place marker';
+    btnMark.onclick = stopBubble(function() { _this.drawMarker(opts, drawCallback); });
+    toolbar.appendChild(btnMark);
+  }
+
+  // Clear button — removes all drawn shapes and cancels current draw
+  var btnClear = document.createElement('button');
+  btnClear.innerHTML = '&amp;#128465; Clear';
+  btnClear.style.cssText = btnStyle + 'background:#95a5a6;color:#fff;';
+  btnClear.title = 'Clear all drawn shapes';
+  btnClear.onclick = stopBubble(function() {
+    _this.cancelDraw();
+    if (_this._drawnShapes) {
+      _this._drawnShapes.forEach(function(shape) {
+        try {
+          if (bemap.inheritsof(shape, bemap.Polygon)) _this.removePolygon(shape);
+          else if (bemap.inheritsof(shape, bemap.Polyline)) _this.removePolyline(shape);
+          else if (bemap.inheritsof(shape, bemap.Circle)) _this.removeCircle(shape);
+          else if (bemap.inheritsof(shape, bemap.Marker)) _this.removeMarker(shape);
+        } catch(e) {}
+      });
+      _this._drawnShapes = [];
+    }
+  });
+  toolbar.appendChild(btnClear);
+
+  container.style.position = 'relative';
+  container.appendChild(toolbar);
+  this._drawToolbar = toolbar;
+  return this;
+};
+bemap.Map.prototype.addRasterLayer = function (layer) { this._maplibreOnly('addRasterLayer'); return this; };
+bemap.Map.prototype.addClusterPoints = function (layer, points, options) { this._maplibreOnly('addClusterPoints'); return this; };
+bemap.Map.prototype.animateLine = function (options) { this._maplibreOnly('animateLine'); return { stop: function(){}, resume: function(){} }; };
+bemap.Map.prototype.animateCameraOrbit = function (options) { this._maplibreOnly('animateCameraOrbit'); return { stop: function(){}, resume: function(){} }; };
+bemap.Map.prototype.animatePulse = function (options) { this._maplibreOnly('animatePulse'); return { stop: function(){}, remove: function(){} }; };
+bemap.Map.prototype.spinGlobe = function (options) { this._maplibreOnly('spinGlobe'); return { stop: function(){}, resume: function(){} }; };
+
+/* ============================================================
+ * MapLibre-only declarations — warn-and-no-op fallback (v2.0)
+ *
+ * `_maplibreOnly(methodName)` warns exactly once per method per
+ * instance and fires a `bemap.Error` with code `MAPLIBRE_ONLY`
+ * on the map's error channel.  Listeners can subscribe via
+ * `map.on('error', fn)` or the filtered channel
+ * `map.on('error:maplibre-only', fn)`.
+ * ============================================================ */
+
+bemap.Map.prototype._maplibreOnly = function (methodName) {
+  if (!this._maplibreOnlyWarned) this._maplibreOnlyWarned = {};
+  if (!this._maplibreOnlyWarned[methodName]) {
+    this._maplibreOnlyWarned[methodName] = true;
+    console.warn(methodName + '() is only available with bemap.MapLibreMap');
+  }
+  if (typeof bemap.Error === 'function') {
+    var err = new bemap.Error({
+      code: bemap.Error.MAPLIBRE_ONLY,
+      message: methodName + '() is only available with bemap.MapLibreMap',
+      context: { method: methodName }
+    });
+    if (typeof this._fireError === 'function') {
+      this._fireError(err);
+    }
+  }
+};
+
+/**
+ * Fire an error onto the map's error channel(s). Used by the warn-and-no-op
+ * fallback and by the new auth/tile/cache error paths.
+ * @protected
+ * @since 2.0.0
+ * @param {bemap.Error} err
+ */
+bemap.Map.prototype._fireError = function (err) {
+  if (!err) return;
+  this._errorListeners = this._errorListeners || { all: [], auth: [], network: [], maplibreOnly: [] };
+  var bucket = this._errorListeners;
+  var fire = function (list) {
+    for (var i = 0; i &lt; list.length; i++) {
+      try { list[i](err); } catch (e) { /* swallow listener errors */ }
+    }
+  };
+  fire(bucket.all);
+  var code = err.code || (err.getCode &amp;&amp; err.getCode());
+  if (code === 'UNAUTHORIZED' || code === 'FORBIDDEN') fire(bucket.auth);
+  else if (code === 'NETWORK' || code === 'OFFLINE' || code === 'RATE_LIMITED' || code === 'TILE_LOAD_FAILED' || code === 'STYLE_LOAD_FAILED') fire(bucket.network);
+  else if (code === 'MAPLIBRE_ONLY') fire(bucket.maplibreOnly);
+};
+
+/**
+ * Subscribe to the map's error channel. Accepts the unfiltered channel
+ * `'error'` and three filtered channels:
+ *   - `'error:auth'`         — `UNAUTHORIZED` / `FORBIDDEN`
+ *   - `'error:network'`      — `NETWORK` / `OFFLINE` / `RATE_LIMITED` / `TILE_LOAD_FAILED` / `STYLE_LOAD_FAILED`
+ *   - `'error:maplibre-only'`— `MAPLIBRE_ONLY`
+ *
+ * The library version of `on()` calls this when the event name starts with
+ * `'error'`; for other event names it delegates to the engine-specific
+ * implementation (see `LeafletMap.on`, `OlMap.on`, `MapLibreMap.on`).
+ *
+ * @public
+ * @since 2.0.0
+ */
+bemap.Map.prototype._onError = function (channel, callback) {
+  if (typeof callback !== 'function') return;
+  this._errorListeners = this._errorListeners || { all: [], auth: [], network: [], maplibreOnly: [] };
+  if (channel === 'error') this._errorListeners.all.push(callback);
+  else if (channel === 'error:auth') this._errorListeners.auth.push(callback);
+  else if (channel === 'error:network') this._errorListeners.network.push(callback);
+  else if (channel === 'error:maplibre-only') this._errorListeners.maplibreOnly.push(callback);
+};
+
+bemap.Map.prototype._offError = function (channel, callback) {
+  if (!this._errorListeners) return;
+  var key = channel === 'error' ? 'all'
+    : channel === 'error:auth' ? 'auth'
+    : channel === 'error:network' ? 'network'
+    : channel === 'error:maplibre-only' ? 'maplibreOnly'
+    : null;
+  if (!key) return;
+  var arr = this._errorListeners[key];
+  for (var i = arr.length - 1; i >= 0; i--) {
+    if (!callback || arr[i] === callback) arr.splice(i, 1);
+  }
+};
+
+/* --- Style / paint / layer mutation (MapLibre-only) --- */
+bemap.Map.prototype.setPaintProperty = function (layerId, name, value) { this._maplibreOnly('setPaintProperty'); return this; };
+bemap.Map.prototype.setLayoutProperty = function (layerId, name, value) { this._maplibreOnly('setLayoutProperty'); return this; };
+bemap.Map.prototype.setFilter = function (layerId, filter) { this._maplibreOnly('setFilter'); return this; };
+bemap.Map.prototype.setLayerZoomRange = function (layerId, minzoom, maxzoom) { this._maplibreOnly('setLayerZoomRange'); return this; };
+
+/* --- Globe spinner (MapLibre-only) --- */
+bemap.Map.prototype.stopSpinGlobe = function () { this._maplibreOnly('stopSpinGlobe'); return this; };
+
+/* --- BeNomad Tiles token introspection (MapLibre-only) --- */
+bemap.Map.prototype.getToken = function () { this._maplibreOnly('getToken'); return null; };
+bemap.Map.prototype.isTokenValid = function () { this._maplibreOnly('isTokenValid'); return false; };
+bemap.Map.prototype.refreshToken = function () { this._maplibreOnly('refreshToken'); return Promise.resolve(null); };
+
+/* --- Cross-engine hillshade + camera tour (v2.0) — base fallback ---
+   Real implementations live on each engine class. The fallback below
+   only fires when neither MapLibreMap, LeafletMap nor OlMap overrode
+   the method — should not happen in practice. */
+bemap.Map.prototype.setHillshade = function () { this._maplibreOnly('setHillshade'); return this; };
+bemap.Map.prototype.removeHillshade = function () { this._maplibreOnly('removeHillshade'); return this; };
+bemap.Map.prototype.cameraTour = function () { this._maplibreOnly('cameraTour'); return { stop: function () {}, resume: function () {} }; };
+
+/* --- Browser cache (MapLibre-only) --- */
+bemap.Map.prototype.enableBrowserCache = function () { this._maplibreOnly('enableBrowserCache'); return this; };
+bemap.Map.prototype.disableBrowserCache = function () { this._maplibreOnly('disableBrowserCache'); return this; };
+bemap.Map.prototype.getBrowserCacheStats = function () { this._maplibreOnly('getBrowserCacheStats'); return { enabled: false, hits: 0, misses: 0, entries: 0, bytesEstimated: 0 }; };
+bemap.Map.prototype.clearBrowserCache = function () { this._maplibreOnly('clearBrowserCache'); return this; };
+
+/* ============================================================
+ * Active-effects registry (v2.0)
+ *
+ * Methods like add3DBuildings / setTerrain / spinGlobe / setSky /
+ * addHeatmap / animateAlongRoute / setStyle leave the map in a
+ * non-default state. The dashboard's active-effects bar needs to
+ * know what's active AND be able to tear it down with one button.
+ *
+ * Public API:
+ *   map.getActiveEffects(): string[]
+ *   map.clearAllEffects(): bemap.Map
+ *   map.on('bemap:effect:change', fn)   // fn receives { name, active }
+ *
+ * Internal API (called by add* / set* methods):
+ *   map._registerEffect(name, teardownFn)
+ *   map._unregisterEffect(name)
+ *
+ * `_effects` is `{ name → teardownFn }`. Re-registering the same
+ * name replaces the previous teardown. Iframe dashboards listen to
+ * `bemap:effect:change` for live updates.
+ *
+ * Event channel name is namespaced (`bemap:effect:change`) to avoid
+ * collision with the existing `'change'` event in
+ * MapLibreMap_eventMap.
+ * ============================================================ */
+
+bemap.Map.prototype._registerEffect = function (name, teardownFn) {
+  if (!name || typeof teardownFn !== 'function') return;
+  if (!this._effects) this._effects = {};
+  this._effects[name] = teardownFn;
+  this._fireEffectChange(name, true);
+};
+
+bemap.Map.prototype._unregisterEffect = function (name) {
+  if (!name || !this._effects || !this._effects[name]) return;
+  delete this._effects[name];
+  this._fireEffectChange(name, false);
+};
+
+bemap.Map.prototype._fireEffectChange = function (name, active) {
+  if (!this._effectListeners) return;
+  for (var i = 0; i &lt; this._effectListeners.length; i++) {
+    try { this._effectListeners[i]({ name: name, active: active }); } catch (e) { /* swallow */ }
+  }
+};
+
+/**
+ * Subscribe to active-effect changes. Fires `{name, active}` whenever
+ * an effect is registered (`active: true`) or torn down (`active:
+ * false`). The dashboard's active-effects bar consumes this.
+ * @public
+ * @since 2.0.0
+ */
+bemap.Map.prototype.onEffectChange = function (callback) {
+  if (typeof callback !== 'function') return;
+  this._effectListeners = this._effectListeners || [];
+  this._effectListeners.push(callback);
+};
+
+bemap.Map.prototype.offEffectChange = function (callback) {
+  if (!this._effectListeners) return;
+  for (var i = this._effectListeners.length - 1; i >= 0; i--) {
+    if (!callback || this._effectListeners[i] === callback) this._effectListeners.splice(i, 1);
+  }
+};
+
+/**
+ * Names of every currently-active effect. Snapshot — does not auto-
+ * update; subscribe via `onEffectChange` for live notification.
+ * @public
+ * @since 2.0.0
+ * @return {Array&lt;String>}
+ */
+bemap.Map.prototype.getActiveEffects = function () {
+  if (!this._effects) return [];
+  var out = [];
+  for (var k in this._effects) {
+    if (Object.prototype.hasOwnProperty.call(this._effects, k)) out.push(k);
+  }
+  return out;
+};
+
+/**
+ * Tear down every registered effect. Invokes each teardown in
+ * registration order, swallowing errors per-teardown so one failure
+ * doesn't block the rest. Each teardown is expected to call
+ * `_unregisterEffect` itself via the matching `remove*`/`stop*` path;
+ * the registry is cleared at the end regardless.
+ * @public
+ * @since 2.0.0
+ * @return {bemap.Map}
+ */
+bemap.Map.prototype.clearAllEffects = function () {
+  if (!this._effects) return this;
+  var names = this.getActiveEffects();
+  for (var i = 0; i &lt; names.length; i++) {
+    var teardown = this._effects[names[i]];
+    if (typeof teardown === 'function') {
+      try { teardown.call(this); } catch (e) { /* keep going */ }
+    }
+  }
+  // Belt-and-braces: ensure the registry is empty even if a teardown
+  // forgot to call _unregisterEffect. Fire one change event per name
+  // that was still present.
+  var leftover = this.getActiveEffects();
+  this._effects = {};
+  for (var j = 0; j &lt; leftover.length; j++) this._fireEffectChange(leftover[j], false);
+  return this;
+};
+
+/**
+ * Emit a one-time `info`-level error on the map's error channel when
+ * a `setLight` / `setSky` / etc. is called on a non-globe projection
+ * where the effect won't be visible. NOT auto-enabling globe — too
+ * surprising for a public API. The customer's error subscriber sees
+ * the hint; dev console gets a one-time `console.info`.
+ * @protected
+ * @since 2.0.0
+ */
+bemap.Map.prototype._requiresGlobe = function (methodName) {
+  // Best-effort: if `getProjection` exists and returns 'globe', no-op.
+  try {
+    if (typeof this.getProjection === 'function') {
+      var p = this.getProjection();
+      if (p &amp;&amp; (p === 'globe' || p.name === 'globe')) return;
+    } else if (this.native &amp;&amp; typeof this.native.getProjection === 'function') {
+      var nat = this.native.getProjection();
+      if (nat &amp;&amp; (nat.name === 'globe' || nat.type === 'globe')) return;
+    }
+  } catch (e) { /* projection check failed — fall through */ }
+  this._requiresGlobeWarned = this._requiresGlobeWarned || {};
+  if (this._requiresGlobeWarned[methodName]) return;
+  this._requiresGlobeWarned[methodName] = true;
+  console.info(methodName + '() has no visible effect on the mercator projection. Call map.setProjection("globe") first to see it.');
+  if (typeof bemap.Error === 'function' &amp;&amp; typeof this._fireError === 'function') {
+    this._fireError(new bemap.Error({
+      code: 'REQUIRES_GLOBE',
+      message: methodName + '() has no visible effect outside the globe projection.',
+      context: { method: methodName }
+    }));
+  }
+};
+</code></pre>
+        </article>
+    </section>
+
+
+
+
+</div>
+
+<nav>
+    <h2><a href="index.html">Home</a></h2><h3>Classes</h3><ul><li><a href="bemap.AclDetailsResponse.html">AclDetailsResponse</a></li><li><a href="bemap.AclLabel.html">AclLabel</a></li><li><a href="bemap.AclService.html">AclService</a></li><li><a href="bemap.Address.html">Address</a></li><li><a href="bemap.AttributionWidget.html">AttributionWidget</a></li><li><a href="bemap.Autocomplete.html">Autocomplete</a></li><li><a href="bemap.AutocompleteElement.html">AutocompleteElement</a></li><li><a href="bemap.AutocompleteGeocodingRequest.html">AutocompleteGeocodingRequest</a></li><li><a href="bemap.AutocompleteGeocodingResponse.html">AutocompleteGeocodingResponse</a></li><li><a href="bemap.BemapLayer.html">BemapLayer</a></li><li><a href="bemap.BoundingBox.html">BoundingBox</a></li><li><a href="bemap.BrowserCache.html">BrowserCache</a></li><li><a href="bemap.BuildingsLayer.html">BuildingsLayer</a></li><li><a href="bemap.ChargingPoint.html">ChargingPoint</a></li><li><a href="bemap.ChargingStation.html">ChargingStation</a></li><li><a href="bemap.ChargingStationPool.html">ChargingStationPool</a></li><li><a href="bemap.ChargingStations.html">ChargingStations</a></li><li><a href="bemap.ChargingStationSearchRequest.html">ChargingStationSearchRequest</a></li><li><a href="bemap.ChargingStationSearchResponse.html">ChargingStationSearchResponse</a></li><li><a href="bemap.ChargingStationStep.html">ChargingStationStep</a></li><li><a href="bemap.ChargingTime.html">ChargingTime</a></li><li><a href="bemap.ChargingTimeRequest.html">ChargingTimeRequest</a></li><li><a href="bemap.ChargingTimeResponse.html">ChargingTimeResponse</a></li><li><a href="bemap.Circle.html">Circle</a></li><li><a href="bemap.CircleStyle.html">CircleStyle</a></li><li><a href="bemap.clusterStyle.html">clusterStyle</a></li><li><a href="bemap.Color.html">Color</a></li><li><a href="bemap.CondMaxSpeed.html">CondMaxSpeed</a></li><li><a href="bemap.Context.html">Context</a></li><li><a href="bemap.Coordinate.html">Coordinate</a></li><li><a href="bemap.CoordinateSat.html">CoordinateSat</a></li><li><a href="bemap.Destination.html">Destination</a></li><li><a href="bemap.Error.html">Error</a></li><li><a href="bemap.EvBrand.html">EvBrand</a></li><li><a href="bemap.EvReachableArea.html">EvReachableArea</a></li><li><a href="bemap.EvReachableAreaRequest.html">EvReachableAreaRequest</a></li><li><a href="bemap.EvReachableAreaResponse.html">EvReachableAreaResponse</a></li><li><a href="bemap.EvseRouting.html">EvseRouting</a></li><li><a href="bemap.EvSmartRouting.html">EvSmartRouting</a></li><li><a href="bemap.EvSmartRoutingRequest.html">EvSmartRoutingRequest</a></li><li><a href="bemap.EvSmartRoutingResponse.html">EvSmartRoutingResponse</a></li><li><a href="bemap.EvStepPoint.html">EvStepPoint</a></li><li><a href="bemap.EvVehicle.html">EvVehicle</a></li><li><a href="bemap.EvVehicles.html">EvVehicles</a></li><li><a href="bemap.Exception.html">Exception</a></li><li><a href="bemap.GeoAutocomplete.html">GeoAutocomplete</a></li><li><a href="bemap.Geocoder.html">Geocoder</a></li><li><a href="bemap.GeocodingItem.html">GeocodingItem</a></li><li><a href="bemap.GeocodingRequest.html">GeocodingRequest</a></li><li><a href="bemap.GeocodingResponse.html">GeocodingResponse</a></li><li><a href="bemap.GeoSearchInfo.html">GeoSearchInfo</a></li><li><a href="bemap.GeoServerInfoResponse.html">GeoServerInfoResponse</a></li><li><a href="bemap.GeoServerInfoService.html">GeoServerInfoService</a></li><li><a href="bemap.GeoServerServiceInfo.html">GeoServerServiceInfo</a></li><li><a href="bemap.GeoServerServiceLimit.html">GeoServerServiceLimit</a></li><li><a href="bemap.HeatmapLayer.html">HeatmapLayer</a></li><li><a href="bemap.Icon.html">Icon</a></li><li><a href="bemap.Isochrone.html">Isochrone</a></li><li><a href="bemap.Layer.html">Layer</a></li><li><a href="bemap.LeafletMap.html">LeafletMap</a></li><li><a href="bemap.LineStyle.html">LineStyle</a></li><li><a href="bemap.Listener.html">Listener</a></li><li><a href="bemap.Map.html">Map</a></li><li><a href="bemap.MapEvent.html">MapEvent</a></li><li><a href="bemap.MapLibreMap.html">MapLibreMap</a></li><li><a href="bemap.Marker.html">Marker</a></li><li><a href="bemap.MultiMarker.html">MultiMarker</a></li><li><a href="bemap.NearPoint.html">NearPoint</a></li><li><a href="bemap.NearPoiRequest.html">NearPoiRequest</a></li><li><a href="bemap.NearPoiResponse.html">NearPoiResponse</a></li><li><a href="bemap.NearPoiSearch.html">NearPoiSearch</a></li><li><a href="bemap.Object.html">Object</a></li><li><a href="bemap.Ol3Map.html">Ol3Map</a></li><li><a href="bemap.OlMap.html">OlMap</a></li><li><a href="bemap.OsmLayer.html">OsmLayer</a></li><li><a href="bemap.PMTilesLayer.html">PMTilesLayer</a></li><li><a href="bemap.Polygon.html">Polygon</a></li><li><a href="bemap.PolygonStyle.html">PolygonStyle</a></li><li><a href="bemap.Polyline.html">Polyline</a></li><li><a href="bemap.Popup.html">Popup</a></li><li><a href="bemap.PostalAddress.html">PostalAddress</a></li><li><a href="bemap.RasterLayer.html">RasterLayer</a></li><li><a href="bemap.ReverseGeocoder.html">ReverseGeocoder</a></li><li><a href="bemap.ReverseGeocodingRequest.html">ReverseGeocodingRequest</a></li><li><a href="bemap.RevGeoSearchInfo.html">RevGeoSearchInfo</a></li><li><a href="bemap.RoadFeature.html">RoadFeature</a></li><li><a href="bemap.Route.html">Route</a></li><li><a href="bemap.Route.Event.html">Event</a></li><li><a href="bemap.Route.RoutesheetInstruction.html">RoutesheetInstruction</a></li><li><a href="bemap.Routing.html">Routing</a></li><li><a href="bemap.RoutingDestination.html">RoutingDestination</a></li><li><a href="bemap.RoutingInstruction.html">RoutingInstruction</a></li><li><a href="bemap.RoutingRequest.html">RoutingRequest</a></li><li><a href="bemap.RoutingResponse.html">RoutingResponse</a></li><li><a href="bemap.RoutingRoute.html">RoutingRoute</a></li><li><a href="bemap.RoutingSummary.html">RoutingSummary</a></li><li><a href="bemap.RoutingV2.html">RoutingV2</a></li><li><a href="bemap.RoutingVehicleProfile.html">RoutingVehicleProfile</a></li><li><a href="bemap.RoutingWaypoint.html">RoutingWaypoint</a></li><li><a href="bemap.Service.html">Service</a></li><li><a href="bemap.TextStyle.html">TextStyle</a></li><li><a href="bemap.TilesAuth.html">TilesAuth</a></li><li><a href="bemap.TilesOverlayCatalog.html">TilesOverlayCatalog</a></li><li><a href="global.html#bemap#.TraceRoute">TraceRoute</a></li><li><a href="bemap.TraceRouteDestination.html">TraceRouteDestination</a></li><li><a href="bemap.TraceRouteRequest.html">TraceRouteRequest</a></li><li><a href="bemap.VectorLayer.html">VectorLayer</a></li><li><a href="bemap.VectorTileLayer.html">VectorTileLayer</a></li><li><a href="bemap.WmsLayer.html">WmsLayer</a></li></ul><h3>Global</h3><ul><li><a href="global.html#AC">AC</a></li><li><a href="global.html#AC_SINGLE_PHASE">AC_SINGLE_PHASE</a></li><li><a href="global.html#AC_THREE_PHASES">AC_THREE_PHASES</a></li><li><a href="global.html#bemap">bemap</a></li><li><a href="global.html#DC">DC</a></li><li><a href="global.html#NA">NA</a></li></ul>
+</nav>
+
+<br class="clear">
+
+<footer>
+    Documentation generated by <a href="https://github.com/jsdoc/jsdoc">JSDoc 3.6.3</a> on Tue Jun 02 2026 11:46:44 GMT+0200 (heure d’été d’Europe centrale)
+</footer>
+
+<script> prettyPrint(); </script>
+<script src="scripts/linenumber.js"> </script>
+</body>
+</html>

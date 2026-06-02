@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="en" dir="ltr">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>BeNomad BeMap JavaScript API</title>
+  <link rel="stylesheet" type="text/css" href="../../lib/jquery-ui/themes/base/jquery-ui.min.css" media="screen">
+  <link rel="stylesheet" href="../../lib/jqueryui-timepicker-addon/dist/jquery-ui-timepicker-addon.css" type="text/css">
+  <link href="../../lib/select2/dist/css/select2.min.css" rel="stylesheet" />
+
+  <link rel="stylesheet" type="text/css" href="../../dist/ol.css">
+  <link rel="stylesheet" type="text/css" href="../../dist/leaflet.css">
+  <link rel="stylesheet" type="text/css" href="../../dist/MarkerCluster.Default.css" />
+  <link rel="stylesheet" type="text/css" href="../../lib/bootstrap/dist/css/bootstrap.min.css" />
+  <link rel="stylesheet" type="text/css" href="../../dist/bemap-js-api.css" media="screen">
+
+  <script language="JavaScript" type="text/javascript" src="../../lib/jquery/dist/jquery.min.js"></script>
+  <script language="JavaScript" type="text/javascript" src="../../lib/jquery-ui/jquery-ui.min.js"></script>
+  <script type="text/javascript" language="JavaScript" src="../../lib/jqueryui-timepicker-addon/dist/jquery-ui-timepicker-addon.js"></script>
+
+  <script language="JavaScript" type="text/javascript" src="../../dist/ol.js"></script>
+  <script language="JavaScript" type="text/javascript" src="../../dist/leaflet.js"></script>
+  <script language="JavaScript" src="../../dist/maplibre-gl.js"></script>
+  <script language="JavaScript" src="../../dist/pmtiles.js"></script>
+  <script language="JavaScript" type="text/javascript" src="../../dist/leaflet.markercluster.js"></script>
+  <script language="JavaScript" type="text/javascript" src="../../dist/bemap-js-api.js"></script>
+  <script language="JavaScript" type="text/javascript" src="../context.js"></script>
+  <script language="JavaScript" type="text/javascript" src="routing.js"></script>
+  <script language="JavaScript" type="text/javascript" src="routing-example.js"></script>
+  <script language="JavaScript" type="text/javascript" src="../../lib/select2/dist/js/select2.min.js"></script>
+  <style media="screen">
+    #map1 {
+      position: fixed;
+      width: 100%;
+      height: 50vh;
+      left: 0;
+      /*top: 0;*/
+      bottom: 0;
+      transition: all .4s;
+    }
+
+    .glyphicon {
+      top: 2.6rem;
+      right: 1.5rem;
+    }
+  </style>
+</head>
+
+<body>
+  <div id="map1"></div>
+
+
+  <div class="container">
+
+
+    <div class="row">
+
+      <div class="col-md-6">
+
+
+        <div class="row form-group">
+          <div class="col-md-3">
+            <h3>Criterias</h3>
+            <label class="label-custom"><input type="checkbox" name="criterias" value="AVOID_FERRIES" /> Avoid Ferries</label>
+
+            <label class="label-custom"><input type="checkbox" name="criterias" value="AVOID_MOTORWAYS" /> Avoid Motorways</label>
+
+            <label class="label-custom"><input type="checkbox" name="criterias" value="AVOID_TOLLS" /> Avoid Tolls</label>
+
+            <label class="label-custom"><input type="checkbox" name="criterias" id="criteriasFASTEST" value="FASTEST" /> Fastest</label>
+
+            <label class="label-custom"><input type="checkbox" name="criterias" id="criteriasSHORTEST" value="SHORTEST" /> Shortest</label>
+
+            <label class="label-custom"><input type="checkbox" name="criterias" value="AVOID_UNPAVED" /> Avoid Unpaved</label>
+
+            <label class="label-custom"><input type="checkbox" name="criterias" value="AVOID_CROSSING_BORDER" /> Avoid Crossing Border</label>
+
+            <label class="label-custom"><input type="checkbox" name="criterias" value="CARPOOL" /> Carpool</label>
+
+            <label class="label-custom"><input type="checkbox" name="criterias" value="ECO_ENERGY" /> Eco Energy</label>
+
+            <!--<label class="label-custom">Date <input type="datetime-local" class="inDateOpt inOptions" name="datetime" id="departureDate" value=""> </label>-->
+            <label class="label-custom">Date <input type="datetime-local" class="inDateOpt inOptions" name="datetime" id="departureDate" value=""> </label>
+
+
+
+            <label for="inputType" class="control-label">Alt roud</label><input type="text" class="form-control" id="maxAlter" min="0" max="2" value="0" placeholder="" />
+
+            <label for="inputType" class="control-label">Options</label>
+            <select type="text" class="form-control" multiple="multiple" id="options" value="" placeholder="" multiple />
+            <option value="POLYLINE">POLYLINE</option>
+            <option value="DETAILED_POLYLINE">DETAILED_POLYLINE</option>
+            <option value="ROAD_SEGMENTS">ROAD_SEGMENTS</option>
+
+            <option value="OPTIMIZED_TRIP">OPTIMIZED_TRIP</option>
+
+            <option value="WAYPOINTS_POLYLINE">WAYPOINTS_POLYLINE</option>
+            <option value="POLYLINE_INDEX">POLYLINE_INDEX</option>
+            <option value="EVT_ROAD_FEATURE">EVT_ROAD_FEATURE</option>
+            <option value="EVT_SEGMENT_INFO">EVT_SEGMENT_INFO</option>
+            <option value="EVT_ELEVATION2">EVT_ELEVATION2</option>
+            <option value="EVT_ELEVATION">EVT_ELEVATION</option>
+
+            <option value="ROUTESHEET">ROUTESHEET</option>
+            <option value="STARTSTOPINFO_WITHVIA">STARTSTOPINFO_WITHVIA</option>
+            <option value="WAYPOINTS">WAYPOINTS</option>
+            <option value="EVENT">EVENT</option>
+            <option value="EVT_POLYLINE">EVT_POLYLINE</option>
+            <option value="EVT_LENGTH">EVT_LENGTH</option>
+            <option value="EVT_DURATION">EVT_DURATION</option>
+
+            <option value="TRAFFIC">TRAFFIC</option>
+            <option value="TRAFFIC_PREDICTIVE">TRAFFIC_PREDICTIVE</option>
+            <option value="TRAFFIC_PATTERNS">TRAFFIC_PATTERNS</option>
+
+            </select>
+          </div>
+          <div class="col-md-3">
+            <h3>Vehicle</h3>
+            <label class="label-custom"><input type="checkbox" name="vehicle" value="PEDESTRIAN" /> Pedestrian</label>
+
+            <label class="label-custom"><input type="checkbox" name="vehicle" value="BICYCLE" /> Bicycle</label>
+
+            <label class="label-custom"><input type="checkbox" name="vehicle" value="MOTORCYCLE" /> Motorcycle</label>
+
+            <label class="label-custom"><input type="checkbox" name="vehicle" value="CAR" /> Car</label>
+
+            <label class="label-custom"><input type="checkbox" name="vehicle" value="TAXI" /> Taxi</label>
+
+            <label class="label-custom"><input type="checkbox" name="vehicle" value="PUBLIC_BUS" /> Public Bus</label>
+
+            <label class="label-custom"><input type="checkbox" name="vehicle" value="EMERGENCY" /> Emergency</label>
+
+            <label class="label-custom"><input type="checkbox" name="vehicle" value="DELIVERY_TRUCK" /> Delivery Truck</label>
+
+            <label class="label-custom"><input type="checkbox" name="vehicle" value="TRUCK" /> Truck</label>
+          </div>
+          <div class="col-md-3">
+            <h3>Vehicle</h3>
+            <label for="inputType" class="control-label">Vehicle Height</label><input type="text" class="form-control" id="height" value="380" placeholder="Parameter chargingPointPower" />
+
+            <label for="inputType" class="control-label">Vehicle Width</label><input type="text" class="form-control" id="width" value="240" placeholder="Parameter chargingPointPower" />
+
+            <label for="inputType" class="control-label">Vehicle Length</label><input type="text" class="form-control" id="length" value="1875" placeholder="Parameter chargingPointPower" />
+
+            <label for="inputType" class="control-label">Vehicle Weight</label><input type="text" class="form-control" id="weight" value="35" placeholder="Parameter chargingPointPower" />
+
+            <label for="inputType" class="control-label">Vehicle Axle Weight</label><input type="text" class="form-control" id="axelWeight" value="10" placeholder="Parameter chargingPointPower" />
+
+            <label for="inputType" class="control-label"><input type="checkbox" name="feature" value="TRUCK" /> Enable Vehicle Features</label>
+          </div>
+
+        </div>
+
+
+
+
+        <div class="col-md-12">
+          <button type="button" class="btn btn-primary" id="run"><span></span> Search</button></br>
+          <button type="button" class="btn btn-primary" id="clear"><span></span> Clear</button></br>
+        </div>
+      </div>
+
+
+      <div class="col-md-6">
+        <div id="responseContainer" class="row" hidden>
+          <table id="myTable" class="table table-hover table-striped">
+            <thead>
+              <th>City</th>
+              <th>Country</th>
+              <th>Postal code</th>
+              <th>Place</th>
+              <th>Longitude</th>
+              <th>Latitude</th>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+</body>
+
+</html>

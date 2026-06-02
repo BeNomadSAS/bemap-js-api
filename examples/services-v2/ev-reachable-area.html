@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>EV Reachable Area v2 — BeMap JS API</title>
+    <link rel="stylesheet" type="text/css" href="../../dist/ol.css">
+    <link rel="stylesheet" type="text/css" href="../../dist/leaflet.css">
+    <link rel="stylesheet" type="text/css" href="../../dist/maplibre-gl.css">
+    <link rel="stylesheet" type="text/css" href="../../dist/bemap-js-api.css">
+    <link rel="stylesheet" type="text/css" href="_shell.css">
+
+    <script src="../../dist/ol.js"></script>
+    <script src="../../dist/leaflet.js"></script>
+    <script src="../../dist/maplibre-gl.js"></script>
+    <script src="../../dist/pmtiles.js"></script>
+    <script src="../../dist/bemap-js-api.js"></script>
+    <script src="../context.js"></script>
+    <script src="../bemap-provider.js"></script>
+    <script src="_snippet.js"></script>
+</head>
+<body>
+    <div id="map1"></div>
+
+    <div class="panel-v2" style="max-width:420px;">
+        <h4>EV Reachable Area <span class="v2-badge">v2</span></h4>
+        <p style="margin:0 0 8px 0;color:#555;font-size:11px;">
+            Click the map to set start →
+            <code>bemap.EvReachableArea.compute(req)</code>
+            returns the polygon of where the EV can reach on its current
+            battery.
+        </p>
+
+        <div class="field-row">
+            <div style="flex:1;">
+                <label>Brand</label>
+                <select id="era-brand"><option>Loading…</option></select>
+            </div>
+            <div style="flex:2;">
+                <label>Vehicle</label>
+                <select id="era-vehicle"><option>Pick a brand first…</option></select>
+            </div>
+        </div>
+
+        <div class="field-row">
+            <div style="flex:1;">
+                <label>Battery (%)</label>
+                <input id="era-bat" type="number" value="80" min="1" max="100">
+            </div>
+            <div style="flex:1;">
+                <label>Temp (°C)</label>
+                <input id="era-temp" type="number" value="18">
+            </div>
+            <div style="flex:1;">
+                <label>Payload (kg)</label>
+                <input id="era-payload" type="number" value="75">
+            </div>
+        </div>
+
+        <div class="field-row">
+            <label style="display:flex;align-items:center;gap:6px;">
+                <input id="era-overlay" type="checkbox">
+                Overlay multiple budgets (50 / 70 / 90 %)
+            </label>
+        </div>
+
+        <div id="era-status" class="status">Click the map to drop the start point.</div>
+        <div id="era-summary" class="status" style="margin-top:4px;"></div>
+    </div>
+
+    <script src="ev-reachable-area.js"></script>
+</body>
+</html>

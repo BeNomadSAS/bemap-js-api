@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Geocoder v2 — BeMap JS API</title>
+    <link rel="stylesheet" type="text/css" href="../../dist/ol.css">
+    <link rel="stylesheet" type="text/css" href="../../dist/leaflet.css">
+    <link rel="stylesheet" type="text/css" href="../../dist/maplibre-gl.css">
+    <link rel="stylesheet" type="text/css" href="../../dist/bemap-js-api.css">
+    <link rel="stylesheet" type="text/css" href="_shell.css">
+
+    <script src="../../dist/ol.js"></script>
+    <script src="../../dist/leaflet.js"></script>
+    <script src="../../dist/maplibre-gl.js"></script>
+    <script src="../../dist/pmtiles.js"></script>
+    <script src="../../dist/bemap-js-api.js"></script>
+    <script src="../context.js"></script>
+    <script src="../bemap-provider.js"></script>
+    <script src="_snippet.js"></script>
+</head>
+<body>
+    <div id="map1"></div>
+
+    <div class="panel-v2">
+        <h4>Geocoder <span class="v2-badge">v2</span></h4>
+        <p style="margin:0 0 8px 0;color:#555;font-size:11px;">
+            Typed <code>GeocodingRequest</code> → Promise → <code>GeocodingResponse</code>.
+        </p>
+
+        <div>
+            <label>Free-text query</label>
+            <input id="g-place" type="text" placeholder="e.g. 100 rue de Rivoli, Paris" value="Tour Eiffel, Paris">
+        </div>
+        <div class="field-row" style="margin-top:6px;">
+            <div style="flex:1;">
+                <label>Country</label>
+                <input id="g-country" type="text" placeholder="france" value="france">
+            </div>
+            <div style="flex:1;">
+                <label>Language</label>
+                <input id="g-lang" type="text" placeholder="fr" value="fr">
+            </div>
+        </div>
+        <div class="field-row" style="margin-top:6px;">
+            <div style="flex:1;">
+                <label>Max results</label>
+                <input id="g-max" type="number" value="5" min="1" max="20">
+            </div>
+            <div style="flex:1;">
+                <label>Search type</label>
+                <select id="g-stype">
+                    <option value="">(default)</option>
+                    <option value="FREE_TEXT">FREE_TEXT</option>
+                    <option value="CONTAINS">CONTAINS</option>
+                    <option value="STRICT">STRICT</option>
+                </select>
+            </div>
+        </div>
+
+        <div style="margin-top:10px;display:flex;gap:6px;">
+            <button id="g-go">Geocode</button>
+            <button id="g-clear" class="secondary">Clear</button>
+        </div>
+
+        <div id="g-status" class="status"></div>
+        <ul id="g-results" class="result-list"></ul>
+    </div>
+
+    <script src="geocoder.js"></script>
+</body>
+</html>

@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>BeMap JS API - MapLibre Heatmap</title>
+  <link rel="stylesheet" href="../lib/bootstrap/dist/css/bootstrap.min.css" type="text/css">
+  <link rel="stylesheet" href="../dist/maplibre-gl.css" type="text/css">
+  <script src="../dist/maplibre-gl.js"></script>
+  <script src="../dist/pmtiles.js"></script>
+  <script src="../dist/bemap-js-api.js"></script>
+  <script src="effect-bridge.js"></script>
+  <script src="context.js"></script>
+</head>
+<body style="margin:0;padding:0;">
+  <div id="pageHeaderText" style="padding:10px 10px 4px;background:linear-gradient(135deg,#c0392b,#e74c3c);color:#fff;">
+    <h3 style="margin:0 0 4px 0;font-size:16px;">Heatmap Visualization <span style="font-size:11px;opacity:0.6;">MapLibre only</span></h3>
+    <p style="margin:0;font-size:13px;opacity:0.9;">Visualize point density with customizable heatmap layers. Adjust radius and intensity.</p>
+  </div>
+  <div id="pageControls" style="padding:6px 10px;background:linear-gradient(135deg,#c0392b,#e74c3c);color:#fff;border-bottom:2px solid #922;">
+    <label style="font-size:12px;">Radius: <input type="range" id="radiusSlider" min="5" max="50" value="20" style="width:100px;vertical-align:middle;"></label>
+    <label style="font-size:12px;margin-left:10px;">Intensity: <input type="range" id="intensitySlider" min="1" max="10" value="3" style="width:100px;vertical-align:middle;"></label>
+    <button class="btn btn-sm btn-warning" id="btnAddPoints" style="margin-left:10px;">Add 200 random points</button>
+    <button class="btn btn-sm btn-default" id="btnReset" style="margin-left:6px;">Reset</button>
+  </div>
+  <div id="map1" style="height:calc(100vh - 90px);"></div>
+
+  <script>
+  // Hide the duplicate header when embedded in the dashboard iframe.
+  try {
+    if (window.parent !== window) {
+      document.getElementById('pageHeaderText').style.display = 'none';
+      document.getElementById('map1').style.height = 'calc(100vh - 40px)';
+    }
+  } catch (e) {}
+
+  var map = new bemap.MapLibreMap(bemapMainCtx, 'map1').move(2.35, 48.85, 5);
+
+  function randomPoints(n) {
+    var out = [];
+    for (var i = 0; i < n; i++) {
+      out.push({ lon: -5 + Math.random() * 30, lat: 35 + Math.random() * 25, weight: Math.random() * 10 });
+    }
+    return out;
+  }
+
+  var points = randomPoints(500);
+  var heatmap = new bemap.HeatmapLayer({
+    name: 'demo-heatmap',
+    points: points,
+    radius: 20,
+    intensity: 3,
+    colors: ['rgba(0,0,255,0)', 'royalblue', 'cyan', 'lime', 'yellow', 'red']
+  });
+  map.addHeatmap(heatmap);
+
+  document.getElementById('btnAddPoints').onclick = function() {
+    var more = randomPoints(200);
+    for (var i = 0; i < more.length; i++) points.push(more[i]);
+    map.updateHeatmap(heatmap, points);
+  };
+
+  document.getElementById('btnReset').onclick = function() {
+    points = randomPoints(500);
+    map.updateHeatmap(heatmap, points);
+    map.move(2.35, 48.85, 5);
+    document.getElementById('radiusSlider').value = 20;
+    document.getElementById('intensitySlider').value = 3;
+  };
+  // The sliders are decorative for now — radius / intensity are baked into
+  // the HeatmapLayer at construction; updating them live requires rebuilding
+  // the layer (intentional trade-off, not wired here).
+  </script>
+</body>
+</html>

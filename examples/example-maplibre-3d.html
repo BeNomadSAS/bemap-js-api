@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>BeMap JS API — MapLibre Globe &amp; 3D</title>
+
+  <link rel="stylesheet" href="../dist/maplibre-gl.css">
+  <link rel="stylesheet" href="bn-2026.css">
+
+  <script src="../dist/maplibre-gl.js"></script>
+  <script src="../dist/pmtiles.js"></script>
+  <script src="../dist/bemap-js-api.js"></script>
+  <script src="effect-bridge.js"></script>
+  <script src="context.js"></script>
+  <script src="bn-2026.js"></script>
+  <script src="example-maplibre-3d.js"></script>
+</head>
+<body data-bn-page
+      data-bn-title="Globe &amp; 3D"
+      data-bn-subtitle="MapLibre-only features — globe projection, pitch, bearing, fly-to, atmospheric sun, spinning globe."
+      data-bn-chips="MapLibre:ml,3D:accent,v2.0:brand"
+      onload="onLoaded();">
+  <div class="bn-shell">
+    <div class="bn-stage">
+      <div id="map1" class="bn-map"></div>
+
+      <aside class="bn-panel">
+        <div class="bn-panel__header">
+          <span class="bn-panel__header-title">Controls</span>
+        </div>
+        <div class="bn-panel__body">
+
+          <section class="bn-panel__section">
+            <h4>Reset</h4>
+            <div class="bn-row bn-row__inline">
+              <button id="btnReset" class="bn-btn bn-btn--ghost" type="button" style="width:100%">Reset all</button>
+            </div>
+          </section>
+
+          <section class="bn-panel__section">
+            <h4>Projection</h4>
+            <div class="bn-row bn-row__inline">
+              <button id="btnGlobe"    class="bn-btn bn-btn--primary" type="button">Globe</button>
+              <button id="btnMercator" class="bn-btn"                type="button">Mercator 3D</button>
+            </div>
+          </section>
+
+          <section class="bn-panel__section">
+            <h4>Pitch</h4>
+            <div class="bn-row bn-row__inline">
+              <button id="btnPitch0"  class="bn-btn" type="button">Flat</button>
+              <button id="btnPitch60" class="bn-btn" type="button">Tilted</button>
+            </div>
+          </section>
+
+          <section class="bn-panel__section">
+            <h4>Bearing</h4>
+            <div class="bn-row bn-row__inline">
+              <button id="btnBearing0"  class="bn-btn" type="button">North</button>
+              <button id="btnBearing90" class="bn-btn" type="button">East</button>
+            </div>
+          </section>
+
+          <section class="bn-panel__section">
+            <h4>Fly to</h4>
+            <div class="bn-row bn-row__inline">
+              <button id="btnFlyParis" class="bn-btn bn-btn--accent" type="button">Paris</button>
+              <button id="btnFlyNY"    class="bn-btn bn-btn--accent" type="button">New York</button>
+              <button id="btnFlyTokyo" class="bn-btn bn-btn--accent" type="button">Tokyo</button>
+            </div>
+          </section>
+
+          <section class="bn-panel__section">
+            <h4>Effects</h4>
+            <div class="bn-row bn-row__inline">
+              <button id="btnSpin"       class="bn-btn bn-btn--ok"  type="button">Start Spin</button>
+              <button id="btnAtmosphere" class="bn-btn bn-btn--err" type="button">Atmosphere OFF</button>
+            </div>
+          </section>
+
+          <section class="bn-panel__section">
+            <h4>Sun angle</h4>
+            <div class="bn-row">
+              <input id="sunSlider" type="range" min="0" max="360" value="90">
+            </div>
+          </section>
+
+        </div>
+      </aside>
+    </div>
+  </div>
+</body>
+</html>

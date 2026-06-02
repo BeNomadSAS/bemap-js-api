@@ -1,0 +1,1478 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>JSDoc: Source: bemap-ol/bemap-ol-v10/bemap-map-ol.js</title>
+
+    <script src="scripts/prettify/prettify.js"> </script>
+    <script src="scripts/prettify/lang-css.js"> </script>
+    <!--[if lt IE 9]>
+      <script src="//html5shiv.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+    <link type="text/css" rel="stylesheet" href="styles/prettify-tomorrow.css">
+    <link type="text/css" rel="stylesheet" href="styles/jsdoc-default.css">
+</head>
+
+<body>
+
+<div id="main">
+
+    <h1 class="page-title">Source: bemap-ol/bemap-ol-v10/bemap-map-ol.js</h1>
+
+    
+
+
+
+    
+    <section>
+        <article>
+            <pre class="prettyprint source linenums"><code>/**
+ * BeNomad BeMap JavaScript API - Map - OpenLayers v10
+ */
+
+/**
+ * @classdesc
+ * Base class for OpenLayers.
+ * @public
+ * @constructor
+ * @extends {bemap.Map}
+ * @param {bemap.Context} context BeMap-JS-API Context.
+ * @param {string} target HTML element.
+ * @param options.
+ */
+bemap.OlMap = function (context, target, options) {
+  // Runtime dependency check — emits a loud console banner with the
+  // exact &lt;script>/&lt;link> tags to add when OpenLayers is missing.
+  bemap.Map._checkDependencies('ol');
+
+  /**
+    * @protected
+    */
+  this.target = target;
+
+  bemap.Map.call(this, context, options);
+
+  var opts = options || {};
+
+  // Resolve native-attribution + zoom-control options (uniform across engines).
+  // bemap.Map._resolveControlOptions hides OL's built-in attribution by
+  // default when the BeMap AttributionWidget is enabled. The zoom buttons
+  // are positioned via a CSS-class suffix (`.bemap-zoom-pos-&lt;position>` —
+  // styled in bemap-js-api.css) on a custom `ol.control.Zoom` instance.
+  var _ctrl = bemap.Map._resolveControlOptions(opts);
+  // OL v10 nests `defaults()` as a property of the namespace (`ol.control.defaults.defaults`);
+  // older builds expose it as the namespace itself. Resolve both shapes.
+  var _olDefaults = (ol.control.defaults &amp;&amp; typeof ol.control.defaults.defaults === 'function')
+    ? ol.control.defaults.defaults
+    : (typeof ol.control.defaults === 'function' ? ol.control.defaults : null);
+  // Always disable the auto-added zoom; we add a positioned custom one below.
+  var _olControls = _olDefaults
+    ? _olDefaults({ attribution: _ctrl.nativeAttribution, zoom: false })
+    : undefined;
+  var _zoomCtrl = null;
+  if (_ctrl.zoomControl &amp;&amp; _olControls &amp;&amp; ol.control &amp;&amp; ol.control.Zoom) {
+    // IMPORTANT: do NOT override `className`. OL uses it as the BASE for
+    // button classes (`&lt;className>-in` / `-out`), so passing
+    // `'ol-zoom bemap-zoom-pos-top-left'` makes the buttons end up as
+    // `&lt;basename>-in` with no matching CSS — they lose their sizing and
+    // the container ends up covering the whole map. Instead, let OL
+    // install its default `ol-zoom` / `ol-zoom-in` / `ol-zoom-out`
+    // classes and tag the CONTAINER element with the position class
+    // post-construction.
+    _zoomCtrl = new ol.control.Zoom();
+    _olControls.push(_zoomCtrl);
+  }
+
+  // Keyboard interactions — default OFF (see bemap.Map._resolveControlOptions).
+  // We intentionally do NOT pre-build a custom interactions Collection here:
+  // replacing OL's defaults Collection can drop critical interactions
+  // (DragPan etc.) when the bundled defaults() function has a subtly
+  // different signature across OL versions. Instead, let OL install its
+  // full defaults and prune ONLY KeyboardPan / KeyboardZoom afterwards
+  // when the consumer didn't request them.
+
+  var _mapOpts = {
+    target: target,
+    view: new ol.View({
+      projection: bemap.Map.PROJ.EPSG_MERCATOR,
+      center: [0, 0],
+      zoom: opts.zoom || 3,
+      minZoom: opts.minZoom !== undefined ? opts.minZoom : 3,
+      maxZoom: opts.maxZoom !== undefined ? opts.maxZoom : 20,
+      constrainRotation: opts.constrainRotation !== undefined ? opts.constrainRotation : true,
+      // Default to enabled — with enableRotation:false OL ignores
+      // every setRotation call (programmatic or user). That's why
+      // map.rotation(45) appeared to succeed but didn't visually
+      // rotate. Customers who want to prevent user-driven rotation
+      // can pass `enableRotation: false` AND accept that
+      // setBearing/rotation become no-ops too.
+      enableRotation: opts.enableRotation !== undefined ? opts.enableRotation : true
+    })
+  };
+  if (_olControls) _mapOpts.controls = _olControls;
+  this.native = new ol.Map(_mapOpts);
+
+  // Tag the Zoom control container with the bemap position class — the
+  // class-only positioning rules in bemap-js-api.css then move it to the
+  // requested corner. OL's own `.ol-zoom-in` / `.ol-zoom-out` rules are
+  // preserved (correct button sizing, no whole-map overlay bug).
+  if (_zoomCtrl &amp;&amp; _zoomCtrl.element &amp;&amp; _zoomCtrl.element.classList) {
+    _zoomCtrl.element.classList.add('bemap-zoom-pos-' +
+      bemap.Map._translateZoomPosition('ol', _ctrl.zoomPosition));
+  }
+
+  // Post-construction keyboard pruning — remove KeyboardPan / KeyboardZoom
+  // when the consumer didn't ask for the corresponding half (default off
+  // for both). Done on the live Collection so DragPan, MouseWheelZoom, etc.
+  // are untouched.
+  var _interactions = this.native.getInteractions();
+  if (_interactions &amp;&amp; typeof _interactions.forEach === 'function') {
+    var _toRemove = [];
+    _interactions.forEach(function (it) {
+      if (!_ctrl.keyboard.pan  &amp;&amp; ol.interaction.KeyboardPan  &amp;&amp; it instanceof ol.interaction.KeyboardPan)  _toRemove.push(it);
+      if (!_ctrl.keyboard.zoom &amp;&amp; ol.interaction.KeyboardZoom &amp;&amp; it instanceof ol.interaction.KeyboardZoom) _toRemove.push(it);
+    });
+    for (var _i = 0; _i &lt; _toRemove.length; _i++) this.native.removeInteraction(_toRemove[_i]);
+  }
+  this._keyboardEnabled = !!(_ctrl.keyboard.pan || _ctrl.keyboard.zoom);
+  this._keyboardOptions = _ctrl.keyboard;
+
+  // OL v5+ natively fires 'movestart' on the map — no hack needed
+
+  // Attribution widget (v1.5.0) — auto-instantiated unless options.attribution === false
+  if (typeof bemap.AttributionWidget === 'function') {
+    var _attr = opts.attribution;
+    if (_attr !== false) {
+      var _attrOpts = (_attr &amp;&amp; typeof _attr === 'object') ? _attr : {};
+      this._attributionWidget = new bemap.AttributionWidget(this, _attrOpts);
+    }
+  }
+};
+bemap.inherits(bemap.OlMap, bemap.Map);
+
+/**
+ * Toggle keyboard navigation (arrow-pan + `+`/`-` zoom) at runtime by
+ * adding / removing the `KeyboardPan` and `KeyboardZoom` interactions.
+ * @public
+ * @param {Boolean} enabled
+ * @return {bemap.OlMap}
+ */
+bemap.OlMap.prototype.setKeyboard = function (enabled) {
+  if (!this.native || !ol.interaction) { this._keyboardEnabled = !!enabled; return this; }
+  var interactions = this.native.getInteractions();
+  var hasPan = false, hasZoom = false;
+  interactions.forEach(function (it) {
+    if (it instanceof ol.interaction.KeyboardPan)  hasPan  = true;
+    if (it instanceof ol.interaction.KeyboardZoom) hasZoom = true;
+  });
+  if (enabled) {
+    if (!hasPan)  this.native.addInteraction(new ol.interaction.KeyboardPan());
+    if (!hasZoom) this.native.addInteraction(new ol.interaction.KeyboardZoom());
+  } else {
+    var toRemove = [];
+    interactions.forEach(function (it) {
+      if (it instanceof ol.interaction.KeyboardPan || it instanceof ol.interaction.KeyboardZoom) {
+        toRemove.push(it);
+      }
+    });
+    for (var i = 0; i &lt; toRemove.length; i++) this.native.removeInteraction(toRemove[i]);
+  }
+  this._keyboardEnabled = !!enabled;
+  return this;
+};
+
+/** @public @return {Boolean} */
+bemap.OlMap.prototype.getKeyboard = function () { return !!this._keyboardEnabled; };
+
+/**
+ * Sotre the bemap object into the native OpenLayers properties.
+ * @protected
+ * @param {Object} bemapObject a bemap object like bemap.marker, bemap.multimarker or bemap.polyline.
+ */
+bemap.OlMap.prototype._addOwnToProperties = function (bemapObject) {
+  var props = bemapObject.native.getProperties() || {};
+  props[bemap.Map.OWNREF] = bemapObject;
+  bemapObject.native.setProperties(props);
+};
+
+/**
+ * Get the bemap object from the native OpenLayers properties.
+ * @protected
+ * @param {Object} olObject native Openlayers object like ol.Feature.
+ * @return {Object} a bemap object like bemap.marker, bemap.multimarker or bemap.polyline.
+ */
+bemap.OlMap.prototype._getOwnFromProperties = function (olObject) {
+  var props = olObject.getProperties();
+  var ownRef = props[bemap.Map.OWNREF];
+  if (ownRef === undefined) {
+    props = props.features[0].getProperties();
+    ownRef = props[bemap.Map.OWNREF];
+  }
+  return ownRef;
+};
+
+/**
+ * @protected
+ * @param {double} lon Longitude in degres decimal (WGS84).
+ * @param {double} lat Latitude in degres decimal (WGS84).
+ */
+bemap.OlMap.prototype._fromLonLat = function (lon, lat) {
+  return ol.proj.transform([lon, lat], bemap.Map.PROJ.EPSG_WGS84, this.native.getView().getProjection());
+};
+
+/**
+ * @protected
+ * @param {array} coordinate Array contains the longitude and latitude in format of OpenLayers Map object.
+ * @return {array} Array contains the longitude and latitude in degres decimal (WGS84).
+ */
+bemap.OlMap.prototype._fromNativeToLonLat = function (coordinate) {
+  var coords = ol.proj.transform(coordinate, this.native.getView().getProjection(), bemap.Map.PROJ.EPSG_WGS84);
+  return new bemap.Coordinate(coords[0], coords[1]);
+};
+
+/**
+ * Add a layer to the OpenLayers map.
+ * @public
+ * @param {bemap.Layer} layer
+ * @param {object} options
+ * @return {bemap.OlMap} this
+ */
+bemap.OlMap.prototype.addLayer = function (layer, options) {
+  if (layer !== null &amp;&amp; bemap.inheritsof(layer, bemap.Layer)) {
+    if (bemap.inheritsof(layer, bemap.BemapLayer)) {
+      layer.native = new ol.layer.Tile({
+        source: new ol.source.TileWMS({
+          url: this.ctx.getBaseUrl() + 'wms?' + this.ctx.getAuthUrlParams(),
+          params: {
+            'geoserver': layer.geoserver ? layer.geoserver : this.ctx.getGeoserver(),
+            'LAYERS': layer.layers ? layer.layers : 'default',
+            'STYLES': layer.styles ? layer.styles : '',
+            'TILED': true,
+            'TRANSPARENT': layer.transparent === true ? true : false,
+            'FORMAT': layer.format ? layer.format : 'image/png'
+          }
+        })
+      });
+
+    } else if (bemap.inheritsof(layer, bemap.WmsLayer)) {
+      layer.native = new ol.layer.Tile({
+        source: new ol.source.TileWMS({
+          url: layer.url,
+          params: {
+            'LAYERS': layer.layers ? layer.layers : '',
+            'STYLES': layer.styles ? layer.styles : '',
+            'TILED': layer.tiled === true ? true : false,
+            'TRANSPARENT': layer.transparent === true ? true : false,
+            'FORMAT': layer.format ? layer.format : 'image/png'
+          }
+        })
+      });
+
+    } else if (bemap.inheritsof(layer, bemap.OsmLayer)) {
+      layer.native = new ol.layer.Tile({
+        source: new ol.source.OSM()
+      });
+
+    } else if (bemap.inheritsof(layer, bemap.VectorLayer)) {
+      layer.native = new ol.layer.Vector({
+        source: new ol.source.Vector({
+          features: []
+        })
+      });
+
+    } else if (bemap.inheritsof(layer, bemap.ClusterLayer)) {
+      var source = new ol.source.Vector({
+        features: []
+      });
+
+      var clusterSource = new ol.source.Cluster({
+        distance: layer.distance,
+        source: source
+      });
+
+      var c = layer.style;
+
+      layer.native = new ol.layer.Vector({
+        source: clusterSource,
+        style: function (feature, resolution) {
+          var size = feature.get('features').length;
+          var style;
+          if (size > 1) {
+            style = new ol.style.Style({
+              image: new ol.style.Circle({
+                radius: c.size,
+                stroke: new ol.style.Stroke({
+                  width: c.borderSize,
+                  color: c.borderColor.getRgbaArray()
+                }),
+                fill: new ol.style.Fill({
+                  color: c.color.getRgbaArray()
+                })
+              }),
+              text: new ol.style.Text({
+                text: size.toString(),
+                fill: new ol.style.Fill({
+                  color: c.textColor.getRgbaArray()
+                }),
+                scale: c.textSize
+              })
+            });
+          } else {
+            style = new ol.style.Style({
+              image: new ol.style.Icon({
+                anchor: [c.icon.anchorX, c.icon.anchorY],
+                anchorXUnits: c.icon.anchorXUnits,
+                anchorYUnits: c.icon.anchorYUnits,
+                src: c.icon.src,
+                scale: c.icon.scale
+              })
+            });
+          }
+          return style;
+        }
+      });
+
+      var _view = this.native.getView();
+      _view.on('change:resolution', function () {
+        if (_view.getResolution() &lt;= 0.14929107086948487) {
+          clusterSource.setDistance(0);
+        } else {
+          clusterSource.setDistance(40);
+        }
+      });
+
+      // Click on cluster → zoom in
+      var _nativeMap = this.native;
+      var _clusterLayer = layer;
+      this.native.on('click', function(evt) {
+        _nativeMap.forEachFeatureAtPixel(evt.pixel, function(feature, clickedLayer) {
+          if (clickedLayer === _clusterLayer.native) {
+            var features = feature.get('features');
+            if (features &amp;&amp; features.length > 1) {
+              var extent = ol.extent.createEmpty();
+              for (var fi = 0; fi &lt; features.length; fi++) {
+                ol.extent.extend(extent, features[fi].getGeometry().getExtent());
+              }
+              _nativeMap.getView().fit(extent, { duration: 500, padding: [50, 50, 50, 50] });
+            }
+          }
+        });
+      });
+
+    } else {
+      console.warn("Unsupport layer");
+    }
+
+    if (layer.native !== null) {
+      bemap.OlMap.prototype._addOwnToProperties(layer);
+      this.native.addLayer(layer.native);
+      bemap.Map.prototype.addLayer.call(this, layer);
+    }
+  }
+
+  if (layer.map === null) {
+    layer.map = this;
+  }
+
+
+  return this;
+};
+
+bemap.OlMap.prototype._getDragPan = function () {
+  var dragPan = null;
+  this.native.getInteractions().forEach(function (interaction) {
+    if (interaction instanceof ol.interaction.DragPan) {
+      dragPan = interaction;
+    }
+  });
+  return dragPan;
+};
+
+/**
+ * Return the satus of drag pan of map.
+ * @public
+ * @abstract
+ * @param {Object} options.dragPan.
+ * @return {boolean} true to enable the drag pan of map, otherwise false.
+ */
+bemap.OlMap.prototype.isDragPan = function (options) {
+  var dragPan = options &amp;&amp; options.dragPan ? options.dragPan : null;
+  if (dragPan === null) {
+    dragPan = this._getDragPan();
+  }
+  if (dragPan) {
+    return dragPan.getActive();
+  }
+  return false;
+};
+
+/**
+ * Enable or diable the drag pan of map.
+ * @public
+ * @abstract
+ * @param {boolean} active true to enable the drag pan of map, otherwise false.
+ * @param {Object} options.dragPan.
+ * @return {bemap.OlMap} this
+ */
+bemap.OlMap.prototype.setDragPan = function (active, options) {
+  var dragPan = options &amp;&amp; options.dragPan ? options.dragPan : null;
+  if (dragPan === null) {
+    dragPan = this._getDragPan();
+  }
+  if (dragPan) {
+    dragPan.setActive(active);
+  }
+  return this;
+};
+
+/**
+ * Move map to new coordinate.
+ * @public
+ * @param {double} lon Longitude in degres decimal (WGS84).
+ * @param {double} lat Latitude in degres decimal (WGS84).
+ * @param {int} zoom Zoom level (optional).
+ * @param {Object} options Options (optional).
+ * @param {String} options.animate Enable the animation.
+ * @param {String} options.fly Enable the animation (same as animate).
+ * @return {bemap.OlMap} this
+ */
+bemap.OlMap.prototype.move = function (lon, lat, zoom, options) {
+  var view = this.native.getView();
+
+  if (zoom) {
+    view.setZoom(zoom);
+  }
+
+  if (options &amp;&amp; (options.animate || options.fly)) {
+    view.animate({
+      center: this._fromLonLat(lon, lat),
+      duration: 2000
+    });
+  } else {
+    view.setCenter(this._fromLonLat(lon, lat));
+  }
+
+  return this;
+};
+
+/**
+ * Set the center and the zoom of the map to fit the bounding box.
+ * @param {bemap.BoundingBox} boundingBox the bounding box to fit.
+ * @return {bemap.OlMap} this.
+ */
+bemap.OlMap.prototype.moveToBoundingBox = function (boundingBox, options) {
+  if (boundingBox &amp;&amp; bemap.inheritsof(boundingBox, bemap.BoundingBox) &amp;&amp; boundingBox.maxLon &amp;&amp; boundingBox.maxLat &amp;&amp; boundingBox.minLon &amp;&amp; boundingBox.minLat) {
+    var ext = [boundingBox.minLon, boundingBox.minLat, boundingBox.maxLon, boundingBox.maxLat];
+    ext = ol.proj.transformExtent(ext, bemap.Map.PROJ.EPSG_WGS84, this.native.getView().getProjection());
+    this.native.getView().fit(ext);
+  }
+  return this;
+};
+
+/**
+ * Move map and zoom on data contains in layers.
+ * @public
+ * @abstract
+ * @param {bemap.Layer} layer Layer.
+ * @param {Object} options Options (optional).
+ * @return {bemap.Map} this
+ */
+bemap.OlMap.prototype.moveToLayerData = function (layer, options) {
+  var extent = null;
+  if (layer &amp;&amp; bemap.inheritsof(layer, bemap.ClusterLayer)) {
+    extent = layer.native.getSource().getSource().getExtent();
+  } else if (layer &amp;&amp; bemap.inheritsof(layer, bemap.Layer)) {
+    extent = layer.native.getSource().getExtent();
+  }
+  // OL v10 throws on an empty/infinite extent (a layer with no features
+  // returns [Infinity, Infinity, -Infinity, -Infinity]). v4 silently
+  // ignored. Guard before fit().
+  if (extent &amp;&amp; ol &amp;&amp; ol.extent &amp;&amp; typeof ol.extent.isEmpty === 'function' &amp;&amp; !ol.extent.isEmpty(extent)) {
+    this.native.getView().fit(extent);
+  }
+  return this;
+};
+
+/**
+ * Zoom on map, set new zoom level.
+ * @public
+ * @param {int} zoom Zoom level (optional).
+ * @param {Object} options Options (optional).
+ * @return {bemap.OlMap} this
+ */
+bemap.OlMap.prototype.zoom = function (zoom, options) {
+  this.native.getView().setZoom(zoom);
+  return this;
+};
+
+/**
+ * Get current zoom level of map.
+ * @public
+ * @return {int} current zoom level of map.
+ */
+bemap.OlMap.prototype.getZoom = function () {
+  return this.native.getView().getZoom();
+};
+
+/**
+ * Rotation of map, set new angle of map.
+ *
+ * @deprecated Since 2.0 — use `setBearing(deg)` for a cross-engine API
+ *             consistent with MapLibre's compass-bearing convention.
+ * @public
+ * @param {int} angle in degrees, clockwise (matches MapLibre's
+ *              setBearing convention; previously this method rotated
+ *              counter-clockwise — that was the OL native direction
+ *              but inconsistent with MapLibre, fixed in v2.0).
+ * @param {Object} options Options (optional).
+ * @return {bemap.OlMap} this
+ */
+bemap.OlMap.prototype.rotation = function (angle, options) {
+  bemap.OlMap._rotationDeprecationWarned = bemap.OlMap._rotationDeprecationWarned || false;
+  if (!bemap.OlMap._rotationDeprecationWarned) {
+    bemap.OlMap._rotationDeprecationWarned = true;
+    console.warn('bemap.OlMap.rotation() is deprecated since 2.0 — use setBearing(deg) for a cross-engine API.');
+  }
+  // Negate to match MapLibre's clockwise-positive bearing convention.
+  // OL's native setRotation is counter-clockwise — without this, the
+  // same call produced opposite visual results across engines.
+  var angleRadian = -angle * (Math.PI / 180);
+  this.native.getView().setRotation(angleRadian);
+  return this;
+};
+
+/**
+ * Get current rotation angle of map.
+ * @public
+ * @return {Number} current rotation in DEGREES (clockwise, matching
+ *                  setBearing convention). Previously returned raw
+ *                  radians — fixed in v2.0.
+ */
+bemap.OlMap.prototype.getRotation = function () {
+  // OL's native getRotation returns radians, anti-clockwise positive.
+  // Convert to degrees and negate the sign so the value matches what
+  // rotation(deg) accepts.
+  return -this.native.getView().getRotation() * 180 / Math.PI;
+};
+
+/**
+ * Refresh map.
+ * @public
+ * @abstract
+ * @param {Object} options Options (optional).
+ * @return {bemap.OlMap} this
+ */
+bemap.OlMap.prototype.refresh = function (options) {
+  this.native.updateSize();
+  this.native.render();
+  return this;
+};
+
+/**
+ * Build icon resource.
+ * @public
+ * @param {bemap.Icon} icon
+ * @param {object} options
+ * @return {bemap.OlMap} this
+ */
+bemap.OlMap.prototype.buildIcon = function (icon, options) {
+  if (icon !== null &amp;&amp; bemap.inheritsof(icon, bemap.Icon)) {
+    icon.native = new ol.style.Icon({
+      anchor: [icon.anchorX, icon.anchorY],
+      anchorXUnits: (icon.anchorXUnits &amp;&amp; icon.anchorXUnits !== '') ? icon.anchorXUnits : 'fraction',
+      anchorYUnits: (icon.anchorYUnits &amp;&amp; icon.anchorYUnits !== '') ? icon.anchorYUnits : 'fraction',
+      src: icon.src,
+      opacity: icon.opacity ? icon.opacity : 1,
+      scale: icon.scale ? icon.scale : 1
+    });
+  }
+  return this;
+};
+
+/**
+ * Build text style resource.
+ * @public
+ * @param {bemap.TextStyle} text style object.
+ * @param {String} name Name (label) of marker.
+ * @param {object} options
+ * @return {bemap.OlMap} this
+ */
+bemap.OlMap.prototype.buildTextStyle = function (textStyle, name, options) {
+  if (textStyle &amp;&amp; bemap.inheritsof(textStyle, bemap.TextStyle)) {
+    var nativeOpts = {
+      text: name,
+      offsetX: textStyle.getOffsetX(),
+      offsetY: textStyle.getOffsetY(),
+      scale: textStyle.getSize(),
+      fill: new ol.style.Fill({
+        color: textStyle.getColor().getRgbArray()
+      })
+    };
+
+    if (textStyle.getBorderWidth() > 0) {
+      nativeOpts.stroke = new ol.style.Stroke({
+        color: textStyle.getBorderColor().getRgbArray(),
+        width: textStyle.getBorderWidth()
+      });
+    }
+
+    textStyle.native = new ol.style.Text(nativeOpts);
+  }
+  return this;
+};
+
+/**
+ * Build lineStyle resource.
+ * @public
+ * @param {bemap.LineStyle} lineStyle
+ * @param {object} options
+ * @return {bemap.OlMap} this
+ */
+bemap.OlMap.prototype.buildLineStyle = function (style, options) {
+  if (style !== null &amp;&amp; bemap.inheritsof(style, bemap.LineStyle)) {
+    style.native = new ol.style.Style({
+      stroke: new ol.style.Stroke({
+        color: [style.color.getRed(), style.color.getGreen(), style.color.getBlue(), style.color.getAlpha()],
+        width: style.width,
+        lineDash: style.type === bemap.LineStyle.TYPE.DASH ? [10] : style.type === bemap.LineStyle.TYPE.DOT_DASH ? [0.1, 10, 10] : style.type === bemap.LineStyle.TYPE.DOT ? [0.1, 10] : []
+      }),
+    });
+  }
+  return this;
+};
+
+/**
+ * Build polygonStyle resource.
+ * @public
+ * @param {bemap.PolygonStyle} polygonStyle
+ * @param {object} options
+ * @return {bemap.OlMap} this
+ */
+bemap.OlMap.prototype.buildPolygonStyle = function (style, options) {
+  if (style !== null &amp;&amp; bemap.inheritsof(style, bemap.PolygonStyle)) {
+    var fc = style.fillColor;
+    var bc = style.borderColor;
+    style.native = new ol.style.Style({
+      fill: new ol.style.Fill({
+        color: [fc.getRed(), fc.getGreen(), fc.getBlue(), fc.getAlpha()]
+      }),
+      stroke: new ol.style.Stroke({
+        color: [bc.getRed(), bc.getGreen(), bc.getBlue(), bc.getAlpha()],
+        width: style.borderWidth,
+        lineDash: style.borderType === bemap.PolygonStyle.TYPE.DASH ? [10] : style.borderType === bemap.PolygonStyle.TYPE.DOT_DASH ? [0.1, 10, 10] : style.borderType === bemap.PolygonStyle.TYPE.DOT ? [0.1, 10] : []
+      }),
+    });
+  }
+  return this;
+};
+
+/**
+ * Build circleStyle resource.
+ * @public
+ * @param {bemap.CircleStyle} circleStyle
+ * @param {object} options
+ * @return {bemap.OlMap} this
+ */
+bemap.OlMap.prototype.buildCircleStyle = function (style, options) {
+  if (style !== null &amp;&amp; bemap.inheritsof(style, bemap.CircleStyle)) {
+    var fc = style.fillColor;
+    var bc = style.borderColor;
+    style.native = new ol.style.Style({
+      fill: new ol.style.Fill({
+        color: [fc.getRed(), fc.getGreen(), fc.getBlue(), fc.getAlpha()]
+      }),
+      stroke: new ol.style.Stroke({
+        color: [bc.getRed(), bc.getGreen(), bc.getBlue(), bc.getAlpha()],
+        width: style.borderWidth,
+        lineDash: style.borderType === bemap.CircleStyle.TYPE.DASH ? [10] : style.borderType === bemap.CircleStyle.TYPE.DOT_DASH ? [0.1, 10, 10] : style.borderType === bemap.CircleStyle.TYPE.DOT ? [0.1, 10] : []
+      }),
+    });
+  }
+  return this;
+};
+
+/**
+ * Refresh all objects from a layer.
+ * @public
+ * @param {bemap.Layer} layer the layer object to refresh.
+ * @return {bemap.OlMap} this
+ */
+bemap.OlMap.prototype.refreshLayer = function (layer) {
+  if (layer !== null &amp;&amp; bemap.inheritsof(layer, bemap.Layer)) {
+    if (layer.native.getSource &amp;&amp; layer.native.getSource()) {
+      layer.native.getSource().changed();
+    }
+  }
+  return this;
+};
+
+/**
+ * Remove all objects from a layer.
+ * @public
+ * @param {bemap.Layer} layer the layer object to clear.
+ * @return {bemap.OlMap} this
+ */
+bemap.OlMap.prototype.clearLayer = function (layer) {
+  if (layer !== null &amp;&amp; bemap.inheritsof(layer, bemap.ClusterLayer)) {
+    layer.native.getSource().getSource().clear();
+  } else if (layer !== null &amp;&amp; bemap.inheritsof(layer, bemap.Layer)) {
+    layer.native.getSource().clear();
+  }
+  return this;
+};
+
+/**
+ * Set the visibility of the layer.
+ * @public
+ * @param {bemap.Layer} layer the layer of wich to set the visibility.
+ * @param {boolean} visible.
+ * @return {bemap.OlMap} return this.
+ */
+bemap.OlMap.prototype.visibleLayer = function (layer, visible) {
+  if (visible !== null &amp;&amp; layer !== null &amp;&amp; bemap.inheritsof(layer, bemap.Layer)) {
+    layer.native.setVisible(visible);
+    layer.visible = visible;
+  }
+  return this;
+};
+
+/**
+ * Set the zIndex of the layer.
+ * @public
+ * @param {bemap.Layer} layer the layer of wich to set the zIndex.
+ * @param {boolean} zIndex.
+ * @return {bemap.OlMap} return this.
+ */
+bemap.OlMap.prototype.zIndexLayer = function (layer, zIndex) {
+  if (zIndex !== null &amp;&amp; layer !== null &amp;&amp; bemap.inheritsof(layer, bemap.Layer)) {
+    layer.native.setZIndex(zIndex);
+    layer.zIndex = zIndex;
+  }
+  return this;
+};
+
+/**
+ * Remove a layer from the map.
+ * @param {bemap.Layer} layer layer to remove from the map.
+ * @return {bemap.OlMap} this.
+ */
+bemap.OlMap.prototype.removeLayer = function (layer) {
+  if (layer !== null &amp;&amp; bemap.inheritsof(layer, bemap.Layer)) {
+    this.native.removeLayer(layer.native);
+    layer.map = null;
+  }
+  return this;
+};
+
+/**
+ * Check the event mode.
+ * @protected
+ * @param {object} mode enable modes.
+ * @param {object} bemapObject bemap object like bemap.Marker, bemap.Polyline, etc.
+ * @param {object} declaredObj bemap object like bemap.Marker, bemap.Polyline, etc.
+ * @return {function}
+ */
+bemap.OlMap.prototype._checkModeOfEvent = function (mode, bemapObject, eventType) {
+  if (bemapObject &amp;&amp; bemapObject.callback &amp;&amp; bemapObject.callback[eventType] &amp;&amp; typeof bemapObject.callback[eventType] === "function") {
+    return bemapObject.callback[eventType];
+  }
+  if (this.events) {
+    if (this.events[eventType + "markers"] &amp;&amp; this.events[eventType + "markers"].callback &amp;&amp; typeof this.events[eventType + "markers"].callback === "function" &amp;&amp; bemap.inheritsof(bemapObject, bemap.Marker)) {
+      return this.events[eventType + "markers"].callback;
+    }
+    if (this.events[eventType + "multiMarkers"] &amp;&amp; this.events[eventType + "multiMarkers"].callback &amp;&amp; typeof this.events[eventType + "multiMarkers"].callback === "function" &amp;&amp; bemap.inheritsof(bemapObject, bemap.MultiMarker)) {
+      return this.events[eventType + "multiMarkers"].callback;
+    }
+    if (this.events[eventType + "polylines"] &amp;&amp; this.events[eventType + "polylines"].callback &amp;&amp; typeof this.events[eventType + "polylines"].callback === "function" &amp;&amp; bemap.inheritsof(bemapObject, bemap.Polyline)) {
+      return this.events[eventType + "polylines"].callback;
+    }
+  }
+  if (bemapObject &amp;&amp; bemapObject.events.draggable &amp;&amp; bemapObject.callback.draggable &amp;&amp; typeof bemapObject.callback.draggable === "function") {
+    return bemapObject.callback.draggable;
+  }
+  return null;
+};
+
+/**
+ * Set the listner when a specified eventType occur on OpenLayers Feature object.
+ * @protected
+ * @param {bemap.Marker} marker
+ * @param {bemap.Map.EventType} eventType Event type.
+ * @param {function} callback Function will be called when the specified eventType is occur.
+ * @param {object} options options.
+ * @param {object} mode Mode of slection feature.
+ * @return {bemap.Listener} listener.
+ */
+bemap.OlMap.prototype._onFeature = function (declaredObj, eventType, callback, options, mode) {
+  var opts = options ? options : {};
+
+  var layerFilterCallback = function (layer) {
+    if (opts.layerFilter) {
+      return layer === opts.layerFilter.native;
+    } else {
+      return true;
+    }
+  };
+
+  var nativeListener;
+  var _this = this;
+
+  if (!this.events[eventType]) {
+    nativeListener = this.native.on(eventType, function (evt) {
+      var feature = null;
+      if (evt.pixel !== undefined)
+        feature = _this.native.forEachFeatureAtPixel(evt.pixel, function (feature, layer) {
+          return feature;
+        }, { layerFilter: layerFilterCallback });
+      var bemapObject;
+      if (feature) {
+        bemapObject = bemap.OlMap.prototype._getOwnFromProperties(feature);
+      } else {
+        bemapObject = _this;
+      }
+      var mapEvent = new bemap.MapEvent({
+        native: evt,
+        bemapObject: bemapObject,
+        x: evt.pixel !== undefined ? evt.pixel[0] : undefined,
+        y: evt.pixel !== undefined ? evt.pixel[1] : undefined,
+        coordinate: evt.coordinate !== undefined ? _this._fromNativeToLonLat(evt.coordinate) : undefined,
+        properties: options,
+        map: _this
+      });
+      callback = _this._checkModeOfEvent(mode, bemapObject, eventType);
+      if (callback) {
+        return callback(mapEvent);
+      }
+    });
+  } else {
+    nativeListener = this.events[eventType].native;
+  }
+
+  var listener = new bemap.Listener({
+    native: nativeListener,
+    callback: callback,
+    key: eventType,
+    bemapObject: declaredObj
+  });
+
+  this.events[eventType] = listener;
+
+  if (declaredObj &amp;&amp; mode.singleFeature &amp;&amp; typeof callback === "function") {
+    declaredObj.callback[eventType] = callback;
+  } else if (!declaredObj &amp;&amp; mode.markers &amp;&amp; typeof callback === "function") {
+    this.events[eventType + "markers"] = new bemap.Listener({
+      callback: callback,
+      key: eventType + "markers"
+    });
+    return this.events[eventType + "markers"];
+  } else if (!declaredObj &amp;&amp; mode.multiMarkers &amp;&amp; typeof callback === "function") {
+    this.events[eventType + "multiMarkers"] = new bemap.Listener({
+      callback: callback,
+      key: eventType + "multiMarkers"
+    });
+    return this.events[eventType + "multiMarkers"];
+  } else if (!declaredObj &amp;&amp; mode.polylines &amp;&amp; typeof callback === "function") {
+    this.events[eventType + "polylines"] = new bemap.Listener({
+      callback: callback,
+      key: eventType + "polylines"
+    });
+    return this.events[eventType + "polylines"];
+  }
+
+  return listener;
+};
+
+/**
+ * Set the listner when an specified eventType occur on bemap.OlMap.
+ * @public
+ * @param {bemap.Map.EventType} eventType Event type.
+ * @param {function} callback Function will be called when the specified eventType is occur.
+ * @param {object} options options.
+ * @return {bemap.Listener} listner.
+ */
+bemap.OlMap.prototype.on = function (eventType, callback, options) {
+  return this._onFeature(this, eventType, callback, options, {
+    singleFeature: true
+  });
+};
+
+/**
+ * Set get feature info call back.
+ * @param {bemap.Layer} layer set the bemap layer.
+ * @param {object} options options.
+ * @param {function} options.beforeCallback callback called at data reception and before display the popup.
+ * @param {function} options.afterCallback callback called after display the popup.
+ * @param {function} options.panningMap enable the map panning animation. move map from the current position to the popup anchor at the center of map.
+ * @return {bemap.Listener} listner;
+ */
+bemap.OlMap.prototype.onGetFeatureInfo = function (layer, options) {
+  var opts = options ? options : {};
+  var popup = new bemap.Popup({
+    information: "&lt;p>onGetFeatureInfo&lt;/p>",
+    coordinate: new bemap.Coordinate(0, 0),
+    visible: false
+  });
+  this.addPopup(popup);
+
+  var listener = this.on(bemap.Map.EventType.SINGLECLICK, function (evt) {
+    var url = layer.native
+      .getSource()
+      .getGetFeatureInfoUrl(
+        evt.native.coordinate,
+        evt.native.map.getView().getResolution(),
+        evt.native.map.getView().getProjection(), {
+        'INFO_FORMAT': 'text/xml',
+        'propertyName': 'NAME,AREA_CODE,DESCRIPTIO'
+      }
+      );
+
+    bemap.ajax('GET', url, null, function (xhr, data) {
+      evt.listener = listener;
+      evt.popup = popup;
+      evt.xhr = xhr;
+      evt.data = data;
+      evt.showPopup = true;
+
+      var info = data;
+      if (opts.beforeCallback) {
+        info = opts.beforeCallback(evt, opts);
+      }
+
+      if (evt.showPopup) {
+        popup.setInformation(info).setCoordinate(evt.coordinate, opts);
+
+        if (opts.afterCallback) {
+          opts.afterCallback(evt, opts);
+        }
+      }
+    });
+  });
+
+  listener.popup = popup;
+  return listener;
+};
+
+/**
+ * Define the draggable capability for bemap object (like bemap.Marker,  bemap.MultiMarker, bemap.Polyline, etc.).
+ * @protected
+ * @param {Object} declaredObj bemap object like bemap.Marker,  bemap.MultiMarker, bemap.Polyline, etc.
+ * @param {function} callback Function will be called when the specified eventType is occur.
+ * @param {object} options Options.
+ * @param {bemap.Layer} options.layerFilter set the bemap layer used as filter.
+ * @param {object} mode Mode of slection feature.
+ * @return {bemap.Listener} Listener.
+ */
+bemap.OlMap.prototype._draggableFeature = function (declaredObj, callback, options, mode) {
+  var _this = this,
+    opts = options ? options : {},
+    startPixel, startCoordinate, previousCoordinate,
+    cursor = 'pointer',
+    previousCursor, feature = null;
+
+  var layerFilterCallback = function (layer) {
+    if (opts.layerFilter) {
+      return layer === opts.layerFilter.native;
+    } else {
+      return true;
+    }
+  };
+
+  if (declaredObj &amp;&amp; !declaredObj.events.draggable) {
+    declaredObj.events.draggable = true;
+    declaredObj.callback.draggable = callback;
+  }
+
+  if (!this.events.dragFeature) {
+    var downFunc = function (evt) {
+      var foundFeature = evt.map.forEachFeatureAtPixel(evt.pixel, function (feature, layer) {
+        var bemapObject = _this._getOwnFromProperties(feature);
+        if (_this._checkModeOfEvent(mode, bemapObject, 'draggable')) {
+          return feature;
+        }
+      }, { layerFilter: layerFilterCallback });
+
+      if (foundFeature) {
+        startPixel = evt.pixel;
+        startCoordinate = evt.coordinate;
+        previousCoordinate = evt.coordinate;
+        feature = foundFeature;
+        return true;
+      }
+
+      return false;
+    },
+      dragFunc = function (evt) {
+        if (feature) {
+          feature.getGeometry().translate(evt.coordinate[0] - previousCoordinate[0], evt.coordinate[1] - previousCoordinate[1]);
+          previousCoordinate = evt.coordinate;
+
+          var bemapObject = bemap.OlMap.prototype._getOwnFromProperties(feature);
+          if (bemapObject) {
+            var newCoords = feature.getGeometry().getCoordinates(),
+              newCoord;
+
+            if (bemap.inheritsof(bemapObject, bemap.Marker)) {
+              newCoord = _this._fromNativeToLonLat(newCoords);
+              bemapObject.setCoordinate(bemapObject.getCoordinate().setLon(newCoord.getLon()).setLat(newCoord.getLat()));
+
+            } else if (bemap.inheritsof(bemapObject, bemap.MultiMarker) || bemap.inheritsof(bemapObject, bemap.Polyline)) {
+              var bemapObjCoords = bemapObject.getCoordinates();
+              for (var i = 0; i &lt; newCoords.length; i++) {
+                newCoord = _this._fromNativeToLonLat(newCoords[i]);
+                bemapObjCoords[i].setLon(newCoord.getLon()).setLat(newCoord.getLat());
+              }
+            }
+          }
+        }
+      },
+      moveFunc = function (evt) {
+        if (cursor) {
+          var nativeMap = evt.map;
+          var foundFeature = nativeMap.forEachFeatureAtPixel(evt.pixel, function (feature, layer) {
+            var bemapObject = _this._getOwnFromProperties(feature);
+            if (_this._checkModeOfEvent(mode, bemapObject, 'draggable')) {
+              return feature;
+            }
+          }, { layerFilter: layerFilterCallback });
+
+          var element = nativeMap.getTargetElement();
+          if (foundFeature) {
+            if (element.style.cursor != cursor) {
+              previousCursor = element.style.cursor;
+              element.style.cursor = cursor;
+            }
+          } else if (previousCursor !== undefined) {
+            element.style.cursor = previousCursor;
+            previousCursor = undefined;
+          }
+        }
+      },
+      upFunc = function (evt) {
+        if (evt.pixel[0] == startPixel[0] &amp;&amp; evt.pixel[1] == startPixel[1]) {
+          return false;
+        }
+        var mapEvent = new bemap.MapEvent({
+          native: evt,
+          bemapObject: bemap.OlMap.prototype._getOwnFromProperties(feature),
+          x: evt.pixel[0],
+          y: evt.pixel[1],
+          coordinate: _this._fromNativeToLonLat(evt.coordinate),
+          startX: startPixel[0],
+          startY: startPixel[1],
+          startCoordinate: _this._fromNativeToLonLat(evt.coordinate),
+          properties: options
+        });
+
+        feature = null;
+        callback = _this._checkModeOfEvent(mode, mapEvent.bemapObject, 'draggable');
+        if (callback) {
+          callback(mapEvent);
+        }
+
+        return false;
+      };
+
+    var pointerInteraction = new ol.interaction.Pointer({
+      handleDownEvent: downFunc,
+      handleDragEvent: dragFunc,
+      handleMoveEvent: moveFunc,
+      handleUpEvent: upFunc
+    });
+
+    var nativeListener = this.native.addInteraction(pointerInteraction);
+
+    this.events.dragFeature = new bemap.Listener({
+      native: pointerInteraction,
+      key: "dragFeature",
+      bemapObject: declaredObj
+    });
+
+    return this.events.dragFeature;
+  }
+  return this.events.dragFeature;
+};
+
+/**
+ * Remove listener.
+ * @protected
+ * @param {bemap.Listener} listener Function will be called when the specified eventType is occur.
+ * @param {object} options Options.
+ * @return {bemap.OlMap} this.
+ */
+bemap.OlMap.prototype.removeListener = function (listener, options) {
+  if (listener &amp;&amp; bemap.inheritsof(listener, bemap.Listener)) {
+    if (listener.bemapObject) {
+      if (listener.key == "dragFeature") {
+        listener.bemapObject.events.draggable = false;
+        listener.bemapObject.callback.draggable = null;
+      } else {
+        listener.bemapObject.callback[listener.key] = null;
+      }
+    }
+    // ol.Observable.unByKey(listener.native);
+    // this.native.removeInteraction(listener.native);
+    // this.events[listener.key] = null;
+  }
+  return this;
+};
+
+/**
+ * Get the center of the map in bemap.Coordinate.
+ * @return {bemap.Coordinate} the center of the map.
+ */
+bemap.OlMap.prototype.getCenter = function () {
+  var center = this.native.getView().getCenter();
+  center = this._fromNativeToLonLat(center);
+  return center;
+};
+
+/**
+ * Get the limits of the map on the current zoom.
+ * @return {bemap.BoundingBox} the bounding box containing the limits.
+ */
+bemap.OlMap.prototype.getBoundingBox = function () {
+  var extent = this.native.getView().calculateExtent(this.native.getSize());
+  extent = ol.proj.transformExtent(extent, this.native.getView().getProjection(), bemap.Map.PROJ.EPSG_WGS84);
+  return new bemap.BoundingBox(extent[0], extent[1], extent[2], extent[3]);
+};
+
+/**
+ * Get the pixel coordinate from bemap coordinate.
+ * @return {Array} the corresponding XY coords.
+ */
+bemap.OlMap.prototype.getXYFromCoordinate = function (coordinate) {
+  return this.native.getPixelFromCoordinate(
+    ol.proj.transform(coordinate.getLonLatArray(), bemap.Map.PROJ.EPSG_WGS84, this.native.getView().getProjection())
+  );
+};
+
+/**
+ * Fly map to new coordinate.
+ * @param {double} lon longitude
+ * @param {double} lat latitude
+ * @param {double} zoom zoom
+ * @param {Object} options options
+ */
+bemap.OlMap.prototype.flyTo = function (lon, lat, zoom, options) {
+  var view = this.native.getView();
+  var duration = 2000;
+  if (options &amp;&amp; options.duration) {
+    duration = options.duration;
+  }
+  var parts = 2;
+  var called = false;
+  function callback(complete) {
+    --parts;
+    if (called) {
+      return;
+    }
+    if (parts === 0 || !complete) {
+      called = true;
+      if (options &amp;&amp; options.listener) {
+        options.listener(complete);
+      }
+    }
+  }
+  view.animate(
+    {
+      center: this._fromLonLat(lon, lat),
+      duration: duration,
+    },
+    callback
+  );
+  view.animate(
+    {
+      zoom: zoom - 1,
+      duration: duration / 2,
+    },
+    {
+      zoom: zoom,
+      duration: duration / 2,
+    },
+    callback
+  );
+}
+
+/* ============================================================
+ * Cross-engine camera methods (v2.0)
+ *
+ * OL handles `bearing` natively (`view.setRotation`) but ignores
+ * `pitch` (no native 3D camera).
+ * ============================================================ */
+
+bemap.OlMap.prototype.easeTo = function (options) {
+  var opts = options || {};
+  if (opts.pitch) this._maplibreOnly('easeTo:pitch');
+  var view = this.native.getView();
+  var anim = { duration: opts.duration != null ? opts.duration : 1000 };
+  if (Array.isArray(opts.center)) anim.center = this._fromLonLat(opts.center[0], opts.center[1]);
+  if (opts.zoom != null) anim.zoom = opts.zoom;
+  if (opts.bearing != null) anim.rotation = -opts.bearing * Math.PI / 180;
+  view.animate(anim);
+  return this;
+};
+
+bemap.OlMap.prototype.jumpTo = function (options) {
+  var opts = options || {};
+  if (opts.pitch) this._maplibreOnly('jumpTo:pitch');
+  var view = this.native.getView();
+  if (Array.isArray(opts.center)) view.setCenter(this._fromLonLat(opts.center[0], opts.center[1]));
+  if (opts.zoom != null) view.setZoom(opts.zoom);
+  if (opts.bearing != null) view.setRotation(-opts.bearing * Math.PI / 180);
+  return this;
+};
+
+bemap.OlMap.prototype.setBearing = function (deg) {
+  var view = this.native.getView();
+  view.setRotation(-deg * Math.PI / 180);
+  return this;
+};
+bemap.OlMap.prototype.getBearing = function () {
+  return -this.native.getView().getRotation() * 180 / Math.PI;
+};
+
+bemap.OlMap.prototype.setPitch = function (deg) {
+  this._maplibreOnly('setPitch');
+  return this;
+};
+
+/* --- Heatmap (OL via ol.layer.Heatmap when available) --- */
+bemap.OlMap.prototype.addHeatmap = function (data, options) {
+  // Preserve the v1 warn-and-no-op contract when no input is provided or
+  // when the OL Heatmap layer type is unavailable in the page bundle.
+  var hasData = Array.isArray(data) &amp;&amp; data.length > 0;
+  if (!hasData || typeof ol === 'undefined' || !ol.layer || typeof ol.layer.Heatmap !== 'function') {
+    console.warn('addHeatmap() is only available with bemap.MapLibreMap');
+    return this;
+  }
+  var opts = options || {};
+  var id = opts.id || ('heatmap-' + (++this._heatCounter || (this._heatCounter = 1)));
+  var self = this;
+  var features = data.map(function (p) {
+    var lon, lat, weight = 1;
+    if (Array.isArray(p)) { lon = p[0]; lat = p[1]; weight = p[2] != null ? p[2] : 1; }
+    else if (p &amp;&amp; p.lat != null &amp;&amp; p.lng != null) { lon = p.lng; lat = p.lat; weight = p.value != null ? p.value : 1; }
+    else if (p &amp;&amp; typeof p.getLongitude === 'function') { lon = p.getLongitude(); lat = p.getLatitude(); weight = p.value != null ? p.value : 1; }
+    else return null;
+    var f = new ol.Feature({ geometry: new ol.geom.Point(self._fromLonLat(lon, lat)) });
+    f.set('weight', weight);
+    return f;
+  }).filter(Boolean);
+  var layer = new ol.layer.Heatmap({
+    source: new ol.source.Vector({ features: features }),
+    weight: function (f) { return f.get('weight'); },
+    blur: opts.blur != null ? opts.blur : 15,
+    radius: opts.radius != null ? opts.radius : 8
+  });
+  this.native.addLayer(layer);
+  this._heatmaps = this._heatmaps || {};
+  this._heatmaps[id] = layer;
+  this._lastHeatmapId = id;
+  return this;
+};
+bemap.OlMap.prototype.removeHeatmap = function (id) {
+  var key = id || this._lastHeatmapId;
+  if (this._heatmaps &amp;&amp; this._heatmaps[key]) {
+    this.native.removeLayer(this._heatmaps[key]);
+    delete this._heatmaps[key];
+  }
+  return this;
+};
+
+/* ============================================================
+ * Cross-engine hillshade overlay (v2.0) — OpenLayers implementation
+ *
+ * Uses an `ol.layer.Tile` with the customer's hillshade XYZ URL.
+ * For a true Terrain-RGB shaded relief the customer can supply an
+ * `ol.source.Raster` directly via opts.source — that path is
+ * passed through unchanged for power users.
+ * ============================================================ */
+bemap.OlMap.prototype.setHillshade = function (options) {
+  var opts = options || {};
+  if (typeof ol === 'undefined') return this;
+  this.removeHillshade();
+  if (opts.source instanceof ol.source.Source) {
+    this._hillshadeLayer = new ol.layer.Tile({ source: opts.source, opacity: opts.opacity != null ? opts.opacity : 0.35 });
+  } else {
+    var url = opts.url || 'https://server.arcgisonline.com/ArcGIS/rest/services/Elevation/World_Hillshade/MapServer/tile/{z}/{y}/{x}';
+    this._hillshadeLayer = new ol.layer.Tile({
+      source: new ol.source.XYZ({ url: url, attributions: opts.attribution || '' }),
+      opacity: opts.opacity != null ? opts.opacity : 0.35
+    });
+  }
+  this.native.addLayer(this._hillshadeLayer);
+  var self = this;
+  if (typeof self._registerEffect === 'function') {
+    self._registerEffect('hillshade', function () { self.removeHillshade(); });
+  }
+  return this;
+};
+bemap.OlMap.prototype.removeHillshade = function () {
+  if (this._hillshadeLayer) {
+    try { this.native.removeLayer(this._hillshadeLayer); } catch (e) {}
+    this._hillshadeLayer = null;
+  }
+  if (typeof this._unregisterEffect === 'function') this._unregisterEffect('hillshade');
+  return this;
+};
+
+/* ============================================================
+ * Cross-engine camera tour (v2.0) — OL real-animation implementation
+ *
+ * Uses `view.animate(...)` chained per waypoint, honouring zoom +
+ * rotation. Same API shape as the Leaflet / MapLibre versions.
+ * ============================================================ */
+bemap.OlMap.prototype.cameraTour = function (options) {
+  var opts = options || {};
+  var waypoints = opts.waypoints || [];
+  if (!waypoints.length) return { stop: function () {}, resume: function () {} };
+  var self = this;
+  var i = 0, stopped = false;
+  function next() {
+    if (stopped) return;
+    if (i >= waypoints.length) {
+      if (opts.loop) i = 0;
+      else { if (typeof opts.onComplete === 'function') opts.onComplete(); return; }
+    }
+    var wp = waypoints[i++];
+    self.native.getView().animate({
+      center: self._fromLonLat(wp.lon, wp.lat),
+      zoom: wp.zoom != null ? wp.zoom : self.native.getView().getZoom(),
+      rotation: wp.bearing != null ? -wp.bearing * Math.PI / 180 : self.native.getView().getRotation(),
+      duration: wp.duration || 2000
+    }, function () { setTimeout(next, 0); });
+  }
+  next();
+  var controller = {
+    stop: function () { stopped = true; if (typeof self._unregisterEffect === 'function') self._unregisterEffect('cameraTour'); },
+    resume: function () { if (stopped) { stopped = false; next(); } }
+  };
+  if (typeof self._registerEffect === 'function') self._registerEffect('cameraTour', function () { controller.stop(); });
+  return controller;
+};
+
+/**
+ * Cross-engine `setStyle` for OL — swaps the URL on the first XYZ /
+ * TileWMS source it finds. Object form `{ url, attribution }`
+ * accepted; string form treated as URL template.
+ *
+ * @public
+ * @since 2.0.0
+ * @return {bemap.OlMap} this
+ */
+bemap.OlMap.prototype.setStyle = function (urlOrSpec) {
+  var url = (typeof urlOrSpec === 'string') ? urlOrSpec : (urlOrSpec &amp;&amp; urlOrSpec.url);
+  if (!url) { this._maplibreOnly('setStyle:object'); return this; }
+  // Only swap pure XYZ sources via setUrl; TileWMS / VectorTile sources
+  // refuse a bare setUrl (they need format / featureLoader). Falling
+  // through to addLayer is safer than throwing.
+  var swapped = false;
+  this.native.getLayers().forEach(function (layer) {
+    var src = layer &amp;&amp; typeof layer.getSource === 'function' ? layer.getSource() : null;
+    if (!src) return;
+    if (typeof ol !== 'undefined' &amp;&amp; ol.source &amp;&amp; ol.source.XYZ &amp;&amp; src instanceof ol.source.XYZ &amp;&amp; typeof src.setUrl === 'function') {
+      src.setUrl(url);
+      swapped = true;
+    }
+  });
+  if (!swapped) {
+    var newLayer = new ol.layer.Tile({ source: new ol.source.XYZ({ url: url }) });
+    this.native.addLayer(newLayer);
+  }
+  var self = this;
+  if (typeof self._registerEffect === 'function') {
+    self._registerEffect('setStyle', function () { /* customer-restorable */ });
+  }
+  return this;
+};
+
+/* ============================================================
+ * Cross-engine animation (v2.0) — OpenLayers implementation
+ *
+ * Uses `requestAnimationFrame` + `ol.Feature.getGeometry().setCoordinates`
+ * to move a Point feature along the route. The customer can supply the
+ * `feature` via opts.feature, or we create one on a dedicated vector
+ * layer.
+ * ============================================================ */
+bemap.OlMap.prototype.animateAlongRoute = function (options) {
+  var opts = options || {};
+  var route = opts.coordinates || [];
+  var speed = opts.speed || 0.005;
+  var loop = opts.loop !== false;
+  var onUpdate = opts.onUpdate;
+  var onComplete = opts.onComplete;
+  var self = this;
+  if (!route.length || typeof ol === 'undefined') {
+    if (!route.length) console.warn('animateAlongRoute: opts.coordinates is empty');
+    return { stop: function(){}, resume: function(){} };
+  }
+
+  // Use the supplied feature or build one on an internal vector layer.
+  var feature = opts.feature;
+  var ownedLayer = null;
+  if (!feature) {
+    feature = new ol.Feature({
+      geometry: new ol.geom.Point(this._fromLonLat(route[0][0], route[0][1]))
+    });
+    ownedLayer = new ol.layer.Vector({ source: new ol.source.Vector({ features: [feature] }) });
+    this.native.addLayer(ownedLayer);
+  }
+
+  var pos = 0, animating = true, rafId = null;
+  var total = route.length - 1;
+  function step() {
+    if (!animating) return;
+    pos += speed;
+    if (pos >= total) {
+      if (loop) pos = 0;
+      else { animating = false; if (onComplete) onComplete(); return; }
+    }
+    var idx = Math.floor(pos);
+    var next = Math.min(idx + 1, route.length - 1);
+    var t = pos - idx;
+    var lon = route[idx][0] + (route[next][0] - route[idx][0]) * t;
+    var lat = route[idx][1] + (route[next][1] - route[idx][1]) * t;
+    feature.getGeometry().setCoordinates(self._fromLonLat(lon, lat));
+    if (onUpdate) onUpdate({ lon: lon, lat: lat, progress: pos / total });
+    rafId = requestAnimationFrame(step);
+  }
+  rafId = requestAnimationFrame(step);
+
+  var controller = {
+    stop: function () {
+      animating = false;
+      if (rafId) cancelAnimationFrame(rafId);
+      if (ownedLayer) self.native.removeLayer(ownedLayer);
+      if (typeof self._unregisterEffect === 'function') self._unregisterEffect('animateAlongRoute');
+    },
+    resume: function () { if (!animating) { animating = true; rafId = requestAnimationFrame(step); } },
+    reset: function () { pos = 0; }
+  };
+  if (typeof self._registerEffect === 'function') {
+    self._registerEffect('animateAlongRoute', function () { controller.stop(); });
+  }
+  return controller;
+};
+</code></pre>
+        </article>
+    </section>
+
+
+
+
+</div>
+
+<nav>
+    <h2><a href="index.html">Home</a></h2><h3>Classes</h3><ul><li><a href="bemap.AclDetailsResponse.html">AclDetailsResponse</a></li><li><a href="bemap.AclLabel.html">AclLabel</a></li><li><a href="bemap.AclService.html">AclService</a></li><li><a href="bemap.Address.html">Address</a></li><li><a href="bemap.AttributionWidget.html">AttributionWidget</a></li><li><a href="bemap.Autocomplete.html">Autocomplete</a></li><li><a href="bemap.AutocompleteElement.html">AutocompleteElement</a></li><li><a href="bemap.AutocompleteGeocodingRequest.html">AutocompleteGeocodingRequest</a></li><li><a href="bemap.AutocompleteGeocodingResponse.html">AutocompleteGeocodingResponse</a></li><li><a href="bemap.BemapLayer.html">BemapLayer</a></li><li><a href="bemap.BoundingBox.html">BoundingBox</a></li><li><a href="bemap.BrowserCache.html">BrowserCache</a></li><li><a href="bemap.BuildingsLayer.html">BuildingsLayer</a></li><li><a href="bemap.ChargingPoint.html">ChargingPoint</a></li><li><a href="bemap.ChargingStation.html">ChargingStation</a></li><li><a href="bemap.ChargingStationPool.html">ChargingStationPool</a></li><li><a href="bemap.ChargingStations.html">ChargingStations</a></li><li><a href="bemap.ChargingStationSearchRequest.html">ChargingStationSearchRequest</a></li><li><a href="bemap.ChargingStationSearchResponse.html">ChargingStationSearchResponse</a></li><li><a href="bemap.ChargingStationStep.html">ChargingStationStep</a></li><li><a href="bemap.ChargingTime.html">ChargingTime</a></li><li><a href="bemap.ChargingTimeRequest.html">ChargingTimeRequest</a></li><li><a href="bemap.ChargingTimeResponse.html">ChargingTimeResponse</a></li><li><a href="bemap.Circle.html">Circle</a></li><li><a href="bemap.CircleStyle.html">CircleStyle</a></li><li><a href="bemap.clusterStyle.html">clusterStyle</a></li><li><a href="bemap.Color.html">Color</a></li><li><a href="bemap.CondMaxSpeed.html">CondMaxSpeed</a></li><li><a href="bemap.Context.html">Context</a></li><li><a href="bemap.Coordinate.html">Coordinate</a></li><li><a href="bemap.CoordinateSat.html">CoordinateSat</a></li><li><a href="bemap.Destination.html">Destination</a></li><li><a href="bemap.Error.html">Error</a></li><li><a href="bemap.EvBrand.html">EvBrand</a></li><li><a href="bemap.EvReachableArea.html">EvReachableArea</a></li><li><a href="bemap.EvReachableAreaRequest.html">EvReachableAreaRequest</a></li><li><a href="bemap.EvReachableAreaResponse.html">EvReachableAreaResponse</a></li><li><a href="bemap.EvseRouting.html">EvseRouting</a></li><li><a href="bemap.EvSmartRouting.html">EvSmartRouting</a></li><li><a href="bemap.EvSmartRoutingRequest.html">EvSmartRoutingRequest</a></li><li><a href="bemap.EvSmartRoutingResponse.html">EvSmartRoutingResponse</a></li><li><a href="bemap.EvStepPoint.html">EvStepPoint</a></li><li><a href="bemap.EvVehicle.html">EvVehicle</a></li><li><a href="bemap.EvVehicles.html">EvVehicles</a></li><li><a href="bemap.Exception.html">Exception</a></li><li><a href="bemap.GeoAutocomplete.html">GeoAutocomplete</a></li><li><a href="bemap.Geocoder.html">Geocoder</a></li><li><a href="bemap.GeocodingItem.html">GeocodingItem</a></li><li><a href="bemap.GeocodingRequest.html">GeocodingRequest</a></li><li><a href="bemap.GeocodingResponse.html">GeocodingResponse</a></li><li><a href="bemap.GeoSearchInfo.html">GeoSearchInfo</a></li><li><a href="bemap.GeoServerInfoResponse.html">GeoServerInfoResponse</a></li><li><a href="bemap.GeoServerInfoService.html">GeoServerInfoService</a></li><li><a href="bemap.GeoServerServiceInfo.html">GeoServerServiceInfo</a></li><li><a href="bemap.GeoServerServiceLimit.html">GeoServerServiceLimit</a></li><li><a href="bemap.HeatmapLayer.html">HeatmapLayer</a></li><li><a href="bemap.Icon.html">Icon</a></li><li><a href="bemap.Isochrone.html">Isochrone</a></li><li><a href="bemap.Layer.html">Layer</a></li><li><a href="bemap.LeafletMap.html">LeafletMap</a></li><li><a href="bemap.LineStyle.html">LineStyle</a></li><li><a href="bemap.Listener.html">Listener</a></li><li><a href="bemap.Map.html">Map</a></li><li><a href="bemap.MapEvent.html">MapEvent</a></li><li><a href="bemap.MapLibreMap.html">MapLibreMap</a></li><li><a href="bemap.Marker.html">Marker</a></li><li><a href="bemap.MultiMarker.html">MultiMarker</a></li><li><a href="bemap.NearPoint.html">NearPoint</a></li><li><a href="bemap.NearPoiRequest.html">NearPoiRequest</a></li><li><a href="bemap.NearPoiResponse.html">NearPoiResponse</a></li><li><a href="bemap.NearPoiSearch.html">NearPoiSearch</a></li><li><a href="bemap.Object.html">Object</a></li><li><a href="bemap.Ol3Map.html">Ol3Map</a></li><li><a href="bemap.OlMap.html">OlMap</a></li><li><a href="bemap.OsmLayer.html">OsmLayer</a></li><li><a href="bemap.PMTilesLayer.html">PMTilesLayer</a></li><li><a href="bemap.Polygon.html">Polygon</a></li><li><a href="bemap.PolygonStyle.html">PolygonStyle</a></li><li><a href="bemap.Polyline.html">Polyline</a></li><li><a href="bemap.Popup.html">Popup</a></li><li><a href="bemap.PostalAddress.html">PostalAddress</a></li><li><a href="bemap.RasterLayer.html">RasterLayer</a></li><li><a href="bemap.ReverseGeocoder.html">ReverseGeocoder</a></li><li><a href="bemap.ReverseGeocodingRequest.html">ReverseGeocodingRequest</a></li><li><a href="bemap.RevGeoSearchInfo.html">RevGeoSearchInfo</a></li><li><a href="bemap.RoadFeature.html">RoadFeature</a></li><li><a href="bemap.Route.html">Route</a></li><li><a href="bemap.Route.Event.html">Event</a></li><li><a href="bemap.Route.RoutesheetInstruction.html">RoutesheetInstruction</a></li><li><a href="bemap.Routing.html">Routing</a></li><li><a href="bemap.RoutingDestination.html">RoutingDestination</a></li><li><a href="bemap.RoutingInstruction.html">RoutingInstruction</a></li><li><a href="bemap.RoutingRequest.html">RoutingRequest</a></li><li><a href="bemap.RoutingResponse.html">RoutingResponse</a></li><li><a href="bemap.RoutingRoute.html">RoutingRoute</a></li><li><a href="bemap.RoutingSummary.html">RoutingSummary</a></li><li><a href="bemap.RoutingV2.html">RoutingV2</a></li><li><a href="bemap.RoutingVehicleProfile.html">RoutingVehicleProfile</a></li><li><a href="bemap.RoutingWaypoint.html">RoutingWaypoint</a></li><li><a href="bemap.Service.html">Service</a></li><li><a href="bemap.TextStyle.html">TextStyle</a></li><li><a href="bemap.TilesAuth.html">TilesAuth</a></li><li><a href="bemap.TilesOverlayCatalog.html">TilesOverlayCatalog</a></li><li><a href="global.html#bemap#.TraceRoute">TraceRoute</a></li><li><a href="bemap.TraceRouteDestination.html">TraceRouteDestination</a></li><li><a href="bemap.TraceRouteRequest.html">TraceRouteRequest</a></li><li><a href="bemap.VectorLayer.html">VectorLayer</a></li><li><a href="bemap.VectorTileLayer.html">VectorTileLayer</a></li><li><a href="bemap.WmsLayer.html">WmsLayer</a></li></ul><h3>Global</h3><ul><li><a href="global.html#AC">AC</a></li><li><a href="global.html#AC_SINGLE_PHASE">AC_SINGLE_PHASE</a></li><li><a href="global.html#AC_THREE_PHASES">AC_THREE_PHASES</a></li><li><a href="global.html#bemap">bemap</a></li><li><a href="global.html#DC">DC</a></li><li><a href="global.html#NA">NA</a></li></ul>
+</nav>
+
+<br class="clear">
+
+<footer>
+    Documentation generated by <a href="https://github.com/jsdoc/jsdoc">JSDoc 3.6.3</a> on Tue Jun 02 2026 11:46:45 GMT+0200 (heure d’été d’Europe centrale)
+</footer>
+
+<script> prettyPrint(); </script>
+<script src="scripts/linenumber.js"> </script>
+</body>
+</html>

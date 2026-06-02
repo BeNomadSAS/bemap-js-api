@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>JSDoc: Source: bemap-services-v2/ev/bemap-ev-vehicles.js</title>
+
+    <script src="scripts/prettify/prettify.js"> </script>
+    <script src="scripts/prettify/lang-css.js"> </script>
+    <!--[if lt IE 9]>
+      <script src="//html5shiv.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+    <link type="text/css" rel="stylesheet" href="styles/prettify-tomorrow.css">
+    <link type="text/css" rel="stylesheet" href="styles/jsdoc-default.css">
+</head>
+
+<body>
+
+<div id="main">
+
+    <h1 class="page-title">Source: bemap-services-v2/ev/bemap-ev-vehicles.js</h1>
+
+    
+
+
+
+    
+    <section>
+        <article>
+            <pre class="prettyprint source linenums"><code>/**
+ * BeNomad BeMap JavaScript API - EvVehicles service (v1.5)
+ *
+ * Promise-based wrapper around the v1.1 vehicle catalogue endpoints:
+ *
+ *   - `GET service/vehicle/1.1/getbrands`     → `{brands: [{id, label}, ...]}`
+ *   - `GET service/vehicle/1.1/findvehicles`  → `{vehicles: [VehicleInfo, ...]}`
+ *
+ * **Why v1.1 (not the lightweight `evsmartrouting/vehicles*` endpoints).**
+ * v1.1 returns structured plaintext fields — brandName, name, year,
+ * variant, batteryName (kWh), chargerPowerDC (kW), chargerPowerAcThreePhases
+ * (kW), connectorTypes[], wltp, consumptionInWhPerKm, dimensions — same
+ * shape the Flutter SDK consumes via
+ * `bemap-flutter-api/lib/service/vehicle/model/vehicle.dart`. No regex
+ * parsing of pre-formatted titles, no AES decryption of `encDatasheet`.
+ *
+ * Auth roles: `ROLE_VEHICLE` (+ `ROLE_VEHICLE_DATASHEET` for
+ * `enableDatasheet: true`).
+ *
+ * `bemap.EvSmartRouting.getBrands()` / `.getVehicles()` keep their existing
+ * lightweight `evsmartrouting/vehicles*` endpoints for backward compat —
+ * the two services serve different use cases.
+ *
+ * @since 1.5.0
+ * @public
+ * @constructor
+ * @extends {bemap.ServiceV2}
+ * @param {bemap.Context} context
+ * @param {Object} [options]
+ */
+bemap.EvVehicles = function(context, options) {
+    bemap.ServiceV2.call(this, context, options);
+};
+bemap.inherits(bemap.EvVehicles, bemap.ServiceV2);
+
+/**
+ * List EV brands the current user has access to.
+ * @public
+ * @param {Object} [options]
+ * @param {AbortSignal} [options.signal]
+ * @return {Promise&lt;Array&lt;bemap.EvBrand>>}  Sorted by label for deterministic UI.
+ */
+bemap.EvVehicles.prototype.brands = function(options) {
+    var opts = options || {};
+    return this._get('service/vehicle/1.1/getbrands', { signal: opts.signal })
+        .then(function(json) {
+            var raw = (json &amp;&amp; Array.isArray(json.brands)) ? json.brands : [];
+            var brands = raw.map(bemap.EvBrand.fromJson);
+            brands.sort(function(a, b) {
+                var la = (a.getLabel() || '').toLowerCase();
+                var lb = (b.getLabel() || '').toLowerCase();
+                if (la &lt; lb) return -1;
+                if (la > lb) return 1;
+                return 0;
+            });
+            return brands;
+        });
+};
+
+/**
+ * List vehicles, optionally filtered by brand or by an exact vehicle key.
+ *
+ * @public
+ * @param {Object} [filters]
+ * @param {String} [filters.brandId]         Restrict to one brand.
+ * @param {String} [filters.vehicle]         Restrict to one vehicle key (returns 0 or 1 entries).
+ * @param {String} [filters.variant]         Restrict to one variant (v1.1).
+ * @param {Boolean} [filters.enableDatasheet=false] Include the encrypted datasheet blob.
+ * @param {AbortSignal} [filters.signal]
+ * @return {Promise&lt;Array&lt;bemap.EvVehicle>>}
+ */
+bemap.EvVehicles.prototype.list = function(filters) {
+    var f = filters || {};
+    var qs = [];
+    if (f.brandId) qs.push('brandId=' + encodeURIComponent(f.brandId));
+    if (f.vehicle) qs.push('vehicle=' + encodeURIComponent(f.vehicle));
+    if (f.variant) qs.push('variant=' + encodeURIComponent(f.variant));
+    if (f.enableDatasheet) qs.push('enableDatasheet=true');
+    var path = 'service/vehicle/1.1/findvehicles' + (qs.length ? '?' + qs.join('&amp;') : '');
+    return this._get(path, { signal: f.signal })
+        .then(function(json) {
+            var raw = (json &amp;&amp; Array.isArray(json.vehicles)) ? json.vehicles : [];
+            return raw.map(bemap.EvVehicle.fromJson);
+        });
+};
+
+/**
+ * Fetch one vehicle by its UUID key.
+ *
+ * @public
+ * @param {String} vehicleKey
+ * @param {Object} [options]
+ * @param {Boolean} [options.enableDatasheet=false]
+ * @param {AbortSignal} [options.signal]
+ * @return {Promise&lt;bemap.EvVehicle>} Rejects with `bemap.Error.VEHICLE_NOT_FOUND` when no match.
+ */
+bemap.EvVehicles.prototype.get = function(vehicleKey, options) {
+    if (!vehicleKey) {
+        return Promise.reject(new bemap.Error({
+            code: bemap.Error.INVALID_ARGUMENT,
+            message: 'EvVehicles.get requires a vehicleKey'
+        }));
+    }
+    var opts = options || {};
+    return this.list({
+        vehicle: vehicleKey,
+        enableDatasheet: opts.enableDatasheet,
+        signal: opts.signal
+    }).then(function(vehicles) {
+        if (!vehicles.length) {
+            throw new bemap.Error({
+                code: bemap.Error.VEHICLE_NOT_FOUND,
+                message: "Vehicle '" + vehicleKey + "' was not found in the catalogue"
+            });
+        }
+        return vehicles[0];
+    });
+};
+
+/**
+ * Walk the catalogue progressively, one attribute at a time — used by
+ * cascading "brand → name → variant → battery → DC power → AC power"
+ * UI flows (as in the `evmove5` car-select screen). Wraps
+ * `GET service/vehicle/1.1/getlevelvehicleinfo`.
+ *
+ * The `level` argument names which attribute the server returns. Each
+ * deeper level filters by the levels already chosen.
+ *
+ * Levels: `'NAME'` · `'VARIANT'` · `'YEAR'` · `'BATTERY_NAME'` ·
+ * `'CHARGE_POWER_DC'` · `'CHARGE_POWER_AC'` · `'MOTOR_TYPE'`.
+ *
+ * @public
+ * @since 1.5.0
+ * @param {Object} filters
+ * @param {String} filters.level **R** One of the level names above.
+ * @param {String} filters.brandId **R**
+ * @param {String} [filters.name]
+ * @param {String} [filters.variant]
+ * @param {String} [filters.year]
+ * @param {String} [filters.batteryName]
+ * @param {String} [filters.motorType]
+ * @param {Number} [filters.chargerPowerDC]
+ * @param {Number} [filters.chargerPowerAC]
+ * @param {AbortSignal} [filters.signal]
+ * @return {Promise&lt;Array&lt;String>>}
+ */
+bemap.EvVehicles.prototype.levels = function(filters) {
+    var f = filters || {};
+    if (!f.level) {
+        return Promise.reject(new bemap.Error({
+            code: bemap.Error.INVALID_ARGUMENT,
+            message: 'EvVehicles.levels: filters.level is required'
+        }));
+    }
+    if (!f.brandId) {
+        return Promise.reject(new bemap.Error({
+            code: bemap.Error.INVALID_ARGUMENT,
+            message: 'EvVehicles.levels: filters.brandId is required'
+        }));
+    }
+    var qs = ['level=' + encodeURIComponent(f.level), 'brandId=' + encodeURIComponent(f.brandId)];
+    if (f.name) qs.push('name=' + encodeURIComponent(f.name));
+    if (f.variant) qs.push('variant=' + encodeURIComponent(f.variant));
+    if (f.year) qs.push('year=' + encodeURIComponent(f.year));
+    if (f.batteryName) qs.push('batteryName=' + encodeURIComponent(f.batteryName));
+    if (f.motorType) qs.push('motorType=' + encodeURIComponent(f.motorType));
+    if (typeof f.chargerPowerDC === 'number') qs.push('chargerPowerDC=' + f.chargerPowerDC);
+    if (typeof f.chargerPowerAC === 'number') qs.push('chargerPowerAC=' + f.chargerPowerAC);
+    var path = 'service/vehicle/1.1/getlevelvehicleinfo?' + qs.join('&amp;');
+    return this._get(path, { signal: f.signal })
+        .then(function(json) {
+            return Array.isArray(json) ? json : [];
+        });
+};
+
+/**
+ * Fetch the JSON-wrapped logo description for an EV brand (includes the
+ * base64-encoded image bytes and the picture format). Wraps
+ * `GET service/vehicle/1.1/getbrandlogo`.
+ *
+ * For embedding the logo directly in `&lt;img src="...">` markup, prefer
+ * `getBrandLogoUrl()` — it returns the URL of the binary endpoint.
+ *
+ * @public
+ * @since 1.5.0
+ * @param {String} brandId
+ * @param {Object} [options]
+ * @param {AbortSignal} [options.signal]
+ * @return {Promise&lt;{brandId: String, pictureFileFormat: Object, logo: String}>}
+ *         `logo` is base64-encoded image bytes.
+ */
+bemap.EvVehicles.prototype.brandLogo = function(brandId, options) {
+    if (!brandId) {
+        return Promise.reject(new bemap.Error({
+            code: bemap.Error.INVALID_ARGUMENT,
+            message: 'EvVehicles.brandLogo: brandId is required'
+        }));
+    }
+    var opts = options || {};
+    return this._get('service/vehicle/1.1/getbrandlogo?brandId=' + encodeURIComponent(brandId),
+        { signal: opts.signal });
+};
+
+/**
+ * Build the URL of the binary brand-logo endpoint
+ * (`GET service/vehicle/1.1/getbrandlogolite`) — returns raw image bytes
+ * with the correct `Content-Type`. Customers fetch this with their own
+ * auth (Basic via `Authorization` header) and turn the response into a
+ * `Blob` URL for `&lt;img src>`.
+ *
+ * @public
+ * @since 1.5.0
+ * @param {String} brandId
+ * @return {String} Full URL including the Context's base URL.
+ */
+bemap.EvVehicles.prototype.getBrandLogoUrl = function(brandId) {
+    if (!brandId) return null;
+    return this.ctx.getBaseUrl() + 'service/vehicle/1.1/getbrandlogolite?brandId=' + encodeURIComponent(brandId);
+};
+
+/**
+ * Build the URL of the vehicle-photo endpoint
+ * (`GET service/vehicle/picture/1.0/getone?vehicleUuidKey=&lt;key>`). Used
+ * by customer UIs (e.g. `evmove5`'s car-select screen) to render vehicle
+ * thumbnails. Customers fetch with their own auth.
+ *
+ * @public
+ * @since 1.5.0
+ * @param {String} vehicleKey
+ * @return {String}
+ */
+bemap.EvVehicles.prototype.getPictureUrl = function(vehicleKey) {
+    if (!vehicleKey) return null;
+    return this.ctx.getBaseUrl() + 'service/vehicle/picture/1.0/getone?vehicleUuidKey=' + encodeURIComponent(vehicleKey);
+};
+
+/**
+ * Convenience: fetch a vehicle and return a `RoutingVehicleProfile` ready
+ * to plug into `bemap.RoutingV2.calculate()` or
+ * `bemap.EvSmartRouting.calculate()`.
+ *
+ * @public
+ * @param {String} vehicleKey
+ * @param {Object} [options]
+ * @param {AbortSignal} [options.signal]
+ * @return {Promise&lt;bemap.RoutingVehicleProfile>}
+ */
+bemap.EvVehicles.prototype.toRoutingProfile = function(vehicleKey, options) {
+    return this.get(vehicleKey, options).then(function(vehicle) {
+        var profile = {};
+        if (vehicle.getTransportType()) profile.transportMode = vehicle.getTransportType();
+        var dims = vehicle.getDimensions();
+        if (dims &amp;&amp; dims.height !== null) profile.height = dims.height;
+        if (dims &amp;&amp; dims.width !== null) profile.width = dims.width;
+        if (dims &amp;&amp; dims.length !== null) profile.length = dims.length;
+        if (vehicle.getMaxWeight() !== null) profile.weight = vehicle.getMaxWeight();
+        if (vehicle.getMaxWeightPerAxle() !== null) profile.axleWeight = vehicle.getMaxWeightPerAxle();
+        return new bemap.RoutingVehicleProfile(profile);
+    });
+};
+</code></pre>
+        </article>
+    </section>
+
+
+
+
+</div>
+
+<nav>
+    <h2><a href="index.html">Home</a></h2><h3>Classes</h3><ul><li><a href="bemap.AclDetailsResponse.html">AclDetailsResponse</a></li><li><a href="bemap.AclLabel.html">AclLabel</a></li><li><a href="bemap.AclService.html">AclService</a></li><li><a href="bemap.Address.html">Address</a></li><li><a href="bemap.AttributionWidget.html">AttributionWidget</a></li><li><a href="bemap.Autocomplete.html">Autocomplete</a></li><li><a href="bemap.AutocompleteElement.html">AutocompleteElement</a></li><li><a href="bemap.AutocompleteGeocodingRequest.html">AutocompleteGeocodingRequest</a></li><li><a href="bemap.AutocompleteGeocodingResponse.html">AutocompleteGeocodingResponse</a></li><li><a href="bemap.BemapLayer.html">BemapLayer</a></li><li><a href="bemap.BoundingBox.html">BoundingBox</a></li><li><a href="bemap.BrowserCache.html">BrowserCache</a></li><li><a href="bemap.BuildingsLayer.html">BuildingsLayer</a></li><li><a href="bemap.ChargingPoint.html">ChargingPoint</a></li><li><a href="bemap.ChargingStation.html">ChargingStation</a></li><li><a href="bemap.ChargingStationPool.html">ChargingStationPool</a></li><li><a href="bemap.ChargingStations.html">ChargingStations</a></li><li><a href="bemap.ChargingStationSearchRequest.html">ChargingStationSearchRequest</a></li><li><a href="bemap.ChargingStationSearchResponse.html">ChargingStationSearchResponse</a></li><li><a href="bemap.ChargingStationStep.html">ChargingStationStep</a></li><li><a href="bemap.ChargingTime.html">ChargingTime</a></li><li><a href="bemap.ChargingTimeRequest.html">ChargingTimeRequest</a></li><li><a href="bemap.ChargingTimeResponse.html">ChargingTimeResponse</a></li><li><a href="bemap.Circle.html">Circle</a></li><li><a href="bemap.CircleStyle.html">CircleStyle</a></li><li><a href="bemap.clusterStyle.html">clusterStyle</a></li><li><a href="bemap.Color.html">Color</a></li><li><a href="bemap.CondMaxSpeed.html">CondMaxSpeed</a></li><li><a href="bemap.Context.html">Context</a></li><li><a href="bemap.Coordinate.html">Coordinate</a></li><li><a href="bemap.CoordinateSat.html">CoordinateSat</a></li><li><a href="bemap.Destination.html">Destination</a></li><li><a href="bemap.Error.html">Error</a></li><li><a href="bemap.EvBrand.html">EvBrand</a></li><li><a href="bemap.EvReachableArea.html">EvReachableArea</a></li><li><a href="bemap.EvReachableAreaRequest.html">EvReachableAreaRequest</a></li><li><a href="bemap.EvReachableAreaResponse.html">EvReachableAreaResponse</a></li><li><a href="bemap.EvseRouting.html">EvseRouting</a></li><li><a href="bemap.EvSmartRouting.html">EvSmartRouting</a></li><li><a href="bemap.EvSmartRoutingRequest.html">EvSmartRoutingRequest</a></li><li><a href="bemap.EvSmartRoutingResponse.html">EvSmartRoutingResponse</a></li><li><a href="bemap.EvStepPoint.html">EvStepPoint</a></li><li><a href="bemap.EvVehicle.html">EvVehicle</a></li><li><a href="bemap.EvVehicles.html">EvVehicles</a></li><li><a href="bemap.Exception.html">Exception</a></li><li><a href="bemap.GeoAutocomplete.html">GeoAutocomplete</a></li><li><a href="bemap.Geocoder.html">Geocoder</a></li><li><a href="bemap.GeocodingItem.html">GeocodingItem</a></li><li><a href="bemap.GeocodingRequest.html">GeocodingRequest</a></li><li><a href="bemap.GeocodingResponse.html">GeocodingResponse</a></li><li><a href="bemap.GeoSearchInfo.html">GeoSearchInfo</a></li><li><a href="bemap.GeoServerInfoResponse.html">GeoServerInfoResponse</a></li><li><a href="bemap.GeoServerInfoService.html">GeoServerInfoService</a></li><li><a href="bemap.GeoServerServiceInfo.html">GeoServerServiceInfo</a></li><li><a href="bemap.GeoServerServiceLimit.html">GeoServerServiceLimit</a></li><li><a href="bemap.HeatmapLayer.html">HeatmapLayer</a></li><li><a href="bemap.Icon.html">Icon</a></li><li><a href="bemap.Isochrone.html">Isochrone</a></li><li><a href="bemap.Layer.html">Layer</a></li><li><a href="bemap.LeafletMap.html">LeafletMap</a></li><li><a href="bemap.LineStyle.html">LineStyle</a></li><li><a href="bemap.Listener.html">Listener</a></li><li><a href="bemap.Map.html">Map</a></li><li><a href="bemap.MapEvent.html">MapEvent</a></li><li><a href="bemap.MapLibreMap.html">MapLibreMap</a></li><li><a href="bemap.Marker.html">Marker</a></li><li><a href="bemap.MultiMarker.html">MultiMarker</a></li><li><a href="bemap.NearPoint.html">NearPoint</a></li><li><a href="bemap.NearPoiRequest.html">NearPoiRequest</a></li><li><a href="bemap.NearPoiResponse.html">NearPoiResponse</a></li><li><a href="bemap.NearPoiSearch.html">NearPoiSearch</a></li><li><a href="bemap.Object.html">Object</a></li><li><a href="bemap.Ol3Map.html">Ol3Map</a></li><li><a href="bemap.OlMap.html">OlMap</a></li><li><a href="bemap.OsmLayer.html">OsmLayer</a></li><li><a href="bemap.PMTilesLayer.html">PMTilesLayer</a></li><li><a href="bemap.Polygon.html">Polygon</a></li><li><a href="bemap.PolygonStyle.html">PolygonStyle</a></li><li><a href="bemap.Polyline.html">Polyline</a></li><li><a href="bemap.Popup.html">Popup</a></li><li><a href="bemap.PostalAddress.html">PostalAddress</a></li><li><a href="bemap.RasterLayer.html">RasterLayer</a></li><li><a href="bemap.ReverseGeocoder.html">ReverseGeocoder</a></li><li><a href="bemap.ReverseGeocodingRequest.html">ReverseGeocodingRequest</a></li><li><a href="bemap.RevGeoSearchInfo.html">RevGeoSearchInfo</a></li><li><a href="bemap.RoadFeature.html">RoadFeature</a></li><li><a href="bemap.Route.html">Route</a></li><li><a href="bemap.Route.Event.html">Event</a></li><li><a href="bemap.Route.RoutesheetInstruction.html">RoutesheetInstruction</a></li><li><a href="bemap.Routing.html">Routing</a></li><li><a href="bemap.RoutingDestination.html">RoutingDestination</a></li><li><a href="bemap.RoutingInstruction.html">RoutingInstruction</a></li><li><a href="bemap.RoutingRequest.html">RoutingRequest</a></li><li><a href="bemap.RoutingResponse.html">RoutingResponse</a></li><li><a href="bemap.RoutingRoute.html">RoutingRoute</a></li><li><a href="bemap.RoutingSummary.html">RoutingSummary</a></li><li><a href="bemap.RoutingV2.html">RoutingV2</a></li><li><a href="bemap.RoutingVehicleProfile.html">RoutingVehicleProfile</a></li><li><a href="bemap.RoutingWaypoint.html">RoutingWaypoint</a></li><li><a href="bemap.Service.html">Service</a></li><li><a href="bemap.TextStyle.html">TextStyle</a></li><li><a href="bemap.TilesAuth.html">TilesAuth</a></li><li><a href="bemap.TilesOverlayCatalog.html">TilesOverlayCatalog</a></li><li><a href="global.html#bemap#.TraceRoute">TraceRoute</a></li><li><a href="bemap.TraceRouteDestination.html">TraceRouteDestination</a></li><li><a href="bemap.TraceRouteRequest.html">TraceRouteRequest</a></li><li><a href="bemap.VectorLayer.html">VectorLayer</a></li><li><a href="bemap.VectorTileLayer.html">VectorTileLayer</a></li><li><a href="bemap.WmsLayer.html">WmsLayer</a></li></ul><h3>Global</h3><ul><li><a href="global.html#AC">AC</a></li><li><a href="global.html#AC_SINGLE_PHASE">AC_SINGLE_PHASE</a></li><li><a href="global.html#AC_THREE_PHASES">AC_THREE_PHASES</a></li><li><a href="global.html#bemap">bemap</a></li><li><a href="global.html#DC">DC</a></li><li><a href="global.html#NA">NA</a></li></ul>
+</nav>
+
+<br class="clear">
+
+<footer>
+    Documentation generated by <a href="https://github.com/jsdoc/jsdoc">JSDoc 3.6.3</a> on Tue Jun 02 2026 11:46:44 GMT+0200 (heure d’été d’Europe centrale)
+</footer>
+
+<script> prettyPrint(); </script>
+<script src="scripts/linenumber.js"> </script>
+</body>
+</html>

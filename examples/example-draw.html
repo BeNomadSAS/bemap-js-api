@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>BeMap JS API — Drawing Example (3 backends)</title>
+
+  <!-- OpenLayers -->
+  <link rel="stylesheet" href="../dist/ol.css">
+  <script src="../dist/ol.js"></script>
+
+  <!-- Leaflet + Leaflet.Draw -->
+  <link rel="stylesheet" href="../dist/leaflet.css">
+  <script src="../dist/leaflet.js"></script>
+  <link rel="stylesheet" href="../dist/leaflet.draw.css">
+  <script src="../dist/leaflet.draw.js"></script>
+
+  <!-- MapLibre GL -->
+  <link rel="stylesheet" href="../dist/maplibre-gl.css">
+  <script src="../dist/maplibre-gl.js"></script>
+  <script src="../dist/pmtiles.js"></script>
+
+  <!-- BeMap JS API -->
+  <script src="../dist/bemap-js-api.js"></script>
+  <script src="effect-bridge.js"></script>
+  <script src="context.js"></script>
+
+  <style>
+    body { margin: 0; font-family: Arial, sans-serif; background: #1a1a2e; color: #eee; }
+    .header { padding: 10px 20px; background: linear-gradient(135deg, #16213e, #0f3460); border-bottom: 2px solid #e94560; }
+    .header h2 { margin: 0 0 4px; font-size: 16px; }
+    .header p { margin: 0; font-size: 11px; opacity: 0.7; }
+    .maps-row { display: flex; height: calc(100vh - 100px); }
+    .map-col { flex: 1; display: flex; flex-direction: column; border-right: 1px solid #333; }
+    .map-col:last-child { border-right: none; }
+    .map-label { padding: 4px 10px; background: #16213e; font-size: 12px; font-weight: 600; text-align: center; }
+    .map-label span { opacity: 0.5; font-size: 10px; }
+    .map-container { flex: 1; position: relative; }
+    #log { background: #0d1117; color: #7ee787; font-family: monospace; font-size: 11px; padding: 4px 12px; height: 40px; overflow-y: auto; }
+  </style>
+</head>
+<body>
+
+<!-- The header below is hidden when the page is loaded inside the BeMap 2026
+     dashboard iframe — the dashboard's own top bar already shows the title +
+     subtitle, so this would be a duplicate. Detected via window.parent. -->
+<div class="header" id="pageHeader">
+  <h2>Drawing API — All 3 Backends</h2>
+  <p>Use the toolbar to draw. After drawing: <b>drag</b> vertices | <b>right-click</b> vertex to delete | <b>click edge</b> to insert vertex | <b>drop near</b> another vertex to merge (15px)</p>
+</div>
+<script>
+  try { if (window.parent !== window) { var h = document.getElementById('pageHeader'); if (h) h.style.display = 'none'; } } catch (e) {}
+</script>
+
+<div class="maps-row">
+  <div class="map-col">
+    <div class="map-label">OpenLayers v10 <span>(ol.interaction.Draw)</span></div>
+    <div class="map-container" id="map-ol"></div>
+  </div>
+  <div class="map-col">
+    <div class="map-label">Leaflet v1.9 <span>(L.Draw.Polygon)</span></div>
+    <div class="map-container" id="map-leaflet"></div>
+  </div>
+  <div class="map-col">
+    <div class="map-label">MapLibre GL v5 <span>(GeoJSON + mouse)</span></div>
+    <div class="map-container" id="map-maplibre"></div>
+  </div>
+</div>
+
+<div id="log"></div>
+
+<script>
+var ctx = bemapMainCtx;
+
+function log(msg) {
+  var el = document.getElementById('log');
+  el.innerHTML = '<span>' + new Date().toLocaleTimeString() + ' — ' + msg + '</span><br>' + el.innerHTML;
+}
+
+// Init all 3 maps
+var olMap = new bemap.OlMap(ctx, 'map-ol').defaultLayers().move(2.35, 48.85, 13);
+var leafletMap = new bemap.LeafletMap(ctx, 'map-leaflet').defaultLayers().move(2.35, 48.85, 13);
+var maplibreMap = new bemap.MapLibreMap(ctx, 'map-maplibre').defaultLayers().move(2.35, 48.85, 13);
+
+function onDrawEnd(evt) {
+  var shape = evt.bemapObject;
+  if (shape && shape.getCoordinates) {
+    var coords = shape.getCoordinates();
+    var type = (bemap.inheritsof(shape, bemap.Polygon)) ? 'Polygon' : 'Polyline';
+    log(type + ' drawn with ' + coords.length + ' vertices — drag to edit, right-click to delete, click edge to insert');
+  }
+}
+
+// Add the draw toolbar to each map — all draw tools enabled.
+var drawOpts = { polygon: true, polyline: true, rectangle: true, circle: true, marker: true, position: 'topright', onDrawEnd: onDrawEnd };
+olMap.addDrawControl(drawOpts);
+leafletMap.addDrawControl(drawOpts);
+maplibreMap.addDrawControl(drawOpts);
+
+log('Ready — click the polygon or line tool on any map toolbar to start drawing.');
+</script>
+</body>
+</html>

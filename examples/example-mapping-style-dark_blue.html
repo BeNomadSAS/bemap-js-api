@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>BeMap JS API — Dark Blue style on 3 engines</title>
+
+  <link rel="stylesheet" href="../dist/ol.css">
+  <link rel="stylesheet" href="../dist/leaflet.css">
+  <link rel="stylesheet" href="../dist/maplibre-gl.css">
+  <link rel="stylesheet" href="../dist/bemap-js-api.css">
+  <link rel="stylesheet" href="bn-2026.css">
+
+  <script src="../dist/ol.js"></script>
+  <script src="../dist/leaflet.js"></script>
+  <script src="../dist/leaflet.markercluster.js"></script>
+  <script src="../dist/maplibre-gl.js"></script>
+  <script src="../dist/pmtiles.js"></script>
+  <script src="../dist/bemap-js-api.js"></script>
+  <script src="effect-bridge.js"></script>
+  <script src="context.js"></script>
+  <script src="example-mapping-style-dark_blue.js"></script>
+</head>
+<body onload="onLoaded();" style="margin:0;padding:0;background:#0d1117;">
+
+  <!-- Hidden when embedded in the BeMap 2026 dashboard iframe — the dashboard
+       top bar already shows the title. -->
+  <div id="pageHeader" style="padding:10px 14px;background:#16213e;color:#fff;border-bottom:1px solid #2a3554;">
+    <h3 style="margin:0 0 4px;font-size:16px;">Dark Blue Map Style — 3 engines side-by-side</h3>
+    <p style="margin:0;font-size:12px;opacity:0.75;">
+      Same dark-blue theme rendered three ways: OpenLayers + Leaflet use the WMS
+      <code>styles:'darkblue'</code> server-side render; MapLibre uses the bundled
+      BeNomad vector style with dark-blue paint overrides applied at runtime.
+      Markers are added with identical code on all three.
+    </p>
+  </div>
+
+  <div class="bn-map-grid bn-map-grid--3" style="height:calc(100vh - 76px);">
+    <div class="bn-map-cell">
+      <div class="bn-map-cell__label bn--ol">
+        <span class="bn-chip bn-chip--ol">OL</span>
+        <span>OpenLayers v10 · WMS <code>styles:'darkblue'</code></span>
+      </div>
+      <div id="map-ol" class="bn-map"></div>
+    </div>
+    <div class="bn-map-cell">
+      <div class="bn-map-cell__label bn--lf">
+        <span class="bn-chip bn-chip--lf">Leaflet</span>
+        <span>Leaflet 1.9 · WMS <code>styles:'darkblue'</code></span>
+      </div>
+      <div id="map-lf" class="bn-map"></div>
+    </div>
+    <div class="bn-map-cell">
+      <div class="bn-map-cell__label bn--ml">
+        <span class="bn-chip bn-chip--ml">MapLibre</span>
+        <span>MapLibre v5 · BeNomad Tiles + dark-blue paint overrides</span>
+      </div>
+      <div id="map-ml" class="bn-map"></div>
+    </div>
+  </div>
+
+  <script>
+    // Hide page header when embedded in dashboard + give the grid full height.
+    try {
+      if (window.parent !== window) {
+        var h = document.getElementById('pageHeader');
+        if (h) h.style.display = 'none';
+        var g = document.querySelector('.bn-map-grid');
+        if (g) g.style.height = '100vh';
+      }
+    } catch (e) {}
+  </script>
+</body>
+</html>

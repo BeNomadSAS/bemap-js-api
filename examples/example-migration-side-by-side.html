@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>BeMap JS API — Migration WMS → BeNomad Tiles</title>
+
+  <link rel="stylesheet" href="../dist/leaflet.css">
+  <link rel="stylesheet" href="../dist/maplibre-gl.css">
+  <link rel="stylesheet" href="bn-2026.css">
+
+  <script src="../dist/leaflet.js"></script>
+  <script src="../dist/maplibre-gl.js"></script>
+  <script src="../dist/pmtiles.js"></script>
+  <script src="../dist/bemap-js-api.js"></script>
+  <script src="effect-bridge.js"></script>
+  <script src="context.js"></script>
+  <script src="bn-2026.js"></script>
+</head>
+<body data-bn-page
+      data-bn-title="Migration — WMS ⇄ BeNomad Tiles"
+      data-bn-subtitle="Same app, two backends. <strong>Left:</strong> Leaflet + WMS (today). <strong>Right:</strong> MapLibre + BeNomad Tiles (v2.0). One Context line of difference."
+      data-bn-chips="Leaflet:lf,MapLibre:ml,v2.0:brand">
+  <div class="bn-shell">
+    <div class="bn-stage">
+      <div class="bn-map-grid">
+        <div class="bn-map-cell">
+          <div class="bn-map-cell__label bn--lf">
+            <span class="bn-chip bn-chip--lf">Leaflet</span>
+            <span>bemap.LeafletMap · WMS background</span>
+          </div>
+          <div id="mapWms" class="bn-map"></div>
+        </div>
+        <div class="bn-map-cell">
+          <div class="bn-map-cell__label bn--ml">
+            <span class="bn-chip bn-chip--ml">MapLibre</span>
+            <span>bemap.MapLibreMap · BeNomad Tiles</span>
+          </div>
+          <div id="mapTiles" class="bn-map"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+<script>
+// Same Context fields for both maps — only tilesHost differs on the right one.
+var ctxWms = bemapMainCtx;
+
+var ctxTiles = new bemap.Context({
+  host:      bemapMainCtx.host,
+  secure:    bemapMainCtx.protocol === 'https',
+  login:     bemapMainCtx.login,
+  password:  bemapMainCtx.password,
+  tilesHost: 'mptiles-api.benomad.net'
+});
+
+var mapWms = new bemap.LeafletMap(ctxWms, 'mapWms');
+mapWms.defaultLayers();
+mapWms.move(2.35, 48.85, 5);
+
+var mapTiles = new bemap.MapLibreMap(ctxTiles, 'mapTiles');
+mapTiles.defaultLayers();
+mapTiles.move(2.35, 48.85, 5);
+
+bn.log('Both maps constructed — Leaflet uses WMS, MapLibre uses BeNomad Tiles.', 'info');
+
+bn.onMapReady(mapWms,   function () { bn.log('Leaflet (WMS) ready.',  'ok'); });
+bn.onMapReady(mapTiles, function () { bn.log('MapLibre (BeNomad Tiles) ready — bundled style + JWT injected.', 'ok'); });
+
+// Synchronise pan/zoom between the two so the comparison stays useful.
+var syncing = false;
+function syncFrom(srcLabel, getCenterZoom, setOnLfMap, setOnMlMap) {
+  return function () {
+    if (syncing) return;
+    var cz = getCenterZoom();
+    syncing = true;
+    try { setOnLfMap(cz); } catch (e) {}
+    try { setOnMlMap(cz); } catch (e) {}
+    syncing = false;
+  };
+}
+
+try {
+  mapWms.native.on('moveend', syncFrom('lf',
+    function () { var c = mapWms.native.getCenter(); return { lon: c.lng, lat: c.lat, zoom: mapWms.native.getZoom() }; },
+    function () {},
+    function (cz) { mapTiles.move(cz.lon, cz.lat, cz.zoom); }
+  ));
+  mapTiles.native.on('moveend', syncFrom('ml',
+    function () { var c = mapTiles.native.getCenter(); return { lon: c.lng, lat: c.lat, zoom: mapTiles.native.getZoom() }; },
+    function (cz) { mapWms.move(cz.lon, cz.lat, cz.zoom); },
+    function () {}
+  ));
+  bn.log('Pan/zoom synchronised between the two panels.', 'info');
+} catch (e) {
+  bn.log('Pan/zoom sync skipped: ' + e.message, 'warn');
+}
+</script>
+</body>
+</html>

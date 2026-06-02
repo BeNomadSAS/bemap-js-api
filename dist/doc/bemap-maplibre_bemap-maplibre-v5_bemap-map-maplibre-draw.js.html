@@ -1,0 +1,502 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>JSDoc: Source: bemap-maplibre/bemap-maplibre-v5/bemap-map-maplibre-draw.js</title>
+
+    <script src="scripts/prettify/prettify.js"> </script>
+    <script src="scripts/prettify/lang-css.js"> </script>
+    <!--[if lt IE 9]>
+      <script src="//html5shiv.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+    <link type="text/css" rel="stylesheet" href="styles/prettify-tomorrow.css">
+    <link type="text/css" rel="stylesheet" href="styles/jsdoc-default.css">
+</head>
+
+<body>
+
+<div id="main">
+
+    <h1 class="page-title">Source: bemap-maplibre/bemap-maplibre-v5/bemap-map-maplibre-draw.js</h1>
+
+    
+
+
+
+    
+    <section>
+        <article>
+            <pre class="prettyprint source linenums"><code>/**
+ * BeNomad BeMap JavaScript API - MapLibre v5 - Draw Interaction
+ * Manual implementation using GeoJSON sources + mouse events.
+ */
+
+bemap.MapLibreMap.prototype.drawPolygon = function(options, callback) {
+  return this._startDraw('Polygon', options, callback);
+};
+
+bemap.MapLibreMap.prototype.drawPolyline = function(options, callback) {
+  return this._startDraw('Polyline', options, callback);
+};
+
+bemap.MapLibreMap.prototype.drawRectangle = function(options, callback) {
+  return this._startDraw('Rectangle', options, callback);
+};
+
+bemap.MapLibreMap.prototype.drawCircle = function(options, callback) {
+  return this._startDraw('Circle', options, callback);
+};
+
+bemap.MapLibreMap.prototype.drawMarker = function(options, callback) {
+  var _this = this;
+  this.cancelDraw();
+
+  var clickHandler = function(e) {
+    _this.native.off('click', clickHandler);
+    var container = _this.native.getContainer();
+    if (container) container.classList.remove('bemap-drawing-active');
+
+    var coord = new bemap.Coordinate(e.lngLat.lng, e.lngLat.lat);
+    var marker = new bemap.Marker(coord, { icon: (options || {}).icon });
+    if (callback) {
+      callback(new bemap.MapEvent({ map: _this, bemapObject: marker, coordinate: coord }));
+    }
+    if ((options || {}).addToMap !== false) {
+      _this.addMarker(marker);
+    }
+  };
+
+  this.native.on('click', clickHandler);
+  this._drawState = { clickHandler: clickHandler };
+
+  var container = this.native.getContainer();
+  if (container) container.classList.add('bemap-drawing-active');
+
+  return new bemap.Listener();
+};
+
+bemap.MapLibreMap.prototype._startDraw = function(type, options, callback) {
+  var opts = options || {};
+  var _this = this;
+  this.cancelDraw();
+
+  var coords = [];
+  var sourceId = '_bemap-draw-src';
+  var lineLayerId = '_bemap-draw-line';
+  var fillLayerId = '_bemap-draw-fill';
+  var vertexLayerId = '_bemap-draw-vertices';
+  var rubberLineId = '_bemap-draw-rubber';
+
+  var lineColor = 'rgba(0,102,204,1)';
+  var fillColor = 'rgba(0,102,204,0.2)';
+  var lineWidth = 2;
+
+  if (opts.style) {
+    if (opts.style.borderColor) lineColor = this._colorToRgba(opts.style.borderColor);
+    if (opts.style.fillColor) fillColor = this._colorToRgba(opts.style.fillColor);
+    if (opts.style.borderWidth) lineWidth = opts.style.borderWidth;
+  }
+
+  // Disable double-click zoom during drawing
+  this.native.doubleClickZoom.disable();
+
+  // Create GeoJSON source for preview
+  var emptyGeoJson = { type: 'FeatureCollection', features: [] };
+  this.native.addSource(sourceId, { type: 'geojson', data: emptyGeoJson });
+
+  // Fill layer (for polygon)
+  if (type === 'Polygon') {
+    this.native.addLayer({
+      id: fillLayerId, type: 'fill', source: sourceId,
+      filter: ['==', '$type', 'Polygon'],
+      paint: { 'fill-color': fillColor, 'fill-opacity': 1 }
+    });
+  }
+
+  // Line layer
+  this.native.addLayer({
+    id: lineLayerId, type: 'line', source: sourceId,
+    filter: ['==', '$type', type === 'Polygon' ? 'Polygon' : 'LineString'],
+    paint: { 'line-color': lineColor, 'line-width': lineWidth },
+    layout: { 'line-cap': 'round', 'line-join': 'round' }
+  });
+
+  // Vertex dots layer
+  this.native.addSource(vertexLayerId + '-src', { type: 'geojson', data: emptyGeoJson });
+  this.native.addLayer({
+    id: vertexLayerId, type: 'circle', source: vertexLayerId + '-src',
+    paint: { 'circle-radius': 5, 'circle-color': lineColor, 'circle-stroke-color': '#fff', 'circle-stroke-width': 2 }
+  });
+
+  // Rubber-band line (cursor to last point)
+  this.native.addSource(rubberLineId + '-src', { type: 'geojson', data: emptyGeoJson });
+  this.native.addLayer({
+    id: rubberLineId, type: 'line', source: rubberLineId + '-src',
+    paint: { 'line-color': lineColor, 'line-width': 1, 'line-dasharray': [4, 4] }
+  });
+
+  var updatePreview = function() {
+    var lngLats = coords.map(function(c) { return [c.getLon(), c.getLat()]; });
+
+    // Vertex dots
+    var vertexFeatures = lngLats.map(function(ll) {
+      return { type: 'Feature', geometry: { type: 'Point', coordinates: ll } };
+    });
+    _this.native.getSource(vertexLayerId + '-src').setData({ type: 'FeatureCollection', features: vertexFeatures });
+
+    // Main shape
+    var data;
+    if (type === 'Rectangle' &amp;&amp; lngLats.length >= 2) {
+      // Show rectangle preview from 2 diagonal corners
+      var c0 = lngLats[0], c1 = lngLats[lngLats.length - 1];
+      var rectRing = [c0, [c1[0], c0[1]], c1, [c0[0], c1[1]], c0];
+      data = { type: 'Feature', geometry: { type: 'Polygon', coordinates: [rectRing] } };
+    } else if (type === 'Polygon' &amp;&amp; lngLats.length >= 3) {
+      var ring = lngLats.concat([lngLats[0]]); // close the ring
+      data = { type: 'Feature', geometry: { type: 'Polygon', coordinates: [ring] } };
+    } else if (lngLats.length >= 2) {
+      data = { type: 'Feature', geometry: { type: 'LineString', coordinates: lngLats } };
+    } else {
+      data = emptyGeoJson;
+    }
+    _this.native.getSource(sourceId).setData(data.type === 'FeatureCollection' ? data : { type: 'FeatureCollection', features: [data] });
+  };
+
+  // Mouse move → rubber-band line from last vertex to cursor
+  var mouseMoveHandler = function(e) {
+    if (coords.length === 0) return;
+    var last = [coords[coords.length - 1].getLon(), coords[coords.length - 1].getLat()];
+    var cursor = [e.lngLat.lng, e.lngLat.lat];
+    _this.native.getSource(rubberLineId + '-src').setData({
+      type: 'Feature', geometry: { type: 'LineString', coordinates: [last, cursor] }
+    });
+  };
+
+  // Default styles
+  var _defaultPolyStyle = opts.style || new bemap.PolygonStyle({
+    fillColor: new bemap.Color(0, 102, 204, 0.2),
+    borderColor: new bemap.Color(0, 102, 204, 1),
+    borderWidth: 2
+  });
+  var _defaultLineStyle = opts.style || new bemap.LineStyle({
+    color: new bemap.Color(230, 57, 70, 1),
+    width: 3
+  });
+
+  // Click → add vertex (debounced to avoid dblclick phantom vertex)
+  var CLOSE_PX = 15;
+  var clickTimer = null;
+
+  var clickHandler = function(e) {
+    var _e = e;
+    clickTimer = setTimeout(function() {
+      clickTimer = null;
+
+      // Polygon: close if clicking near first point
+      if (type === 'Polygon' &amp;&amp; coords.length >= 3) {
+        var firstPx = _this.native.project([coords[0].getLon(), coords[0].getLat()]);
+        var clickPx = _this.native.project([_e.lngLat.lng, _e.lngLat.lat]);
+        var dist = Math.sqrt(Math.pow(firstPx.x - clickPx.x, 2) + Math.pow(firstPx.y - clickPx.y, 2));
+        if (dist &lt; CLOSE_PX) {
+          finishDraw(_e);
+          return;
+        }
+      }
+
+      coords.push(new bemap.Coordinate(_e.lngLat.lng, _e.lngLat.lat));
+      updatePreview();
+
+      // Rectangle: auto-finish on 2nd click
+      if (type === 'Rectangle' &amp;&amp; coords.length >= 2) {
+        finishDraw(_e);
+      }
+      // Circle: auto-finish on 2nd click (center + edge)
+      if (type === 'Circle' &amp;&amp; coords.length >= 2) {
+        finishDraw(_e);
+      }
+    }, 220);
+  };
+
+  // Double-click → finish
+  var dblclickHandler = function(e) {
+    if (clickTimer) { clearTimeout(clickTimer); clickTimer = null; }
+    if (e &amp;&amp; e.preventDefault) e.preventDefault();
+    finishDraw(e);
+  };
+
+  // Finish drawing and create the shape
+  var finishDraw = function(e) {
+    cleanup();
+
+    var bemapObj = null;
+    if (type === 'Rectangle' &amp;&amp; coords.length >= 2) {
+      var c0 = coords[0], c1 = coords[coords.length - 1];
+      var rectCoords = [
+        c0,
+        new bemap.Coordinate(c1.getLon(), c0.getLat()),
+        c1,
+        new bemap.Coordinate(c0.getLon(), c1.getLat())
+      ];
+      bemapObj = new bemap.Polygon(rectCoords, { style: _defaultPolyStyle });
+    } else if (type === 'Circle' &amp;&amp; coords.length >= 2) {
+      var center = coords[0];
+      var edge = coords[1];
+      var R = 6371000;
+      var dLat = (edge.getLat() - center.getLat()) * Math.PI / 180;
+      var dLon = (edge.getLon() - center.getLon()) * Math.PI / 180;
+      var a = Math.sin(dLat/2) * Math.sin(dLat/2) + Math.cos(center.getLat() * Math.PI / 180) * Math.cos(edge.getLat() * Math.PI / 180) * Math.sin(dLon/2) * Math.sin(dLon/2);
+      var radius = R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+      var _circleStyle = opts.style || new bemap.CircleStyle({
+        fillColor: new bemap.Color(0, 102, 204, 0.2),
+        borderColor: new bemap.Color(0, 102, 204, 1),
+        borderWidth: 2
+      });
+      bemapObj = new bemap.Circle(center, radius, { style: _circleStyle });
+    } else if (type === 'Polygon' &amp;&amp; coords.length >= 3) {
+      bemapObj = new bemap.Polygon(coords, { style: _defaultPolyStyle });
+    } else if (type === 'Polyline' &amp;&amp; coords.length >= 2) {
+      bemapObj = new bemap.Polyline(coords, { style: _defaultLineStyle });
+    }
+
+    if (bemapObj) {
+      if (callback) callback(new bemap.MapEvent({ map: _this, bemapObject: bemapObj, coordinate: coords[0] }));
+
+      // Auto-add to map
+      if (opts.addToMap !== false) {
+        if (bemap.inheritsof(bemapObj, bemap.Polygon)) _this.addPolygon(bemapObj);
+        else if (bemap.inheritsof(bemapObj, bemap.Polyline)) _this.addPolyline(bemapObj);
+        else if (bemap.inheritsof(bemapObj, bemap.Circle)) _this.addCircle(bemapObj);
+        else if (bemap.inheritsof(bemapObj, bemap.Marker)) _this.addMarker(bemapObj);
+      }
+
+      // Auto-enable vertex editing for polygons
+      if (opts.editable !== false &amp;&amp; bemap.inheritsof(bemapObj, bemap.Polygon)) {
+        _this.editPolygon(bemapObj, callback);
+      }
+    }
+  };
+
+  var cleanup = function() {
+    if (clickTimer) { clearTimeout(clickTimer); clickTimer = null; }
+    _this.native.off('click', clickHandler);
+    _this.native.off('dblclick', dblclickHandler);
+    _this.native.off('mousemove', mouseMoveHandler);
+
+    try { if (_this.native.getLayer(fillLayerId)) _this.native.removeLayer(fillLayerId); } catch(e) {}
+    try { if (_this.native.getLayer(lineLayerId)) _this.native.removeLayer(lineLayerId); } catch(e) {}
+    try { if (_this.native.getLayer(vertexLayerId)) _this.native.removeLayer(vertexLayerId); } catch(e) {}
+    try { if (_this.native.getLayer(rubberLineId)) _this.native.removeLayer(rubberLineId); } catch(e) {}
+    try { if (_this.native.getSource(sourceId)) _this.native.removeSource(sourceId); } catch(e) {}
+    try { if (_this.native.getSource(vertexLayerId + '-src')) _this.native.removeSource(vertexLayerId + '-src'); } catch(e) {}
+    try { if (_this.native.getSource(rubberLineId + '-src')) _this.native.removeSource(rubberLineId + '-src'); } catch(e) {}
+
+    _this.native.doubleClickZoom.enable();
+    var container = _this.native.getContainer();
+    if (container) container.classList.remove('bemap-drawing-active');
+    _this._drawState = null;
+  };
+
+  this.native.on('click', clickHandler);
+  this.native.on('dblclick', dblclickHandler);
+  this.native.on('mousemove', mouseMoveHandler);
+
+  this._drawState = { cleanup: cleanup, coords: coords };
+
+  var container = this.native.getContainer();
+  if (container) container.classList.add('bemap-drawing-active');
+
+  return new bemap.Listener();
+};
+
+bemap.MapLibreMap.prototype.cancelDraw = function() {
+  if (this._drawState) {
+    if (this._drawState.cleanup) this._drawState.cleanup();
+    else {
+      if (this._drawState.clickHandler) this.native.off('click', this._drawState.clickHandler);
+      var container = this.native.getContainer();
+      if (container) container.classList.remove('bemap-drawing-active');
+    }
+    this._drawState = null;
+  }
+  return this;
+};
+
+bemap.MapLibreMap.prototype.editPolygon = function(polygon, callback) {
+  if (!polygon || !polygon.native) return new bemap.Listener();
+
+  var _this = this;
+  var MERGE_PX = 15;
+
+  // Store edit state on polygon for rebuild
+  polygon._editCallback = callback;
+  polygon._editMap = this;
+
+  this._rebuildVertexHandles(polygon);
+
+  // Click on polygon layer to insert vertex on nearest edge
+  var polyLayerId = polygon._maplibreFillLayerId || polygon._maplibreLayerId;
+  if (polyLayerId &amp;&amp; this.native.getLayer(polyLayerId)) {
+    var insertHandler = function(e) {
+      _this._insertVertexOnEdge(polygon, e.lngLat);
+    };
+    this.native.on('click', polyLayerId, insertHandler);
+    polygon._insertHandler = insertHandler;
+    polygon._insertLayerId = polyLayerId;
+  }
+
+  return new bemap.Listener({ native: null, bemapObject: polygon, key: 'editPolygon' });
+};
+
+/**
+ * Rebuild all vertex handle markers for a polygon being edited.
+ */
+bemap.MapLibreMap.prototype._rebuildVertexHandles = function(polygon) {
+  var _this = this;
+  var coords = polygon.getCoordinates();
+  var MERGE_PX = 15;
+  var callback = polygon._editCallback;
+
+  // Remove old handles
+  if (polygon._vertexMarkers) {
+    for (var r = 0; r &lt; polygon._vertexMarkers.length; r++) {
+      polygon._vertexMarkers[r].remove();
+    }
+  }
+  polygon._vertexMarkers = [];
+
+  for (var i = 0; i &lt; coords.length; i++) {
+    (function(index) {
+      var el = document.createElement('div');
+      el.className = 'bemap-vertex-handle';
+
+      var vm = new maplibregl.Marker({ element: el, draggable: true })
+        .setLngLat([coords[index].getLon(), coords[index].getLat()])
+        .addTo(_this.native);
+
+      // Real-time drag — update polygon during drag
+      vm.on('drag', function() {
+        var ll = vm.getLngLat();
+        coords[index] = new bemap.Coordinate(ll.lng, ll.lat);
+        polygon.coords = coords;
+        _this._updatePolygonSource(polygon, coords);
+      });
+
+      // Dragend — merge check + callback
+      vm.on('dragend', function() {
+        var ll = vm.getLngLat();
+        var dropPoint = _this.native.project([ll.lng, ll.lat]);
+
+        // Merge: check distance to all other vertices
+        if (coords.length > 3) {
+          for (var j = 0; j &lt; coords.length; j++) {
+            if (j === index) continue;
+            var otherPoint = _this.native.project([coords[j].getLon(), coords[j].getLat()]);
+            var dist = Math.sqrt(Math.pow(dropPoint.x - otherPoint.x, 2) + Math.pow(dropPoint.y - otherPoint.y, 2));
+            if (dist &lt; MERGE_PX) {
+              // Merge: remove dragged vertex
+              coords.splice(index, 1);
+              polygon.coords = coords;
+              _this._updatePolygonSource(polygon, coords);
+              _this._rebuildVertexHandles(polygon);
+              if (callback) callback(new bemap.MapEvent({ map: _this, bemapObject: polygon }));
+              return;
+            }
+          }
+        }
+
+        polygon.coords = coords;
+        if (callback) callback(new bemap.MapEvent({ map: _this, bemapObject: polygon }));
+      });
+
+      // Right-click — delete vertex
+      el.addEventListener('contextmenu', function(domEvt) {
+        domEvt.preventDefault();
+        domEvt.stopPropagation();
+        if (coords.length &lt;= 3) return; // min 3 vertices
+        coords.splice(index, 1);
+        polygon.coords = coords;
+        _this._updatePolygonSource(polygon, coords);
+        _this._rebuildVertexHandles(polygon);
+        if (callback) callback(new bemap.MapEvent({ map: _this, bemapObject: polygon }));
+      });
+
+      polygon._vertexMarkers.push(vm);
+    })(i);
+  }
+};
+
+/**
+ * Update polygon GeoJSON source from coordinates array.
+ */
+bemap.MapLibreMap.prototype._updatePolygonSource = function(polygon, coords) {
+  var lngLats = coords.map(function(c) { return [c.getLon(), c.getLat()]; });
+  var ring = lngLats.concat([lngLats[0]]);
+  var sourceId = polygon._maplibreSourceId;
+  if (sourceId &amp;&amp; this.native.getSource(sourceId)) {
+    this.native.getSource(sourceId).setData({
+      type: 'Feature',
+      geometry: { type: 'Polygon', coordinates: [ring] },
+      properties: polygon.properties || {}
+    });
+  }
+};
+
+/**
+ * Insert a vertex on the nearest polygon edge to the click point.
+ */
+bemap.MapLibreMap.prototype._insertVertexOnEdge = function(polygon, lngLat) {
+  var coords = polygon.getCoordinates();
+  var clickPx = this.native.project([lngLat.lng, lngLat.lat]);
+  var bestIdx = 0, bestDist = Infinity;
+
+  for (var i = 0; i &lt; coords.length; i++) {
+    var a = this.native.project([coords[i].getLon(), coords[i].getLat()]);
+    var b = this.native.project([coords[(i + 1) % coords.length].getLon(), coords[(i + 1) % coords.length].getLat()]);
+    var d = this._distToSegmentPx(clickPx, a, b);
+    if (d &lt; bestDist) { bestDist = d; bestIdx = i; }
+  }
+
+  // Only insert if click is reasonably close to an edge (within 20px)
+  if (bestDist > 20) return;
+
+  var newCoord = new bemap.Coordinate(lngLat.lng, lngLat.lat);
+  coords.splice(bestIdx + 1, 0, newCoord);
+  polygon.coords = coords;
+  this._updatePolygonSource(polygon, coords);
+  this._rebuildVertexHandles(polygon);
+  if (polygon._editCallback) polygon._editCallback(new bemap.MapEvent({ map: this, bemapObject: polygon }));
+};
+
+/**
+ * Distance from point P to segment AB (in pixels).
+ */
+bemap.MapLibreMap.prototype._distToSegmentPx = function(p, a, b) {
+  var dx = b.x - a.x, dy = b.y - a.y;
+  if (dx === 0 &amp;&amp; dy === 0) return Math.sqrt(Math.pow(p.x - a.x, 2) + Math.pow(p.y - a.y, 2));
+  var t = Math.max(0, Math.min(1, ((p.x - a.x) * dx + (p.y - a.y) * dy) / (dx * dx + dy * dy)));
+  var projX = a.x + t * dx, projY = a.y + t * dy;
+  return Math.sqrt(Math.pow(p.x - projX, 2) + Math.pow(p.y - projY, 2));
+};
+</code></pre>
+        </article>
+    </section>
+
+
+
+
+</div>
+
+<nav>
+    <h2><a href="index.html">Home</a></h2><h3>Classes</h3><ul><li><a href="bemap.AclDetailsResponse.html">AclDetailsResponse</a></li><li><a href="bemap.AclLabel.html">AclLabel</a></li><li><a href="bemap.AclService.html">AclService</a></li><li><a href="bemap.Address.html">Address</a></li><li><a href="bemap.AttributionWidget.html">AttributionWidget</a></li><li><a href="bemap.Autocomplete.html">Autocomplete</a></li><li><a href="bemap.AutocompleteElement.html">AutocompleteElement</a></li><li><a href="bemap.AutocompleteGeocodingRequest.html">AutocompleteGeocodingRequest</a></li><li><a href="bemap.AutocompleteGeocodingResponse.html">AutocompleteGeocodingResponse</a></li><li><a href="bemap.BemapLayer.html">BemapLayer</a></li><li><a href="bemap.BoundingBox.html">BoundingBox</a></li><li><a href="bemap.BrowserCache.html">BrowserCache</a></li><li><a href="bemap.BuildingsLayer.html">BuildingsLayer</a></li><li><a href="bemap.ChargingPoint.html">ChargingPoint</a></li><li><a href="bemap.ChargingStation.html">ChargingStation</a></li><li><a href="bemap.ChargingStationPool.html">ChargingStationPool</a></li><li><a href="bemap.ChargingStations.html">ChargingStations</a></li><li><a href="bemap.ChargingStationSearchRequest.html">ChargingStationSearchRequest</a></li><li><a href="bemap.ChargingStationSearchResponse.html">ChargingStationSearchResponse</a></li><li><a href="bemap.ChargingStationStep.html">ChargingStationStep</a></li><li><a href="bemap.ChargingTime.html">ChargingTime</a></li><li><a href="bemap.ChargingTimeRequest.html">ChargingTimeRequest</a></li><li><a href="bemap.ChargingTimeResponse.html">ChargingTimeResponse</a></li><li><a href="bemap.Circle.html">Circle</a></li><li><a href="bemap.CircleStyle.html">CircleStyle</a></li><li><a href="bemap.clusterStyle.html">clusterStyle</a></li><li><a href="bemap.Color.html">Color</a></li><li><a href="bemap.CondMaxSpeed.html">CondMaxSpeed</a></li><li><a href="bemap.Context.html">Context</a></li><li><a href="bemap.Coordinate.html">Coordinate</a></li><li><a href="bemap.CoordinateSat.html">CoordinateSat</a></li><li><a href="bemap.Destination.html">Destination</a></li><li><a href="bemap.Error.html">Error</a></li><li><a href="bemap.EvBrand.html">EvBrand</a></li><li><a href="bemap.EvReachableArea.html">EvReachableArea</a></li><li><a href="bemap.EvReachableAreaRequest.html">EvReachableAreaRequest</a></li><li><a href="bemap.EvReachableAreaResponse.html">EvReachableAreaResponse</a></li><li><a href="bemap.EvseRouting.html">EvseRouting</a></li><li><a href="bemap.EvSmartRouting.html">EvSmartRouting</a></li><li><a href="bemap.EvSmartRoutingRequest.html">EvSmartRoutingRequest</a></li><li><a href="bemap.EvSmartRoutingResponse.html">EvSmartRoutingResponse</a></li><li><a href="bemap.EvStepPoint.html">EvStepPoint</a></li><li><a href="bemap.EvVehicle.html">EvVehicle</a></li><li><a href="bemap.EvVehicles.html">EvVehicles</a></li><li><a href="bemap.Exception.html">Exception</a></li><li><a href="bemap.GeoAutocomplete.html">GeoAutocomplete</a></li><li><a href="bemap.Geocoder.html">Geocoder</a></li><li><a href="bemap.GeocodingItem.html">GeocodingItem</a></li><li><a href="bemap.GeocodingRequest.html">GeocodingRequest</a></li><li><a href="bemap.GeocodingResponse.html">GeocodingResponse</a></li><li><a href="bemap.GeoSearchInfo.html">GeoSearchInfo</a></li><li><a href="bemap.GeoServerInfoResponse.html">GeoServerInfoResponse</a></li><li><a href="bemap.GeoServerInfoService.html">GeoServerInfoService</a></li><li><a href="bemap.GeoServerServiceInfo.html">GeoServerServiceInfo</a></li><li><a href="bemap.GeoServerServiceLimit.html">GeoServerServiceLimit</a></li><li><a href="bemap.HeatmapLayer.html">HeatmapLayer</a></li><li><a href="bemap.Icon.html">Icon</a></li><li><a href="bemap.Isochrone.html">Isochrone</a></li><li><a href="bemap.Layer.html">Layer</a></li><li><a href="bemap.LeafletMap.html">LeafletMap</a></li><li><a href="bemap.LineStyle.html">LineStyle</a></li><li><a href="bemap.Listener.html">Listener</a></li><li><a href="bemap.Map.html">Map</a></li><li><a href="bemap.MapEvent.html">MapEvent</a></li><li><a href="bemap.MapLibreMap.html">MapLibreMap</a></li><li><a href="bemap.Marker.html">Marker</a></li><li><a href="bemap.MultiMarker.html">MultiMarker</a></li><li><a href="bemap.NearPoint.html">NearPoint</a></li><li><a href="bemap.NearPoiRequest.html">NearPoiRequest</a></li><li><a href="bemap.NearPoiResponse.html">NearPoiResponse</a></li><li><a href="bemap.NearPoiSearch.html">NearPoiSearch</a></li><li><a href="bemap.Object.html">Object</a></li><li><a href="bemap.Ol3Map.html">Ol3Map</a></li><li><a href="bemap.OlMap.html">OlMap</a></li><li><a href="bemap.OsmLayer.html">OsmLayer</a></li><li><a href="bemap.PMTilesLayer.html">PMTilesLayer</a></li><li><a href="bemap.Polygon.html">Polygon</a></li><li><a href="bemap.PolygonStyle.html">PolygonStyle</a></li><li><a href="bemap.Polyline.html">Polyline</a></li><li><a href="bemap.Popup.html">Popup</a></li><li><a href="bemap.PostalAddress.html">PostalAddress</a></li><li><a href="bemap.RasterLayer.html">RasterLayer</a></li><li><a href="bemap.ReverseGeocoder.html">ReverseGeocoder</a></li><li><a href="bemap.ReverseGeocodingRequest.html">ReverseGeocodingRequest</a></li><li><a href="bemap.RevGeoSearchInfo.html">RevGeoSearchInfo</a></li><li><a href="bemap.RoadFeature.html">RoadFeature</a></li><li><a href="bemap.Route.html">Route</a></li><li><a href="bemap.Route.Event.html">Event</a></li><li><a href="bemap.Route.RoutesheetInstruction.html">RoutesheetInstruction</a></li><li><a href="bemap.Routing.html">Routing</a></li><li><a href="bemap.RoutingDestination.html">RoutingDestination</a></li><li><a href="bemap.RoutingInstruction.html">RoutingInstruction</a></li><li><a href="bemap.RoutingRequest.html">RoutingRequest</a></li><li><a href="bemap.RoutingResponse.html">RoutingResponse</a></li><li><a href="bemap.RoutingRoute.html">RoutingRoute</a></li><li><a href="bemap.RoutingSummary.html">RoutingSummary</a></li><li><a href="bemap.RoutingV2.html">RoutingV2</a></li><li><a href="bemap.RoutingVehicleProfile.html">RoutingVehicleProfile</a></li><li><a href="bemap.RoutingWaypoint.html">RoutingWaypoint</a></li><li><a href="bemap.Service.html">Service</a></li><li><a href="bemap.TextStyle.html">TextStyle</a></li><li><a href="bemap.TilesAuth.html">TilesAuth</a></li><li><a href="bemap.TilesOverlayCatalog.html">TilesOverlayCatalog</a></li><li><a href="global.html#bemap#.TraceRoute">TraceRoute</a></li><li><a href="bemap.TraceRouteDestination.html">TraceRouteDestination</a></li><li><a href="bemap.TraceRouteRequest.html">TraceRouteRequest</a></li><li><a href="bemap.VectorLayer.html">VectorLayer</a></li><li><a href="bemap.VectorTileLayer.html">VectorTileLayer</a></li><li><a href="bemap.WmsLayer.html">WmsLayer</a></li></ul><h3>Global</h3><ul><li><a href="global.html#AC">AC</a></li><li><a href="global.html#AC_SINGLE_PHASE">AC_SINGLE_PHASE</a></li><li><a href="global.html#AC_THREE_PHASES">AC_THREE_PHASES</a></li><li><a href="global.html#bemap">bemap</a></li><li><a href="global.html#DC">DC</a></li><li><a href="global.html#NA">NA</a></li></ul>
+</nav>
+
+<br class="clear">
+
+<footer>
+    Documentation generated by <a href="https://github.com/jsdoc/jsdoc">JSDoc 3.6.3</a> on Tue Jun 02 2026 11:46:44 GMT+0200 (heure d’été d’Europe centrale)
+</footer>
+
+<script> prettyPrint(); </script>
+<script src="scripts/linenumber.js"> </script>
+</body>
+</html>

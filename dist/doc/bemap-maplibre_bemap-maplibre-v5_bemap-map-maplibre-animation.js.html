@@ -1,0 +1,367 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>JSDoc: Source: bemap-maplibre/bemap-maplibre-v5/bemap-map-maplibre-animation.js</title>
+
+    <script src="scripts/prettify/prettify.js"> </script>
+    <script src="scripts/prettify/lang-css.js"> </script>
+    <!--[if lt IE 9]>
+      <script src="//html5shiv.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+    <link type="text/css" rel="stylesheet" href="styles/prettify-tomorrow.css">
+    <link type="text/css" rel="stylesheet" href="styles/jsdoc-default.css">
+</head>
+
+<body>
+
+<div id="main">
+
+    <h1 class="page-title">Source: bemap-maplibre/bemap-maplibre-v5/bemap-map-maplibre-animation.js</h1>
+
+    
+
+
+
+    
+    <section>
+        <article>
+            <pre class="prettyprint source linenums"><code>/**
+ * BeNomad BeMap JavaScript API - MapLibre v5 - Animation
+ *
+ * Usage:
+ *   // First add a GeoJSON source for the animated point
+ *   map.addGeoJsonSource('moving-point', {
+ *     type: 'Feature',
+ *     geometry: { type: 'Point', coordinates: [0, 0] }
+ *   });
+ *
+ *   // Then animate along a route
+ *   var controller = map.animateAlongRoute({
+ *     sourceId: 'moving-point',
+ *     coordinates: [[2.35, 48.85], [7.26, 43.71], [5.37, 43.29]],
+ *     speed: 0.005,
+ *     loop: true,
+ *     onUpdate: function(pos) { console.log(pos.lon, pos.lat); },
+ *     onComplete: function() { console.log('Done!'); }
+ *   });
+ *
+ *   // Control the animation
+ *   controller.stop();
+ *   controller.resume();
+ */
+
+bemap.MapLibreMap.prototype.animateAlongRoute = function(options) {
+  var opts = options || {};
+  var route = opts.coordinates || [];
+  var speed = opts.speed || 0.005;
+  var loop = opts.loop !== false;
+  var sourceId = opts.sourceId;
+  var onUpdate = opts.onUpdate;
+  var onComplete = opts.onComplete;
+  var _this = this;
+
+  if (!route.length || !sourceId) {
+    if (!sourceId) {
+      console.warn('animateAlongRoute: opts.sourceId is required. Call map.addGeoJsonSource(sourceId, geojson) first.');
+    }
+    return { stop: function(){}, resume: function(){} };
+  }
+  // Defensive: warn if the customer didn't pre-add the source — the
+  // animation will silently no-op otherwise.
+  if (!_this.native.getSource(sourceId)) {
+    console.warn('animateAlongRoute: source "' + sourceId + '" not found on the map. Call map.addGeoJsonSource(sourceId, geojson) first.');
+  }
+
+  var currentPosition = 0;
+  var animating = true;
+  var animFrameId = null;
+
+  // Compute total route length for smooth interpolation
+  var totalSegments = route.length - 1;
+
+  function animate() {
+    if (!animating) return;
+
+    currentPosition += speed;
+
+    if (currentPosition >= totalSegments) {
+      if (loop) {
+        currentPosition = 0;
+      } else {
+        animating = false;
+        if (onComplete) onComplete();
+        return;
+      }
+    }
+
+    var index = Math.floor(currentPosition);
+    var next = Math.min(index + 1, route.length - 1);
+    var t = currentPosition - index;
+
+    // Interpolate position
+    var lon = route[index][0] + (route[next][0] - route[index][0]) * t;
+    var lat = route[index][1] + (route[next][1] - route[index][1]) * t;
+
+    // Update the GeoJSON source
+    var src = _this.native.getSource(sourceId);
+    if (src) {
+      src.setData({
+        type: 'Feature',
+        geometry: { type: 'Point', coordinates: [lon, lat] },
+        properties: { bearing: Math.atan2(route[next][0] - route[index][0], route[next][1] - route[index][1]) * 180 / Math.PI }
+      });
+    }
+
+    if (onUpdate) onUpdate({ lon: lon, lat: lat, progress: currentPosition / totalSegments });
+
+    animFrameId = requestAnimationFrame(animate);
+  }
+
+  animFrameId = requestAnimationFrame(animate);
+
+  var controller = {
+    stop: function() {
+      animating = false;
+      if (animFrameId) cancelAnimationFrame(animFrameId);
+      if (typeof _this._unregisterEffect === 'function') _this._unregisterEffect('animateAlongRoute:' + sourceId);
+    },
+    resume: function() {
+      if (!animating) {
+        animating = true;
+        animFrameId = requestAnimationFrame(animate);
+      }
+    },
+    reset: function() {
+      currentPosition = 0;
+    }
+  };
+  if (typeof _this._registerEffect === 'function') {
+    _this._registerEffect('animateAlongRoute:' + sourceId, function () { controller.stop(); });
+  }
+  return controller;
+};
+
+/**
+ * Animate drawing a line progressively. MapLibre only.
+ * @param {object} options
+ * @param {string} options.sourceId GeoJSON source ID (must exist).
+ * @param {Array} options.coordinates Array of [lon, lat] for the full line.
+ * @param {number} options.speed Points per frame (default: 1).
+ * @return {object} Controller { stop, resume, reset }
+ */
+bemap.MapLibreMap.prototype.animateLine = function(options) {
+  var opts = options || {};
+  var route = opts.coordinates || [];
+  var speed = opts.speed || 1;
+  var sourceId = opts.sourceId;
+  var onUpdate = opts.onUpdate;
+  var onComplete = opts.onComplete;
+  var _this = this;
+
+  if (!route.length || !sourceId) return { stop: function(){}, resume: function(){} };
+
+  var currentIndex = 0;
+  var animating = true;
+  var animFrameId = null;
+
+  function animate() {
+    if (!animating) return;
+    currentIndex = Math.min(currentIndex + speed, route.length);
+
+    var src = _this.native.getSource(sourceId);
+    if (src) {
+      src.setData({
+        type: 'Feature',
+        geometry: { type: 'LineString', coordinates: route.slice(0, Math.ceil(currentIndex)) }
+      });
+    }
+
+    if (onUpdate) onUpdate({ index: Math.ceil(currentIndex), total: route.length, progress: currentIndex / route.length });
+
+    if (currentIndex >= route.length) {
+      animating = false;
+      if (onComplete) onComplete();
+      return;
+    }
+    animFrameId = requestAnimationFrame(animate);
+  }
+
+  animFrameId = requestAnimationFrame(animate);
+  return {
+    stop: function() { animating = false; if (animFrameId) cancelAnimationFrame(animFrameId); },
+    resume: function() { if (!animating) { animating = true; animFrameId = requestAnimationFrame(animate); } },
+    reset: function() { currentIndex = 0; }
+  };
+};
+
+/**
+ * Animate camera rotation around a point. MapLibre only.
+ * @param {object} options
+ * @param {Array} options.center [lon, lat] rotation center.
+ * @param {number} options.zoom Zoom level (default: current).
+ * @param {number} options.pitch Pitch angle (default: 60).
+ * @param {number} options.speed Degrees per frame (default: 0.3).
+ * @return {object} Controller { stop, resume }
+ */
+bemap.MapLibreMap.prototype.animateCameraOrbit = function(options) {
+  var opts = options || {};
+  var center = opts.center || [0, 0];
+  var zoomLevel = opts.zoom || this.native.getZoom();
+  var pitch = opts.pitch !== undefined ? opts.pitch : 60;
+  var speed = opts.speed || 0.3;
+  var _this = this;
+
+  var bearing = this.native.getBearing();
+  var animating = true;
+  var animFrameId = null;
+
+  function orbit() {
+    if (!animating) return;
+    bearing += speed;
+    if (bearing > 360) bearing -= 360;
+
+    _this.native.jumpTo({ center: center, zoom: zoomLevel, pitch: pitch, bearing: bearing });
+    animFrameId = requestAnimationFrame(orbit);
+  }
+
+  animFrameId = requestAnimationFrame(orbit);
+  return {
+    stop: function() { animating = false; if (animFrameId) cancelAnimationFrame(animFrameId); },
+    resume: function() { if (!animating) { animating = true; animFrameId = requestAnimationFrame(orbit); } }
+  };
+};
+
+/**
+ * Animate pulsing circle effect. MapLibre only.
+ * Creates a pulsing circle at a coordinate using paint property animation.
+ * @param {object} options
+ * @param {Array} options.center [lon, lat].
+ * @param {string} options.color Circle color (default: '#e74c3c').
+ * @param {number} options.maxRadius Max radius in pixels (default: 30).
+ * @param {number} options.speed Pulse speed (default: 0.05).
+ * @return {object} Controller { stop, remove }
+ */
+bemap.MapLibreMap.prototype.animatePulse = function(options) {
+  var opts = options || {};
+  var center = opts.center || [0, 0];
+  var color = opts.color || '#e74c3c';
+  var maxRadius = opts.maxRadius || 30;
+  var speed = opts.speed || 0.05;
+  var _this = this;
+
+  var sourceId = this._uniqueId('pulse-src');
+  var layerId = this._uniqueId('pulse-layer');
+  var phase = 0;
+  var animating = true;
+  var animFrameId = null;
+
+  // Add source + layer
+  var addPulse = function() {
+    if (!_this.native.getSource(sourceId)) {
+      _this.native.addSource(sourceId, {
+        type: 'geojson',
+        data: { type: 'Feature', geometry: { type: 'Point', coordinates: center } }
+      });
+      _this.native.addLayer({
+        id: layerId, type: 'circle', source: sourceId,
+        paint: { 'circle-radius': 10, 'circle-color': color, 'circle-opacity': 0.8, 'circle-stroke-width': 2, 'circle-stroke-color': color }
+      });
+    }
+  };
+  if (this.native.isStyleLoaded()) { addPulse(); } else { this.native.once('load', addPulse); }
+
+  function pulse() {
+    if (!animating) return;
+    phase += speed;
+    var t = (Math.sin(phase) + 1) / 2; // 0 to 1
+    var radius = 5 + t * maxRadius;
+    var opacity = 1 - t * 0.7;
+
+    try {
+      _this.native.setPaintProperty(layerId, 'circle-radius', radius);
+      _this.native.setPaintProperty(layerId, 'circle-opacity', opacity);
+    } catch(e) {}
+
+    animFrameId = requestAnimationFrame(pulse);
+  }
+
+  animFrameId = requestAnimationFrame(pulse);
+
+  return {
+    stop: function() { animating = false; if (animFrameId) cancelAnimationFrame(animFrameId); },
+    remove: function() {
+      animating = false;
+      if (animFrameId) cancelAnimationFrame(animFrameId);
+      try {
+        if (_this.native.getLayer(layerId)) _this.native.removeLayer(layerId);
+        if (_this.native.getSource(sourceId)) _this.native.removeSource(sourceId);
+      } catch(e) {}
+    }
+  };
+};
+
+/**
+ * Spin the globe continuously. MapLibre only.
+ * @param {object} options
+ * @param {number} options.speed Degrees per frame (default: 0.3).
+ * @return {object} Controller { stop, resume }
+ */
+bemap.MapLibreMap.prototype.spinGlobe = function(options) {
+  var opts = options || {};
+  var speed = opts.speed || 0.3;
+  var _this = this;
+  var animating = true;
+  // Use both setInterval AND rAF so the timer ID is observable for
+  // teardown verification and rAF gets paused when the tab backgrounds.
+  // The instance-level `_globeSpinTimer` ID makes destroy() cleanup
+  // possible (see remove() in bemap-map-maplibre.js).
+  this._globeSpinTimer = setInterval(function () {
+    if (!animating || !_this.native) return;
+    var center = _this.native.getCenter();
+    _this.native.jumpTo({ center: [center.lng + speed, center.lat] });
+  }, 50);
+
+  // Register in the active-effects registry so the dashboard can tear
+  // it down via clearAllEffects() — fixes Bug 11.
+  if (typeof this._registerEffect === 'function') {
+    this._registerEffect('spinGlobe', function () { _this.stopSpinGlobe(); });
+  }
+
+  return {
+    stop: function () { _this.stopSpinGlobe(); },
+    resume: function () { if (!_this._globeSpinTimer) _this.spinGlobe(opts); }
+  };
+};
+
+bemap.MapLibreMap.prototype.stopSpinGlobe = function () {
+  if (this._globeSpinTimer) {
+    clearInterval(this._globeSpinTimer);
+    this._globeSpinTimer = null;
+  }
+  if (typeof this._unregisterEffect === 'function') this._unregisterEffect('spinGlobe');
+  return this;
+};
+</code></pre>
+        </article>
+    </section>
+
+
+
+
+</div>
+
+<nav>
+    <h2><a href="index.html">Home</a></h2><h3>Classes</h3><ul><li><a href="bemap.AclDetailsResponse.html">AclDetailsResponse</a></li><li><a href="bemap.AclLabel.html">AclLabel</a></li><li><a href="bemap.AclService.html">AclService</a></li><li><a href="bemap.Address.html">Address</a></li><li><a href="bemap.AttributionWidget.html">AttributionWidget</a></li><li><a href="bemap.Autocomplete.html">Autocomplete</a></li><li><a href="bemap.AutocompleteElement.html">AutocompleteElement</a></li><li><a href="bemap.AutocompleteGeocodingRequest.html">AutocompleteGeocodingRequest</a></li><li><a href="bemap.AutocompleteGeocodingResponse.html">AutocompleteGeocodingResponse</a></li><li><a href="bemap.BemapLayer.html">BemapLayer</a></li><li><a href="bemap.BoundingBox.html">BoundingBox</a></li><li><a href="bemap.BrowserCache.html">BrowserCache</a></li><li><a href="bemap.BuildingsLayer.html">BuildingsLayer</a></li><li><a href="bemap.ChargingPoint.html">ChargingPoint</a></li><li><a href="bemap.ChargingStation.html">ChargingStation</a></li><li><a href="bemap.ChargingStationPool.html">ChargingStationPool</a></li><li><a href="bemap.ChargingStations.html">ChargingStations</a></li><li><a href="bemap.ChargingStationSearchRequest.html">ChargingStationSearchRequest</a></li><li><a href="bemap.ChargingStationSearchResponse.html">ChargingStationSearchResponse</a></li><li><a href="bemap.ChargingStationStep.html">ChargingStationStep</a></li><li><a href="bemap.ChargingTime.html">ChargingTime</a></li><li><a href="bemap.ChargingTimeRequest.html">ChargingTimeRequest</a></li><li><a href="bemap.ChargingTimeResponse.html">ChargingTimeResponse</a></li><li><a href="bemap.Circle.html">Circle</a></li><li><a href="bemap.CircleStyle.html">CircleStyle</a></li><li><a href="bemap.clusterStyle.html">clusterStyle</a></li><li><a href="bemap.Color.html">Color</a></li><li><a href="bemap.CondMaxSpeed.html">CondMaxSpeed</a></li><li><a href="bemap.Context.html">Context</a></li><li><a href="bemap.Coordinate.html">Coordinate</a></li><li><a href="bemap.CoordinateSat.html">CoordinateSat</a></li><li><a href="bemap.Destination.html">Destination</a></li><li><a href="bemap.Error.html">Error</a></li><li><a href="bemap.EvBrand.html">EvBrand</a></li><li><a href="bemap.EvReachableArea.html">EvReachableArea</a></li><li><a href="bemap.EvReachableAreaRequest.html">EvReachableAreaRequest</a></li><li><a href="bemap.EvReachableAreaResponse.html">EvReachableAreaResponse</a></li><li><a href="bemap.EvseRouting.html">EvseRouting</a></li><li><a href="bemap.EvSmartRouting.html">EvSmartRouting</a></li><li><a href="bemap.EvSmartRoutingRequest.html">EvSmartRoutingRequest</a></li><li><a href="bemap.EvSmartRoutingResponse.html">EvSmartRoutingResponse</a></li><li><a href="bemap.EvStepPoint.html">EvStepPoint</a></li><li><a href="bemap.EvVehicle.html">EvVehicle</a></li><li><a href="bemap.EvVehicles.html">EvVehicles</a></li><li><a href="bemap.Exception.html">Exception</a></li><li><a href="bemap.GeoAutocomplete.html">GeoAutocomplete</a></li><li><a href="bemap.Geocoder.html">Geocoder</a></li><li><a href="bemap.GeocodingItem.html">GeocodingItem</a></li><li><a href="bemap.GeocodingRequest.html">GeocodingRequest</a></li><li><a href="bemap.GeocodingResponse.html">GeocodingResponse</a></li><li><a href="bemap.GeoSearchInfo.html">GeoSearchInfo</a></li><li><a href="bemap.GeoServerInfoResponse.html">GeoServerInfoResponse</a></li><li><a href="bemap.GeoServerInfoService.html">GeoServerInfoService</a></li><li><a href="bemap.GeoServerServiceInfo.html">GeoServerServiceInfo</a></li><li><a href="bemap.GeoServerServiceLimit.html">GeoServerServiceLimit</a></li><li><a href="bemap.HeatmapLayer.html">HeatmapLayer</a></li><li><a href="bemap.Icon.html">Icon</a></li><li><a href="bemap.Isochrone.html">Isochrone</a></li><li><a href="bemap.Layer.html">Layer</a></li><li><a href="bemap.LeafletMap.html">LeafletMap</a></li><li><a href="bemap.LineStyle.html">LineStyle</a></li><li><a href="bemap.Listener.html">Listener</a></li><li><a href="bemap.Map.html">Map</a></li><li><a href="bemap.MapEvent.html">MapEvent</a></li><li><a href="bemap.MapLibreMap.html">MapLibreMap</a></li><li><a href="bemap.Marker.html">Marker</a></li><li><a href="bemap.MultiMarker.html">MultiMarker</a></li><li><a href="bemap.NearPoint.html">NearPoint</a></li><li><a href="bemap.NearPoiRequest.html">NearPoiRequest</a></li><li><a href="bemap.NearPoiResponse.html">NearPoiResponse</a></li><li><a href="bemap.NearPoiSearch.html">NearPoiSearch</a></li><li><a href="bemap.Object.html">Object</a></li><li><a href="bemap.Ol3Map.html">Ol3Map</a></li><li><a href="bemap.OlMap.html">OlMap</a></li><li><a href="bemap.OsmLayer.html">OsmLayer</a></li><li><a href="bemap.PMTilesLayer.html">PMTilesLayer</a></li><li><a href="bemap.Polygon.html">Polygon</a></li><li><a href="bemap.PolygonStyle.html">PolygonStyle</a></li><li><a href="bemap.Polyline.html">Polyline</a></li><li><a href="bemap.Popup.html">Popup</a></li><li><a href="bemap.PostalAddress.html">PostalAddress</a></li><li><a href="bemap.RasterLayer.html">RasterLayer</a></li><li><a href="bemap.ReverseGeocoder.html">ReverseGeocoder</a></li><li><a href="bemap.ReverseGeocodingRequest.html">ReverseGeocodingRequest</a></li><li><a href="bemap.RevGeoSearchInfo.html">RevGeoSearchInfo</a></li><li><a href="bemap.RoadFeature.html">RoadFeature</a></li><li><a href="bemap.Route.html">Route</a></li><li><a href="bemap.Route.Event.html">Event</a></li><li><a href="bemap.Route.RoutesheetInstruction.html">RoutesheetInstruction</a></li><li><a href="bemap.Routing.html">Routing</a></li><li><a href="bemap.RoutingDestination.html">RoutingDestination</a></li><li><a href="bemap.RoutingInstruction.html">RoutingInstruction</a></li><li><a href="bemap.RoutingRequest.html">RoutingRequest</a></li><li><a href="bemap.RoutingResponse.html">RoutingResponse</a></li><li><a href="bemap.RoutingRoute.html">RoutingRoute</a></li><li><a href="bemap.RoutingSummary.html">RoutingSummary</a></li><li><a href="bemap.RoutingV2.html">RoutingV2</a></li><li><a href="bemap.RoutingVehicleProfile.html">RoutingVehicleProfile</a></li><li><a href="bemap.RoutingWaypoint.html">RoutingWaypoint</a></li><li><a href="bemap.Service.html">Service</a></li><li><a href="bemap.TextStyle.html">TextStyle</a></li><li><a href="bemap.TilesAuth.html">TilesAuth</a></li><li><a href="bemap.TilesOverlayCatalog.html">TilesOverlayCatalog</a></li><li><a href="global.html#bemap#.TraceRoute">TraceRoute</a></li><li><a href="bemap.TraceRouteDestination.html">TraceRouteDestination</a></li><li><a href="bemap.TraceRouteRequest.html">TraceRouteRequest</a></li><li><a href="bemap.VectorLayer.html">VectorLayer</a></li><li><a href="bemap.VectorTileLayer.html">VectorTileLayer</a></li><li><a href="bemap.WmsLayer.html">WmsLayer</a></li></ul><h3>Global</h3><ul><li><a href="global.html#AC">AC</a></li><li><a href="global.html#AC_SINGLE_PHASE">AC_SINGLE_PHASE</a></li><li><a href="global.html#AC_THREE_PHASES">AC_THREE_PHASES</a></li><li><a href="global.html#bemap">bemap</a></li><li><a href="global.html#DC">DC</a></li><li><a href="global.html#NA">NA</a></li></ul>
+</nav>
+
+<br class="clear">
+
+<footer>
+    Documentation generated by <a href="https://github.com/jsdoc/jsdoc">JSDoc 3.6.3</a> on Tue Jun 02 2026 11:46:45 GMT+0200 (heure d’été d’Europe centrale)
+</footer>
+
+<script> prettyPrint(); </script>
+<script src="scripts/linenumber.js"> </script>
+</body>
+</html>

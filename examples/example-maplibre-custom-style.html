@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>BeMap JS API — MapLibre custom style JSON</title>
+
+  <link rel="stylesheet" href="../dist/maplibre-gl.css">
+  <link rel="stylesheet" href="bn-2026.css">
+
+  <script src="../dist/maplibre-gl.js"></script>
+  <script src="../dist/pmtiles.js"></script>
+  <script src="../dist/bemap-js-api.js"></script>
+  <script src="effect-bridge.js"></script>
+  <script src="context.js"></script>
+  <script src="bn-2026.js"></script>
+
+  <style>
+    .bn-panel__body textarea#styleJson {
+      min-height: 240px; font-family: var(--bn-font-mono); font-size: 11px; line-height: 1.45;
+    }
+  </style>
+</head>
+<body data-bn-page
+      data-bn-title="MapLibre — custom style JSON"
+      data-bn-subtitle="Pass <code>opts.style</code> as a full MapLibre Style spec object. The library still injects the BeNomad JWT for any source URL that points at <code>ctx.tilesHost</code>."
+      data-bn-chips="MapLibre:ml,Style JSON:brand,v2.0:accent">
+  <div class="bn-shell">
+    <div class="bn-stage">
+      <div id="map" class="bn-map"></div>
+
+      <aside class="bn-panel" style="width:420px">
+        <div class="bn-panel__header">
+          <span class="bn-panel__header-title">Style editor</span>
+        </div>
+        <div class="bn-panel__body">
+
+          <section class="bn-panel__section">
+            <h4>Pick a starting point</h4>
+            <div class="bn-row bn-row__inline">
+              <button class="bn-btn bn-btn--primary" id="btnBundled" type="button">Bundled (default)</button>
+              <button class="bn-btn"                 id="btnDark"    type="button">Dark</button>
+              <button class="bn-btn"                 id="btnPaper"   type="button">Paper</button>
+              <button class="bn-btn"                 id="btnTeal"    type="button">Teal night</button>
+            </div>
+          </section>
+
+          <section class="bn-panel__section">
+            <h4>Edit the JSON, then Apply</h4>
+            <div class="bn-row">
+              <textarea id="styleJson" spellcheck="false"></textarea>
+            </div>
+            <div class="bn-row bn-row__inline">
+              <button id="btnApply" class="bn-btn bn-btn--accent" type="button">Apply style</button>
+              <button id="btnReset" class="bn-btn bn-btn--ghost"  type="button">Reset to bundled</button>
+            </div>
+          </section>
+
+          <section class="bn-panel__section">
+            <h4>Tips</h4>
+            <p style="font-size:11px;color:var(--bn-text-dark-muted);margin:0;line-height:1.5">
+              The bundled style ships at <code>bemap.defaultStyle</code>. Any URL inside the style
+              that begins with <code>https://mptiles-api.benomad.net</code> automatically gets the
+              <code>X-Session-Token</code> header — no manual fetch wiring required.
+            </p>
+          </section>
+
+        </div>
+      </aside>
+    </div>
+  </div>
+
+<script>
+var ctx = new bemap.Context({
+  host:      bemapMainCtx.host,
+  secure:    bemapMainCtx.protocol === 'https',
+  login:     bemapMainCtx.login,
+  password:  bemapMainCtx.password,
+  tilesHost: 'mptiles-api.benomad.net'
+});
+
+// Each preset is a real, runnable MapLibre Style spec. The PMTiles source
+// URL is the same in every preset; only the colors differ — proving that
+// "your own style" is a flat JSON edit.
+var TILE_URL = 'pmtiles://https://mptiles-api.benomad.net/OSM_250901_WORLD.pmtiles';
+
+function styleSkeleton(layers) {
+  return {
+    version: 8,
+    sources: {
+      benomad: {
+        type: 'vector',
+        url: TILE_URL,
+        attribution: '© BeNomad · © OpenStreetMap contributors'
+      }
+    },
+    layers: layers
+  };
+}
+
+var PRESETS = {
+  dark: styleSkeleton([
+    { id: 'background', type: 'background', paint: { 'background-color': '#0d1117' } },
+    { id: 'water', type: 'fill', source: 'benomad', 'source-layer': 'water',
+      paint: { 'fill-color': '#0f3460' } },
+    { id: 'landcover', type: 'fill', source: 'benomad', 'source-layer': 'landcover',
+      paint: { 'fill-color': '#1a2744', 'fill-opacity': 0.7 } },
+    { id: 'roads', type: 'line', source: 'benomad', 'source-layer': 'transportation',
+      paint: { 'line-color': '#3498db', 'line-width': ['interpolate', ['linear'], ['zoom'], 5, 0.3, 14, 2] } },
+    { id: 'boundaries', type: 'line', source: 'benomad', 'source-layer': 'boundary',
+      paint: { 'line-color': '#e94560', 'line-width': 0.6, 'line-dasharray': [2, 2] } }
+  ]),
+  paper: styleSkeleton([
+    { id: 'background', type: 'background', paint: { 'background-color': '#f5f1e8' } },
+    { id: 'water', type: 'fill', source: 'benomad', 'source-layer': 'water',
+      paint: { 'fill-color': '#cfd9e8' } },
+    { id: 'landcover', type: 'fill', source: 'benomad', 'source-layer': 'landcover',
+      paint: { 'fill-color': '#e9e1cd', 'fill-opacity': 0.8 } },
+    { id: 'roads', type: 'line', source: 'benomad', 'source-layer': 'transportation',
+      paint: { 'line-color': '#7d6f5c', 'line-width': ['interpolate', ['linear'], ['zoom'], 5, 0.4, 14, 2.5] } },
+    { id: 'boundaries', type: 'line', source: 'benomad', 'source-layer': 'boundary',
+      paint: { 'line-color': '#a07666', 'line-width': 0.6, 'line-dasharray': [3, 2] } }
+  ]),
+  teal: styleSkeleton([
+    { id: 'background', type: 'background', paint: { 'background-color': '#0a1e22' } },
+    { id: 'water', type: 'fill', source: 'benomad', 'source-layer': 'water',
+      paint: { 'fill-color': '#0f3340' } },
+    { id: 'landcover', type: 'fill', source: 'benomad', 'source-layer': 'landcover',
+      paint: { 'fill-color': '#13383a', 'fill-opacity': 0.85 } },
+    { id: 'roads', type: 'line', source: 'benomad', 'source-layer': 'transportation',
+      paint: { 'line-color': '#16a085', 'line-width': ['interpolate', ['linear'], ['zoom'], 5, 0.3, 14, 2] } },
+    { id: 'boundaries', type: 'line', source: 'benomad', 'source-layer': 'boundary',
+      paint: { 'line-color': '#7ee787', 'line-width': 0.6 } }
+  ])
+};
+
+var textarea = document.getElementById('styleJson');
+var map; // declared late; instantiated after we know the initial style
+
+function instantiate(initialStyle) {
+  var opts = {};
+  if (initialStyle) opts.style = initialStyle;
+  map = new bemap.MapLibreMap(ctx, 'map', opts);
+  map.move(2.35, 48.85, 5);
+  bn.onMapReady(map, function () { bn.log('Map ready with style applied.', 'ok'); });
+}
+
+function applyPreset(name) {
+  var preset = (name === 'bundled') ? null : PRESETS[name];
+  textarea.value = preset ? JSON.stringify(preset, null, 2) : '// Bundled BeNomad gray-level style (bemap.defaultStyle) — no override.\n// Click "Apply style" to inject the edits above.';
+  if (map) {
+    if (preset) {
+      try {
+        map.setStyle(preset);
+        bn.log('setStyle() applied — preset "' + name + '".', 'ok');
+      } catch (e) {
+        bn.log('setStyle() failed: ' + e.message, 'err');
+      }
+    } else if (bemap.defaultStyle) {
+      try {
+        map.setStyle(bemap.defaultStyle);
+        bn.log('Reverted to bundled BeNomad style.', 'info');
+      } catch (e) {
+        bn.log('setStyle(bundled) failed: ' + e.message, 'err');
+      }
+    }
+  } else {
+    instantiate(preset);
+  }
+}
+
+document.getElementById('btnBundled').onclick = function () { applyPreset('bundled'); };
+document.getElementById('btnDark').onclick    = function () { applyPreset('dark'); };
+document.getElementById('btnPaper').onclick   = function () { applyPreset('paper'); };
+document.getElementById('btnTeal').onclick    = function () { applyPreset('teal'); };
+
+document.getElementById('btnApply').onclick = function () {
+  var raw = textarea.value.trim();
+  if (!raw || raw.charAt(0) !== '{') {
+    bn.log('Nothing JSON-shaped to apply — pick a preset first.', 'warn');
+    return;
+  }
+  var parsed;
+  try { parsed = JSON.parse(raw); }
+  catch (e) { bn.log('Invalid JSON: ' + e.message, 'err'); return; }
+  if (!map) { instantiate(parsed); return; }
+  try { map.setStyle(parsed); bn.log('Custom JSON style applied (' + (parsed.layers || []).length + ' layers).', 'ok'); }
+  catch (e) { bn.log('setStyle() rejected: ' + e.message, 'err'); }
+};
+
+document.getElementById('btnReset').onclick = function () {
+  applyPreset('bundled');
+};
+
+// Boot with bundled
+applyPreset('bundled');
+</script>
+</body>
+</html>

@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Autocomplete v2 — BeMap JS API</title>
+    <link rel="stylesheet" type="text/css" href="../../dist/ol.css">
+    <link rel="stylesheet" type="text/css" href="../../dist/leaflet.css">
+    <link rel="stylesheet" type="text/css" href="../../dist/maplibre-gl.css">
+    <link rel="stylesheet" type="text/css" href="../../dist/bemap-js-api.css">
+    <link rel="stylesheet" type="text/css" href="_shell.css">
+
+    <script src="../../dist/ol.js"></script>
+    <script src="../../dist/leaflet.js"></script>
+    <script src="../../dist/maplibre-gl.js"></script>
+    <script src="../../dist/pmtiles.js"></script>
+    <script src="../../dist/bemap-js-api.js"></script>
+    <script src="../context.js"></script>
+    <script src="../bemap-provider.js"></script>
+    <script src="_snippet.js"></script>
+</head>
+<body>
+    <div id="map1"></div>
+
+    <div class="panel-v2">
+        <h4>Autocomplete <span class="v2-badge">v2</span></h4>
+        <p style="margin:0 0 8px 0;color:#555;font-size:11px;">
+            <code>attachToInput(el, opts)</code> — debounced + keyboard nav,
+            no jQuery. In-flight requests cancel automatically.
+        </p>
+
+        <div>
+            <label>Start typing a place</label>
+            <input id="ac-input" type="text" placeholder="e.g. tour eif" autocomplete="off">
+        </div>
+
+        <div style="margin-top:10px;font-size:11px;color:#555;">
+            <strong>Up</strong> / <strong>Down</strong> to navigate,
+            <strong>Enter</strong> to select, <strong>Esc</strong> to close.
+        </div>
+
+        <div id="ac-status" class="status">Ready.</div>
+    </div>
+
+    <script src="autocomplete.js"></script>
+</body>
+</html>

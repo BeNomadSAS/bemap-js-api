@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>JSDoc: Source: bemap-services-v2/search/bemap-geocoding-response-parser.js</title>
+
+    <script src="scripts/prettify/prettify.js"> </script>
+    <script src="scripts/prettify/lang-css.js"> </script>
+    <!--[if lt IE 9]>
+      <script src="//html5shiv.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+    <link type="text/css" rel="stylesheet" href="styles/prettify-tomorrow.css">
+    <link type="text/css" rel="stylesheet" href="styles/jsdoc-default.css">
+</head>
+
+<body>
+
+<div id="main">
+
+    <h1 class="page-title">Source: bemap-services-v2/search/bemap-geocoding-response-parser.js</h1>
+
+    
+
+
+
+    
+    <section>
+        <article>
+            <pre class="prettyprint source linenums"><code>/**
+ * BeNomad BeMap JavaScript API - GeocodingResponse parser (v1.5)
+ *
+ * Maps the v1.5 endpoint payloads into a `bemap.GeocodingResponse` carrying
+ * `bemap.GeocodingItem` entries — preserving the capitalised property names
+ * (`Coordinate`, `PostalAddress`, `RoadFeature`) used by BeMap-Doc and other
+ * legacy consumers.
+ *
+ * Two distinct wrappers are accepted:
+ *   - `service/geocoding/1.0/reverse`            →  `{ extent, elements: [...], maximunResult }`
+ *   - `service/geocoding/autocomplete/1.0`       →  `{ items: [...] }`
+ *
+ * Per-item field naming differences (verified against live beta responses):
+ *   - reverse:       `postalAddress`, `coordinate`, `distanceFromRequest`,
+ *                    `postalAddressClassType`, `postalAddressClassId`,
+ *                    `postalAddressExactStreeNumber` (sic),
+ *                    `angle`, `administrativeSpeedLimit`, `relevanceScore`,
+ *                    `countryRelevanceScore`, `cityRelevanceScore`,
+ *                    `postalCodeRelevanceScore`, `streetRelevanceScore`,
+ *                    `streetNumberRelevanceScore`, `roadInfo`,
+ *                    `geoElementTypes`, `segmentId`
+ *   - autocomplete:  `coordinate`, `place`, `reference`, `postalAddress`
+ *
+ * @since 1.5.0
+ * @public
+ * @param {Object} json
+ * @return {bemap.GeocodingResponse}
+ */
+bemap.parseGeocodingResponseV2 = function(json) {
+    var response = new bemap.GeocodingResponse();
+    if (!json) return response;
+
+    // Reverse-geocoding wraps results in `elements`; autocomplete uses `items`.
+    // Tolerate `results` and a bare root array as fallbacks.
+    var rawItems = null;
+    if (Array.isArray(json.elements)) rawItems = json.elements;
+    else if (Array.isArray(json.items)) rawItems = json.items;
+    else if (Array.isArray(json.results)) rawItems = json.results;
+    else if (Array.isArray(json)) rawItems = json;
+    if (!rawItems) rawItems = [];
+
+    for (var i = 0; i &lt; rawItems.length; i++) {
+        var raw = rawItems[i];
+        var item = new bemap.GeocodingItem();
+        item.index = i + 1;
+
+        if (raw.coordinate) {
+            var lon = (raw.coordinate.lon !== undefined)
+                ? raw.coordinate.lon
+                : (raw.coordinate.longitude !== undefined)
+                    ? raw.coordinate.longitude
+                    : raw.coordinate.x;
+            var lat = (raw.coordinate.lat !== undefined)
+                ? raw.coordinate.lat
+                : (raw.coordinate.latitude !== undefined)
+                    ? raw.coordinate.latitude
+                    : raw.coordinate.y;
+            item.Coordinate = new bemap.Coordinate(lon, lat);
+        }
+
+        if (raw.postalAddress) {
+            var p = raw.postalAddress;
+            item.PostalAddress = [new bemap.PostalAddress({
+                countryCode: p.countryCode,
+                country: p.country,
+                state: p.state,
+                county: p.county,
+                city: p.city,
+                district: p.district,
+                postalCode: p.postalCode,
+                roadNumber: p.roadNumber,
+                street: p.street,
+                streetNumber: p.streetNumber
+            })];
+        }
+
+        if (typeof raw.angle === 'number') item.Angle = raw.angle;
+
+        // Reverse geocoding emits `administrativeSpeedLimit`; older /
+        // autocomplete payloads use `speedLimit`. Both map to GeocodingItem.SpeedLimit.
+        if (typeof raw.administrativeSpeedLimit === 'number') {
+            item.SpeedLimit = raw.administrativeSpeedLimit;
+        } else if (typeof raw.speedLimit === 'number') {
+            item.SpeedLimit = raw.speedLimit;
+        }
+
+        if (typeof raw.relevanceScore === 'number') item.RelevanceScore = raw.relevanceScore;
+
+        // Server emits `roadInfo` on reverse geocoding; older fixtures used `roadFeature`.
+        var rawRoad = raw.roadInfo || raw.roadFeature;
+        if (rawRoad) {
+            var rf = new bemap.RoadFeature();
+            for (var k in rawRoad) {
+                if (Object.prototype.hasOwnProperty.call(rawRoad, k)) rf[k] = rawRoad[k];
+            }
+            item.RoadFeature = [rf];
+        }
+
+        // Autocomplete-only metadata
+        if (raw.place) item.place = raw.place;
+        if (raw.reference) item.reference = raw.reference;
+
+        // Reverse-geocoding extras — exposed verbatim so consumer code can
+        // reach them without a new typed wrapper for every server field.
+        if (typeof raw.distanceFromRequest === 'number') item.distanceFromRequest = raw.distanceFromRequest;
+        if (raw.postalAddressClassType) item.postalAddressClassType = raw.postalAddressClassType;
+        if (typeof raw.postalAddressClassId === 'number') item.postalAddressClassId = raw.postalAddressClassId;
+        if (typeof raw.postalAddressExactStreeNumber === 'boolean') {
+            item.postalAddressExactStreeNumber = raw.postalAddressExactStreeNumber;
+        }
+        if (typeof raw.countryRelevanceScore === 'number') item.countryRelevanceScore = raw.countryRelevanceScore;
+        if (typeof raw.cityRelevanceScore === 'number') item.cityRelevanceScore = raw.cityRelevanceScore;
+        if (typeof raw.postalCodeRelevanceScore === 'number') item.postalCodeRelevanceScore = raw.postalCodeRelevanceScore;
+        if (typeof raw.streetRelevanceScore === 'number') item.streetRelevanceScore = raw.streetRelevanceScore;
+        if (typeof raw.streetNumberRelevanceScore === 'number') item.streetNumberRelevanceScore = raw.streetNumberRelevanceScore;
+        if (Array.isArray(raw.geoElementTypes)) item.geoElementTypes = raw.geoElementTypes.slice();
+        if (typeof raw.segmentId === 'number') item.segmentId = raw.segmentId;
+
+        response.geocodingItems.push(item);
+    }
+
+    if (json.extent) {
+        response.extent = new bemap.BoundingBox(
+            json.extent.minLon !== undefined ? json.extent.minLon : json.extent.minX,
+            json.extent.minLat !== undefined ? json.extent.minLat : json.extent.minY,
+            json.extent.maxLon !== undefined ? json.extent.maxLon : json.extent.maxX,
+            json.extent.maxLat !== undefined ? json.extent.maxLat : json.extent.maxY
+        );
+    }
+
+    if (json.action) response.action = json.action;
+
+    return response;
+};
+</code></pre>
+        </article>
+    </section>
+
+
+
+
+</div>
+
+<nav>
+    <h2><a href="index.html">Home</a></h2><h3>Classes</h3><ul><li><a href="bemap.AclDetailsResponse.html">AclDetailsResponse</a></li><li><a href="bemap.AclLabel.html">AclLabel</a></li><li><a href="bemap.AclService.html">AclService</a></li><li><a href="bemap.Address.html">Address</a></li><li><a href="bemap.AttributionWidget.html">AttributionWidget</a></li><li><a href="bemap.Autocomplete.html">Autocomplete</a></li><li><a href="bemap.AutocompleteElement.html">AutocompleteElement</a></li><li><a href="bemap.AutocompleteGeocodingRequest.html">AutocompleteGeocodingRequest</a></li><li><a href="bemap.AutocompleteGeocodingResponse.html">AutocompleteGeocodingResponse</a></li><li><a href="bemap.BemapLayer.html">BemapLayer</a></li><li><a href="bemap.BoundingBox.html">BoundingBox</a></li><li><a href="bemap.BrowserCache.html">BrowserCache</a></li><li><a href="bemap.BuildingsLayer.html">BuildingsLayer</a></li><li><a href="bemap.ChargingPoint.html">ChargingPoint</a></li><li><a href="bemap.ChargingStation.html">ChargingStation</a></li><li><a href="bemap.ChargingStationPool.html">ChargingStationPool</a></li><li><a href="bemap.ChargingStations.html">ChargingStations</a></li><li><a href="bemap.ChargingStationSearchRequest.html">ChargingStationSearchRequest</a></li><li><a href="bemap.ChargingStationSearchResponse.html">ChargingStationSearchResponse</a></li><li><a href="bemap.ChargingStationStep.html">ChargingStationStep</a></li><li><a href="bemap.ChargingTime.html">ChargingTime</a></li><li><a href="bemap.ChargingTimeRequest.html">ChargingTimeRequest</a></li><li><a href="bemap.ChargingTimeResponse.html">ChargingTimeResponse</a></li><li><a href="bemap.Circle.html">Circle</a></li><li><a href="bemap.CircleStyle.html">CircleStyle</a></li><li><a href="bemap.clusterStyle.html">clusterStyle</a></li><li><a href="bemap.Color.html">Color</a></li><li><a href="bemap.CondMaxSpeed.html">CondMaxSpeed</a></li><li><a href="bemap.Context.html">Context</a></li><li><a href="bemap.Coordinate.html">Coordinate</a></li><li><a href="bemap.CoordinateSat.html">CoordinateSat</a></li><li><a href="bemap.Destination.html">Destination</a></li><li><a href="bemap.Error.html">Error</a></li><li><a href="bemap.EvBrand.html">EvBrand</a></li><li><a href="bemap.EvReachableArea.html">EvReachableArea</a></li><li><a href="bemap.EvReachableAreaRequest.html">EvReachableAreaRequest</a></li><li><a href="bemap.EvReachableAreaResponse.html">EvReachableAreaResponse</a></li><li><a href="bemap.EvseRouting.html">EvseRouting</a></li><li><a href="bemap.EvSmartRouting.html">EvSmartRouting</a></li><li><a href="bemap.EvSmartRoutingRequest.html">EvSmartRoutingRequest</a></li><li><a href="bemap.EvSmartRoutingResponse.html">EvSmartRoutingResponse</a></li><li><a href="bemap.EvStepPoint.html">EvStepPoint</a></li><li><a href="bemap.EvVehicle.html">EvVehicle</a></li><li><a href="bemap.EvVehicles.html">EvVehicles</a></li><li><a href="bemap.Exception.html">Exception</a></li><li><a href="bemap.GeoAutocomplete.html">GeoAutocomplete</a></li><li><a href="bemap.Geocoder.html">Geocoder</a></li><li><a href="bemap.GeocodingItem.html">GeocodingItem</a></li><li><a href="bemap.GeocodingRequest.html">GeocodingRequest</a></li><li><a href="bemap.GeocodingResponse.html">GeocodingResponse</a></li><li><a href="bemap.GeoSearchInfo.html">GeoSearchInfo</a></li><li><a href="bemap.GeoServerInfoResponse.html">GeoServerInfoResponse</a></li><li><a href="bemap.GeoServerInfoService.html">GeoServerInfoService</a></li><li><a href="bemap.GeoServerServiceInfo.html">GeoServerServiceInfo</a></li><li><a href="bemap.GeoServerServiceLimit.html">GeoServerServiceLimit</a></li><li><a href="bemap.HeatmapLayer.html">HeatmapLayer</a></li><li><a href="bemap.Icon.html">Icon</a></li><li><a href="bemap.Isochrone.html">Isochrone</a></li><li><a href="bemap.Layer.html">Layer</a></li><li><a href="bemap.LeafletMap.html">LeafletMap</a></li><li><a href="bemap.LineStyle.html">LineStyle</a></li><li><a href="bemap.Listener.html">Listener</a></li><li><a href="bemap.Map.html">Map</a></li><li><a href="bemap.MapEvent.html">MapEvent</a></li><li><a href="bemap.MapLibreMap.html">MapLibreMap</a></li><li><a href="bemap.Marker.html">Marker</a></li><li><a href="bemap.MultiMarker.html">MultiMarker</a></li><li><a href="bemap.NearPoint.html">NearPoint</a></li><li><a href="bemap.NearPoiRequest.html">NearPoiRequest</a></li><li><a href="bemap.NearPoiResponse.html">NearPoiResponse</a></li><li><a href="bemap.NearPoiSearch.html">NearPoiSearch</a></li><li><a href="bemap.Object.html">Object</a></li><li><a href="bemap.Ol3Map.html">Ol3Map</a></li><li><a href="bemap.OlMap.html">OlMap</a></li><li><a href="bemap.OsmLayer.html">OsmLayer</a></li><li><a href="bemap.PMTilesLayer.html">PMTilesLayer</a></li><li><a href="bemap.Polygon.html">Polygon</a></li><li><a href="bemap.PolygonStyle.html">PolygonStyle</a></li><li><a href="bemap.Polyline.html">Polyline</a></li><li><a href="bemap.Popup.html">Popup</a></li><li><a href="bemap.PostalAddress.html">PostalAddress</a></li><li><a href="bemap.RasterLayer.html">RasterLayer</a></li><li><a href="bemap.ReverseGeocoder.html">ReverseGeocoder</a></li><li><a href="bemap.ReverseGeocodingRequest.html">ReverseGeocodingRequest</a></li><li><a href="bemap.RevGeoSearchInfo.html">RevGeoSearchInfo</a></li><li><a href="bemap.RoadFeature.html">RoadFeature</a></li><li><a href="bemap.Route.html">Route</a></li><li><a href="bemap.Route.Event.html">Event</a></li><li><a href="bemap.Route.RoutesheetInstruction.html">RoutesheetInstruction</a></li><li><a href="bemap.Routing.html">Routing</a></li><li><a href="bemap.RoutingDestination.html">RoutingDestination</a></li><li><a href="bemap.RoutingInstruction.html">RoutingInstruction</a></li><li><a href="bemap.RoutingRequest.html">RoutingRequest</a></li><li><a href="bemap.RoutingResponse.html">RoutingResponse</a></li><li><a href="bemap.RoutingRoute.html">RoutingRoute</a></li><li><a href="bemap.RoutingSummary.html">RoutingSummary</a></li><li><a href="bemap.RoutingV2.html">RoutingV2</a></li><li><a href="bemap.RoutingVehicleProfile.html">RoutingVehicleProfile</a></li><li><a href="bemap.RoutingWaypoint.html">RoutingWaypoint</a></li><li><a href="bemap.Service.html">Service</a></li><li><a href="bemap.TextStyle.html">TextStyle</a></li><li><a href="bemap.TilesAuth.html">TilesAuth</a></li><li><a href="bemap.TilesOverlayCatalog.html">TilesOverlayCatalog</a></li><li><a href="global.html#bemap#.TraceRoute">TraceRoute</a></li><li><a href="bemap.TraceRouteDestination.html">TraceRouteDestination</a></li><li><a href="bemap.TraceRouteRequest.html">TraceRouteRequest</a></li><li><a href="bemap.VectorLayer.html">VectorLayer</a></li><li><a href="bemap.VectorTileLayer.html">VectorTileLayer</a></li><li><a href="bemap.WmsLayer.html">WmsLayer</a></li></ul><h3>Global</h3><ul><li><a href="global.html#AC">AC</a></li><li><a href="global.html#AC_SINGLE_PHASE">AC_SINGLE_PHASE</a></li><li><a href="global.html#AC_THREE_PHASES">AC_THREE_PHASES</a></li><li><a href="global.html#bemap">bemap</a></li><li><a href="global.html#DC">DC</a></li><li><a href="global.html#NA">NA</a></li></ul>
+</nav>
+
+<br class="clear">
+
+<footer>
+    Documentation generated by <a href="https://github.com/jsdoc/jsdoc">JSDoc 3.6.3</a> on Tue Jun 02 2026 11:46:45 GMT+0200 (heure d’été d’Europe centrale)
+</footer>
+
+<script> prettyPrint(); </script>
+<script src="scripts/linenumber.js"> </script>
+</body>
+</html>

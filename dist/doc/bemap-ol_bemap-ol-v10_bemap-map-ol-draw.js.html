@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>JSDoc: Source: bemap-ol/bemap-ol-v10/bemap-map-ol-draw.js</title>
+
+    <script src="scripts/prettify/prettify.js"> </script>
+    <script src="scripts/prettify/lang-css.js"> </script>
+    <!--[if lt IE 9]>
+      <script src="//html5shiv.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+    <link type="text/css" rel="stylesheet" href="styles/prettify-tomorrow.css">
+    <link type="text/css" rel="stylesheet" href="styles/jsdoc-default.css">
+</head>
+
+<body>
+
+<div id="main">
+
+    <h1 class="page-title">Source: bemap-ol/bemap-ol-v10/bemap-map-ol-draw.js</h1>
+
+    
+
+
+
+    
+    <section>
+        <article>
+            <pre class="prettyprint source linenums"><code>/**
+ * BeNomad BeMap JavaScript API - OpenLayers v10 - Draw Interaction
+ */
+
+bemap.OlMap.prototype.drawPolygon = function(options, callback) {
+  return this._startDraw('Polygon', options, callback);
+};
+
+bemap.OlMap.prototype.drawPolyline = function(options, callback) {
+  return this._startDraw('LineString', options, callback);
+};
+
+bemap.OlMap.prototype.drawCircle = function(options, callback) {
+  return this._startDraw('Circle', options, callback);
+};
+
+bemap.OlMap.prototype.drawRectangle = function(options, callback) {
+  return this._startDraw('Circle', options, callback, true); // geometryFunction makes it a box
+};
+
+bemap.OlMap.prototype.drawMarker = function(options, callback) {
+  return this._startDraw('Point', options, callback);
+};
+
+bemap.OlMap.prototype._startDraw = function(type, options, callback, isBox) {
+  if (typeof ol === 'undefined' || !ol.interaction || !ol.interaction.Draw) {
+    console.warn('ol.interaction.Draw not available');
+    return new bemap.Listener();
+  }
+  var opts = options || {};
+  var _this = this;
+
+  // Cancel any existing draw
+  this.cancelDraw();
+
+  // Create a temporary vector source for drawing
+  var drawSource = new ol.source.Vector({ features: [] });
+  var drawLayer = new ol.layer.Vector({ source: drawSource });
+  this.native.addLayer(drawLayer);
+
+  // Build draw interaction options
+  var drawOpts = { type: type, source: drawSource };
+
+  if (isBox) {
+    drawOpts.type = 'Circle';
+    if (ol.interaction.Draw.createBox) drawOpts.geometryFunction = ol.interaction.Draw.createBox();
+  }
+
+  var interaction = new ol.interaction.Draw(drawOpts);
+
+  interaction.on('drawend', function(evt) {
+    var feature = evt.feature;
+    var geom = feature.getGeometry();
+
+    // Transform back to WGS84
+    var cloned = geom.clone().transform(_this.native.getView().getProjection(), bemap.Map.PROJ.EPSG_WGS84);
+
+    var defaultPolyStyle = opts.style || new bemap.PolygonStyle({
+      fillColor: new bemap.Color(0, 102, 204, 0.2),
+      borderColor: new bemap.Color(0, 102, 204, 1),
+      borderWidth: 2
+    });
+    var bemapObj = null;
+
+    if (type === 'Polygon' || isBox) {
+      var ringCoords = cloned.getCoordinates()[0];
+      var bemapCoords = [];
+      for (var i = 0; i &lt; ringCoords.length - 1; i++) { // skip closing coord
+        bemapCoords.push(new bemap.Coordinate(ringCoords[i][0], ringCoords[i][1]));
+      }
+      bemapObj = new bemap.Polygon(bemapCoords, { style: defaultPolyStyle });
+
+    } else if (type === 'LineString') {
+      var lineCoords = cloned.getCoordinates();
+      var bemapLineCoords = [];
+      for (var j = 0; j &lt; lineCoords.length; j++) {
+        bemapLineCoords.push(new bemap.Coordinate(lineCoords[j][0], lineCoords[j][1]));
+      }
+      var defaultLineStyle = opts.style || new bemap.LineStyle({ color: new bemap.Color(230, 57, 70, 1), width: 3 });
+      bemapObj = new bemap.Polyline(bemapLineCoords, { style: defaultLineStyle });
+
+    } else if (type === 'Circle') {
+      var center = cloned.getCenter();
+      var centerCoord = new bemap.Coordinate(center[0], center[1]);
+      // Compute real-Earth radius in meters via Haversine from center to edge point
+      var mercCenter = geom.getCenter();
+      var mercRadius = geom.getRadius();
+      var edgeMerc = [mercCenter[0] + mercRadius, mercCenter[1]];
+      var edgeWgs = ol.proj.transform(edgeMerc, _this.native.getView().getProjection(), bemap.Map.PROJ.EPSG_WGS84);
+      var R = 6371000;
+      var lat1 = center[1] * Math.PI / 180, lat2 = edgeWgs[1] * Math.PI / 180;
+      var dLat = (edgeWgs[1] - center[1]) * Math.PI / 180;
+      var dLon = (edgeWgs[0] - center[0]) * Math.PI / 180;
+      var a = Math.sin(dLat/2) * Math.sin(dLat/2) + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLon/2) * Math.sin(dLon/2);
+      var radiusM = R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+      var circleStyle = opts.style || new bemap.CircleStyle({
+        fillColor: new bemap.Color(0, 102, 204, 0.2),
+        borderColor: new bemap.Color(0, 102, 204, 1),
+        borderWidth: 2
+      });
+      bemapObj = new bemap.Circle(centerCoord, radiusM, { style: circleStyle });
+
+    } else if (type === 'Point') {
+      var pt = cloned.getCoordinates();
+      bemapObj = new bemap.Marker(new bemap.Coordinate(pt[0], pt[1]));
+    }
+
+    // Clean up
+    _this.native.removeInteraction(interaction);
+    _this.native.removeLayer(drawLayer);
+    _this._drawInteraction = null;
+
+    if (bemapObj) {
+      if (callback) {
+        callback(new bemap.MapEvent({
+          map: _this,
+          bemapObject: bemapObj,
+          coordinate: bemapObj.coordinate || (bemapObj.getCoordinates ? bemapObj.getCoordinates()[0] : null)
+        }));
+      }
+
+      // Auto-add to map
+      if (opts.addToMap !== false) {
+        if (bemap.inheritsof(bemapObj, bemap.Polygon)) _this.addPolygon(bemapObj);
+        else if (bemap.inheritsof(bemapObj, bemap.Polyline)) _this.addPolyline(bemapObj);
+        else if (bemap.inheritsof(bemapObj, bemap.Circle)) _this.addCircle(bemapObj);
+        else if (bemap.inheritsof(bemapObj, bemap.Marker)) _this.addMarker(bemapObj);
+      }
+
+      // Auto-enable vertex editing
+      if (opts.editable !== false &amp;&amp; bemap.inheritsof(bemapObj, bemap.Polygon)) {
+        _this.editPolygon(bemapObj, callback);
+      }
+    }
+  });
+
+  this.native.addInteraction(interaction);
+  this._drawInteraction = interaction;
+  this._drawLayer = drawLayer;
+
+  // Set crosshair cursor
+  var container = document.getElementById(this.target);
+  if (container) container.classList.add('bemap-drawing-active');
+
+  return new bemap.Listener({ native: interaction, bemapObject: null, key: 'draw' });
+};
+
+bemap.OlMap.prototype.cancelDraw = function() {
+  if (this._drawInteraction) {
+    this.native.removeInteraction(this._drawInteraction);
+    this._drawInteraction = null;
+  }
+  if (this._editInteraction) {
+    this.native.removeInteraction(this._editInteraction);
+    this._editInteraction = null;
+  }
+  if (this._drawLayer) {
+    this.native.removeLayer(this._drawLayer);
+    this._drawLayer = null;
+  }
+  var container = document.getElementById(this.target);
+  if (container) container.classList.remove('bemap-drawing-active');
+  return this;
+};
+
+bemap.OlMap.prototype.editPolygon = function(polygon, callback) {
+  if (!polygon || !polygon.native) return new bemap.Listener();
+  if (typeof ol === 'undefined' || !ol.interaction || !ol.interaction.Modify) return new bemap.Listener();
+  var _this = this;
+
+  // Remove previous edit interaction if any
+  if (this._editInteraction) {
+    this.native.removeInteraction(this._editInteraction);
+    this._editInteraction = null;
+  }
+
+  var modify = new ol.interaction.Modify({
+    features: new ol.Collection([polygon.native])
+  });
+
+  var MERGE_PX = 15;
+
+  modify.on('modifyend', function() {
+    var geom = polygon.native.getGeometry().clone().transform(
+      _this.native.getView().getProjection(), bemap.Map.PROJ.EPSG_WGS84
+    );
+    var ringCoords = geom.getCoordinates()[0];
+    var updatedCoords = [];
+    for (var i = 0; i &lt; ringCoords.length - 1; i++) {
+      updatedCoords.push(new bemap.Coordinate(ringCoords[i][0], ringCoords[i][1]));
+    }
+
+    // Merge: remove near-duplicate vertices
+    if (updatedCoords.length > 3) {
+      var merged = [updatedCoords[0]];
+      for (var m = 1; m &lt; updatedCoords.length; m++) {
+        var pxA = _this.native.getPixelFromCoordinate(ol.proj.transform(
+          [updatedCoords[m].getLon(), updatedCoords[m].getLat()], bemap.Map.PROJ.EPSG_WGS84, _this.native.getView().getProjection()
+        ));
+        var tooClose = false;
+        for (var n = 0; n &lt; merged.length; n++) {
+          var pxB = _this.native.getPixelFromCoordinate(ol.proj.transform(
+            [merged[n].getLon(), merged[n].getLat()], bemap.Map.PROJ.EPSG_WGS84, _this.native.getView().getProjection()
+          ));
+          if (pxA &amp;&amp; pxB &amp;&amp; Math.sqrt(Math.pow(pxA[0] - pxB[0], 2) + Math.pow(pxA[1] - pxB[1], 2)) &lt; MERGE_PX) {
+            tooClose = true; break;
+          }
+        }
+        if (!tooClose) merged.push(updatedCoords[m]);
+      }
+      updatedCoords = merged;
+    }
+
+    polygon.coords = updatedCoords;
+    if (callback) {
+      callback(new bemap.MapEvent({ map: _this, bemapObject: polygon }));
+    }
+  });
+
+  // Right-click to delete nearest vertex
+  var contextHandler = function(evt) {
+    evt.preventDefault();
+    var geom = polygon.native.getGeometry();
+    var ringCoords = geom.getCoordinates()[0];
+    if (ringCoords.length - 1 &lt;= 3) return; // min 3 vertices (ring has closing coord)
+
+    var pixel = _this.native.getEventPixel(evt);
+    var coord = _this.native.getCoordinateFromPixel(pixel);
+    var bestIdx = -1, bestDist = 20; // max 20px
+
+    for (var v = 0; v &lt; ringCoords.length - 1; v++) {
+      var vPx = _this.native.getPixelFromCoordinate(ringCoords[v]);
+      if (vPx) {
+        var d = Math.sqrt(Math.pow(pixel[0] - vPx[0], 2) + Math.pow(pixel[1] - vPx[1], 2));
+        if (d &lt; bestDist) { bestDist = d; bestIdx = v; }
+      }
+    }
+
+    if (bestIdx >= 0) {
+      ringCoords.splice(bestIdx, 1);
+      ringCoords[ringCoords.length - 1] = ringCoords[0]; // re-close ring
+      geom.setCoordinates([ringCoords]);
+
+      var wgs = geom.clone().transform(_this.native.getView().getProjection(), bemap.Map.PROJ.EPSG_WGS84).getCoordinates()[0];
+      var newCoords = [];
+      for (var nc = 0; nc &lt; wgs.length - 1; nc++) {
+        newCoords.push(new bemap.Coordinate(wgs[nc][0], wgs[nc][1]));
+      }
+      polygon.coords = newCoords;
+      if (callback) callback(new bemap.MapEvent({ map: _this, bemapObject: polygon }));
+    }
+  };
+  var mapEl = document.getElementById(_this.target);
+  if (mapEl) mapEl.addEventListener('contextmenu', contextHandler);
+  polygon._contextHandler = contextHandler;
+
+  this.native.addInteraction(modify);
+  this._editInteraction = modify;
+  return new bemap.Listener({ native: modify, bemapObject: polygon, key: 'editPolygon' });
+};
+</code></pre>
+        </article>
+    </section>
+
+
+
+
+</div>
+
+<nav>
+    <h2><a href="index.html">Home</a></h2><h3>Classes</h3><ul><li><a href="bemap.AclDetailsResponse.html">AclDetailsResponse</a></li><li><a href="bemap.AclLabel.html">AclLabel</a></li><li><a href="bemap.AclService.html">AclService</a></li><li><a href="bemap.Address.html">Address</a></li><li><a href="bemap.AttributionWidget.html">AttributionWidget</a></li><li><a href="bemap.Autocomplete.html">Autocomplete</a></li><li><a href="bemap.AutocompleteElement.html">AutocompleteElement</a></li><li><a href="bemap.AutocompleteGeocodingRequest.html">AutocompleteGeocodingRequest</a></li><li><a href="bemap.AutocompleteGeocodingResponse.html">AutocompleteGeocodingResponse</a></li><li><a href="bemap.BemapLayer.html">BemapLayer</a></li><li><a href="bemap.BoundingBox.html">BoundingBox</a></li><li><a href="bemap.BrowserCache.html">BrowserCache</a></li><li><a href="bemap.BuildingsLayer.html">BuildingsLayer</a></li><li><a href="bemap.ChargingPoint.html">ChargingPoint</a></li><li><a href="bemap.ChargingStation.html">ChargingStation</a></li><li><a href="bemap.ChargingStationPool.html">ChargingStationPool</a></li><li><a href="bemap.ChargingStations.html">ChargingStations</a></li><li><a href="bemap.ChargingStationSearchRequest.html">ChargingStationSearchRequest</a></li><li><a href="bemap.ChargingStationSearchResponse.html">ChargingStationSearchResponse</a></li><li><a href="bemap.ChargingStationStep.html">ChargingStationStep</a></li><li><a href="bemap.ChargingTime.html">ChargingTime</a></li><li><a href="bemap.ChargingTimeRequest.html">ChargingTimeRequest</a></li><li><a href="bemap.ChargingTimeResponse.html">ChargingTimeResponse</a></li><li><a href="bemap.Circle.html">Circle</a></li><li><a href="bemap.CircleStyle.html">CircleStyle</a></li><li><a href="bemap.clusterStyle.html">clusterStyle</a></li><li><a href="bemap.Color.html">Color</a></li><li><a href="bemap.CondMaxSpeed.html">CondMaxSpeed</a></li><li><a href="bemap.Context.html">Context</a></li><li><a href="bemap.Coordinate.html">Coordinate</a></li><li><a href="bemap.CoordinateSat.html">CoordinateSat</a></li><li><a href="bemap.Destination.html">Destination</a></li><li><a href="bemap.Error.html">Error</a></li><li><a href="bemap.EvBrand.html">EvBrand</a></li><li><a href="bemap.EvReachableArea.html">EvReachableArea</a></li><li><a href="bemap.EvReachableAreaRequest.html">EvReachableAreaRequest</a></li><li><a href="bemap.EvReachableAreaResponse.html">EvReachableAreaResponse</a></li><li><a href="bemap.EvseRouting.html">EvseRouting</a></li><li><a href="bemap.EvSmartRouting.html">EvSmartRouting</a></li><li><a href="bemap.EvSmartRoutingRequest.html">EvSmartRoutingRequest</a></li><li><a href="bemap.EvSmartRoutingResponse.html">EvSmartRoutingResponse</a></li><li><a href="bemap.EvStepPoint.html">EvStepPoint</a></li><li><a href="bemap.EvVehicle.html">EvVehicle</a></li><li><a href="bemap.EvVehicles.html">EvVehicles</a></li><li><a href="bemap.Exception.html">Exception</a></li><li><a href="bemap.GeoAutocomplete.html">GeoAutocomplete</a></li><li><a href="bemap.Geocoder.html">Geocoder</a></li><li><a href="bemap.GeocodingItem.html">GeocodingItem</a></li><li><a href="bemap.GeocodingRequest.html">GeocodingRequest</a></li><li><a href="bemap.GeocodingResponse.html">GeocodingResponse</a></li><li><a href="bemap.GeoSearchInfo.html">GeoSearchInfo</a></li><li><a href="bemap.GeoServerInfoResponse.html">GeoServerInfoResponse</a></li><li><a href="bemap.GeoServerInfoService.html">GeoServerInfoService</a></li><li><a href="bemap.GeoServerServiceInfo.html">GeoServerServiceInfo</a></li><li><a href="bemap.GeoServerServiceLimit.html">GeoServerServiceLimit</a></li><li><a href="bemap.HeatmapLayer.html">HeatmapLayer</a></li><li><a href="bemap.Icon.html">Icon</a></li><li><a href="bemap.Isochrone.html">Isochrone</a></li><li><a href="bemap.Layer.html">Layer</a></li><li><a href="bemap.LeafletMap.html">LeafletMap</a></li><li><a href="bemap.LineStyle.html">LineStyle</a></li><li><a href="bemap.Listener.html">Listener</a></li><li><a href="bemap.Map.html">Map</a></li><li><a href="bemap.MapEvent.html">MapEvent</a></li><li><a href="bemap.MapLibreMap.html">MapLibreMap</a></li><li><a href="bemap.Marker.html">Marker</a></li><li><a href="bemap.MultiMarker.html">MultiMarker</a></li><li><a href="bemap.NearPoint.html">NearPoint</a></li><li><a href="bemap.NearPoiRequest.html">NearPoiRequest</a></li><li><a href="bemap.NearPoiResponse.html">NearPoiResponse</a></li><li><a href="bemap.NearPoiSearch.html">NearPoiSearch</a></li><li><a href="bemap.Object.html">Object</a></li><li><a href="bemap.Ol3Map.html">Ol3Map</a></li><li><a href="bemap.OlMap.html">OlMap</a></li><li><a href="bemap.OsmLayer.html">OsmLayer</a></li><li><a href="bemap.PMTilesLayer.html">PMTilesLayer</a></li><li><a href="bemap.Polygon.html">Polygon</a></li><li><a href="bemap.PolygonStyle.html">PolygonStyle</a></li><li><a href="bemap.Polyline.html">Polyline</a></li><li><a href="bemap.Popup.html">Popup</a></li><li><a href="bemap.PostalAddress.html">PostalAddress</a></li><li><a href="bemap.RasterLayer.html">RasterLayer</a></li><li><a href="bemap.ReverseGeocoder.html">ReverseGeocoder</a></li><li><a href="bemap.ReverseGeocodingRequest.html">ReverseGeocodingRequest</a></li><li><a href="bemap.RevGeoSearchInfo.html">RevGeoSearchInfo</a></li><li><a href="bemap.RoadFeature.html">RoadFeature</a></li><li><a href="bemap.Route.html">Route</a></li><li><a href="bemap.Route.Event.html">Event</a></li><li><a href="bemap.Route.RoutesheetInstruction.html">RoutesheetInstruction</a></li><li><a href="bemap.Routing.html">Routing</a></li><li><a href="bemap.RoutingDestination.html">RoutingDestination</a></li><li><a href="bemap.RoutingInstruction.html">RoutingInstruction</a></li><li><a href="bemap.RoutingRequest.html">RoutingRequest</a></li><li><a href="bemap.RoutingResponse.html">RoutingResponse</a></li><li><a href="bemap.RoutingRoute.html">RoutingRoute</a></li><li><a href="bemap.RoutingSummary.html">RoutingSummary</a></li><li><a href="bemap.RoutingV2.html">RoutingV2</a></li><li><a href="bemap.RoutingVehicleProfile.html">RoutingVehicleProfile</a></li><li><a href="bemap.RoutingWaypoint.html">RoutingWaypoint</a></li><li><a href="bemap.Service.html">Service</a></li><li><a href="bemap.TextStyle.html">TextStyle</a></li><li><a href="bemap.TilesAuth.html">TilesAuth</a></li><li><a href="bemap.TilesOverlayCatalog.html">TilesOverlayCatalog</a></li><li><a href="global.html#bemap#.TraceRoute">TraceRoute</a></li><li><a href="bemap.TraceRouteDestination.html">TraceRouteDestination</a></li><li><a href="bemap.TraceRouteRequest.html">TraceRouteRequest</a></li><li><a href="bemap.VectorLayer.html">VectorLayer</a></li><li><a href="bemap.VectorTileLayer.html">VectorTileLayer</a></li><li><a href="bemap.WmsLayer.html">WmsLayer</a></li></ul><h3>Global</h3><ul><li><a href="global.html#AC">AC</a></li><li><a href="global.html#AC_SINGLE_PHASE">AC_SINGLE_PHASE</a></li><li><a href="global.html#AC_THREE_PHASES">AC_THREE_PHASES</a></li><li><a href="global.html#bemap">bemap</a></li><li><a href="global.html#DC">DC</a></li><li><a href="global.html#NA">NA</a></li></ul>
+</nav>
+
+<br class="clear">
+
+<footer>
+    Documentation generated by <a href="https://github.com/jsdoc/jsdoc">JSDoc 3.6.3</a> on Tue Jun 02 2026 11:46:45 GMT+0200 (heure d’été d’Europe centrale)
+</footer>
+
+<script> prettyPrint(); </script>
+<script src="scripts/linenumber.js"> </script>
+</body>
+</html>

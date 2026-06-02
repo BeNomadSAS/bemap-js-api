@@ -1,0 +1,138 @@
+/* ============================================================
+ * Active-Effects bar — sits in the parent dashboard above the
+ * iframe and shows live state of every map effect (3D buildings,
+ * spinGlobe, terrain, etc.) currently active inside the embedded
+ * example. Powered by the iframe shim at active-effects-bar.js.
+ * ============================================================ */
+
+#active-effects-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  background: #16213e;
+  color: #cdd9e5;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-size: 12px;
+  border-bottom: 1px solid #0d1729;
+  min-height: 36px;
+  position: sticky;
+  top: 0;
+  z-index: 100;
+}
+
+/* When mounted inside the BeMap 2026 dashboard sidebar, the bar becomes a
+ * vertical strip pinned to the bottom of the sidebar — wraps controls so
+ * the narrow column doesn't horizontally scroll. */
+#active-effects-bar.ae--in-sidebar {
+  position: static;
+  flex-direction: column;
+  align-items: stretch;
+  padding: 10px 12px;
+  background: #0f3460;
+  border-top: 1px solid #1f2937;
+  border-bottom: 0;
+  flex-shrink: 0;
+}
+#active-effects-bar.ae--in-sidebar .ae-list { display: flex; flex-wrap: wrap; gap: 4px; margin: 4px 0; }
+#active-effects-bar.ae--in-sidebar .ae-empty { font-size: 10px; }
+#active-effects-bar.ae--in-sidebar #ae-clear-all,
+#active-effects-bar.ae--in-sidebar #ae-paris,
+#active-effects-bar.ae--in-sidebar #ae-globe,
+#active-effects-bar.ae--in-sidebar #ae-cache { margin: 2px 0; width: 100%; }
+#active-effects-bar.ae--in-sidebar details#ae-log { margin: 6px 0 0; max-width: none; }
+
+#active-effects-bar .ae-label {
+  font-weight: 600;
+  color: #7ee787;
+  margin-right: 4px;
+}
+
+#active-effects-bar .ae-list {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  flex: 1;
+  min-height: 22px;
+}
+
+#active-effects-bar .ae-empty {
+  color: #7d8590;
+  font-style: italic;
+}
+
+#active-effects-bar .ae-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  background: #2d3e5e;
+  border: 1px solid #3d4f70;
+  border-radius: 12px;
+  font-family: ui-monospace, "SF Mono", "Cascadia Code", Consolas, monospace;
+  font-size: 11px;
+  color: #fff;
+  line-height: 1.4;
+}
+
+#active-effects-bar .ae-chip button {
+  background: transparent;
+  border: none;
+  color: #ff9aa2;
+  cursor: pointer;
+  font-size: 13px;
+  padding: 0 2px;
+  line-height: 1;
+}
+#active-effects-bar .ae-chip button:hover { color: #fff; }
+
+#active-effects-bar #ae-clear-all,
+#active-effects-bar #ae-paris,
+#active-effects-bar #ae-globe,
+#active-effects-bar #ae-cache {
+  padding: 4px 10px;
+  color: #fff;
+  border: none;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  margin-left: 4px;
+}
+#active-effects-bar #ae-clear-all { background: #e94560; }
+#active-effects-bar #ae-clear-all:hover { background: #c0392b; }
+#active-effects-bar #ae-paris { background: #3498db; }
+#active-effects-bar #ae-paris:hover { background: #2980b9; }
+#active-effects-bar #ae-globe { background: #f39c12; }
+#active-effects-bar #ae-globe:hover { background: #d68910; }
+#active-effects-bar #ae-cache { background: #8e44ad; }
+#active-effects-bar #ae-cache:hover { background: #6c3483; }
+
+#active-effects-bar details#ae-log {
+  margin-left: auto;
+  max-width: 360px;
+}
+#active-effects-bar details#ae-log summary {
+  cursor: pointer;
+  font-size: 11px;
+  color: #7d8590;
+  outline: none;
+}
+#active-effects-bar details#ae-log pre {
+  margin: 4px 0 0 0;
+  padding: 6px 8px;
+  background: #0d1117;
+  color: #7ee787;
+  font-family: ui-monospace, "SF Mono", "Cascadia Code", Consolas, monospace;
+  font-size: 10px;
+  line-height: 1.4;
+  max-height: 120px;
+  overflow-y: auto;
+  border: 1px solid #1f2937;
+  border-radius: 3px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}

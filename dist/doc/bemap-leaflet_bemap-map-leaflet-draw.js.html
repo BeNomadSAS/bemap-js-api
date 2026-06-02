@@ -1,0 +1,549 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>JSDoc: Source: bemap-leaflet/bemap-map-leaflet-draw.js</title>
+
+    <script src="scripts/prettify/prettify.js"> </script>
+    <script src="scripts/prettify/lang-css.js"> </script>
+    <!--[if lt IE 9]>
+      <script src="//html5shiv.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+    <link type="text/css" rel="stylesheet" href="styles/prettify-tomorrow.css">
+    <link type="text/css" rel="stylesheet" href="styles/jsdoc-default.css">
+</head>
+
+<body>
+
+<div id="main">
+
+    <h1 class="page-title">Source: bemap-leaflet/bemap-map-leaflet-draw.js</h1>
+
+    
+
+
+
+    
+    <section>
+        <article>
+            <pre class="prettyprint source linenums"><code>/**
+ * BeNomad BeMap JavaScript API - Leaflet - Draw Interaction
+ * Uses L.Draw if available, otherwise falls back to click-based drawing.
+ */
+
+bemap.LeafletMap.prototype.drawPolygon = function(options, callback) {
+  var opts = options || {};
+  var _this = this;
+  this.cancelDraw();
+
+  // If Leaflet.Draw is available, use it
+  if (typeof L !== 'undefined' &amp;&amp; L.Draw &amp;&amp; L.Draw.Polygon) {
+    var shapeOpts = {};
+    if (opts.style) {
+      if (opts.style.borderColor) shapeOpts.color = _this._colorToHex(opts.style.borderColor);
+      if (opts.style.borderWidth) shapeOpts.weight = opts.style.borderWidth;
+      if (opts.style.fillColor) shapeOpts.fillColor = _this._colorToHex(opts.style.fillColor);
+      if (opts.style.fillColor) shapeOpts.fillOpacity = opts.style.fillColor.getAlpha ? opts.style.fillColor.getAlpha() : 0.3;
+    }
+
+    var drawer = new L.Draw.Polygon(this.native, { shapeOptions: shapeOpts });
+    drawer.enable();
+
+    var handler = function(e) {
+      _this.native.off(L.Draw.Event.CREATED, handler);
+      _this._drawHandler = null;
+
+      var latlngs = e.layer.getLatLngs()[0];
+      var coords = [];
+      for (var i = 0; i &lt; latlngs.length; i++) {
+        coords.push(new bemap.Coordinate(latlngs[i].lng, latlngs[i].lat));
+      }
+      var drawStyle = opts.style || new bemap.PolygonStyle({
+        fillColor: new bemap.Color(0, 102, 204, 0.2),
+        borderColor: new bemap.Color(0, 102, 204, 1),
+        borderWidth: 2
+      });
+      var polygon = new bemap.Polygon(coords, { style: drawStyle });
+
+      var container = _this.native.getContainer();
+      if (container) container.classList.remove('bemap-drawing-active');
+
+      if (callback) {
+        callback(new bemap.MapEvent({ map: _this, bemapObject: polygon, coordinate: coords[0] }));
+      }
+
+      // Add polygon to map using bemap's addPolygon (creates proper L.polygon)
+      if (opts.addToMap !== false) {
+        _this.addPolygon(polygon);
+      }
+      // Auto-enable vertex editing on the bemap-created native polygon
+      if (opts.editable !== false) {
+        _this.editPolygon(polygon, callback);
+      }
+    };
+    this.native.on(L.Draw.Event.CREATED, handler);
+    this._drawHandler = { drawer: drawer, handler: handler };
+
+    var container = this.native.getContainer();
+    if (container) container.classList.add('bemap-drawing-active');
+
+    return new bemap.Listener({ native: drawer, bemapObject: null, key: 'drawPolygon' });
+  }
+
+  // Fallback: click-based drawing
+  return this._clickDraw('Polygon', opts, callback);
+};
+
+bemap.LeafletMap.prototype.drawPolyline = function(options, callback) {
+  var opts = options || {};
+  var _this = this;
+  this.cancelDraw();
+
+  if (typeof L !== 'undefined' &amp;&amp; L.Draw &amp;&amp; L.Draw.Polyline) {
+    var shapeOpts = {};
+    if (opts.style) {
+      if (opts.style.color) shapeOpts.color = _this._colorToHex(opts.style.color);
+      if (opts.style.width) shapeOpts.weight = opts.style.width;
+    }
+    var drawer = new L.Draw.Polyline(this.native, { shapeOptions: shapeOpts });
+    drawer.enable();
+
+    var handler = function(e) {
+      _this.native.off(L.Draw.Event.CREATED, handler);
+      _this._drawHandler = null;
+      var latlngs = e.layer.getLatLngs();
+      var coords = [];
+      for (var i = 0; i &lt; latlngs.length; i++) {
+        coords.push(new bemap.Coordinate(latlngs[i].lng, latlngs[i].lat));
+      }
+      var lineStyle = opts.style || new bemap.LineStyle({
+        color: new bemap.Color(230, 57, 70, 1),
+        width: 3
+      });
+      var polyline = new bemap.Polyline(coords, { style: lineStyle });
+      var container = _this.native.getContainer();
+      if (container) container.classList.remove('bemap-drawing-active');
+      if (callback) {
+        callback(new bemap.MapEvent({ map: _this, bemapObject: polyline, coordinate: coords[0] }));
+      }
+      if (opts.addToMap !== false) {
+        _this.addPolyline(polyline);
+      }
+    };
+    this.native.on(L.Draw.Event.CREATED, handler);
+    this._drawHandler = { drawer: drawer, handler: handler };
+    var container = this.native.getContainer();
+    if (container) container.classList.add('bemap-drawing-active');
+    return new bemap.Listener({ native: drawer, bemapObject: null, key: 'drawPolyline' });
+  }
+
+  return this._clickDraw('Polyline', opts, callback);
+};
+
+bemap.LeafletMap.prototype.drawRectangle = function(options, callback) {
+  var opts = options || {};
+  var _this = this;
+  this.cancelDraw();
+
+  if (typeof L !== 'undefined' &amp;&amp; L.Draw &amp;&amp; L.Draw.Rectangle) {
+    var drawer = new L.Draw.Rectangle(this.native, {});
+    drawer.enable();
+    var handler = function(e) {
+      _this.native.off(L.Draw.Event.CREATED, handler);
+      _this._drawHandler = null;
+      var latlngs = e.layer.getLatLngs()[0];
+      var coords = [];
+      for (var i = 0; i &lt; latlngs.length; i++) {
+        coords.push(new bemap.Coordinate(latlngs[i].lng, latlngs[i].lat));
+      }
+      var rectStyle = opts.style || new bemap.PolygonStyle({
+        fillColor: new bemap.Color(0, 102, 204, 0.2),
+        borderColor: new bemap.Color(0, 102, 204, 1),
+        borderWidth: 2
+      });
+      var polygon = new bemap.Polygon(coords, { style: rectStyle });
+      var container = _this.native.getContainer();
+      if (container) container.classList.remove('bemap-drawing-active');
+      if (callback) {
+        callback(new bemap.MapEvent({ map: _this, bemapObject: polygon, coordinate: coords[0] }));
+      }
+      if (opts.addToMap !== false) _this.addPolygon(polygon);
+      if (opts.editable !== false) _this.editPolygon(polygon, callback);
+    };
+    this.native.on(L.Draw.Event.CREATED, handler);
+    this._drawHandler = { drawer: drawer, handler: handler };
+    var containerR = this.native.getContainer();
+    if (containerR) containerR.classList.add('bemap-drawing-active');
+    return new bemap.Listener({ native: drawer, bemapObject: null, key: 'drawRectangle' });
+  }
+
+  return new bemap.Listener();
+};
+
+bemap.LeafletMap.prototype.drawCircle = function(options, callback) {
+  var opts = options || {};
+  var _this = this;
+  this.cancelDraw();
+
+  if (typeof L !== 'undefined' &amp;&amp; L.Draw &amp;&amp; L.Draw.Circle) {
+    var drawer = new L.Draw.Circle(this.native, {});
+    drawer.enable();
+    var handler = function(e) {
+      _this.native.off(L.Draw.Event.CREATED, handler);
+      _this._drawHandler = null;
+      var center = new bemap.Coordinate(e.layer.getLatLng().lng, e.layer.getLatLng().lat);
+      var radius = e.layer.getRadius();
+      var circle = new bemap.Circle(center, radius, { style: opts.style });
+      var container = _this.native.getContainer();
+      if (container) container.classList.remove('bemap-drawing-active');
+      if (callback) callback(new bemap.MapEvent({ map: _this, bemapObject: circle, coordinate: center }));
+      if (opts.addToMap !== false) _this.addCircle(circle);
+    };
+    this.native.on(L.Draw.Event.CREATED, handler);
+    this._drawHandler = { drawer: drawer, handler: handler };
+    var container = this.native.getContainer();
+    if (container) container.classList.add('bemap-drawing-active');
+    return new bemap.Listener({ native: drawer, bemapObject: null, key: 'drawCircle' });
+  }
+  return new bemap.Listener();
+};
+
+bemap.LeafletMap.prototype.drawMarker = function(options, callback) {
+  var _this = this;
+  this.cancelDraw();
+  var clickHandler = function(e) {
+    _this.native.off('click', clickHandler);
+    var coord = new bemap.Coordinate(e.latlng.lng, e.latlng.lat);
+    var marker = new bemap.Marker(coord, { icon: (options || {}).icon });
+    if (callback) {
+      callback(new bemap.MapEvent({ map: _this, bemapObject: marker, coordinate: coord }));
+    }
+    if ((options || {}).addToMap !== false) {
+      _this.addMarker(marker);
+    }
+  };
+  this.native.on('click', clickHandler);
+  this._drawHandler = { clickHandler: clickHandler };
+  return new bemap.Listener();
+};
+
+bemap.LeafletMap.prototype.cancelDraw = function() {
+  if (this._drawHandler) {
+    if (this._drawHandler.drawer) this._drawHandler.drawer.disable();
+    if (this._drawHandler.handler) this.native.off(L.Draw.Event.CREATED, this._drawHandler.handler);
+    if (this._drawHandler.clickHandler) this.native.off('click', this._drawHandler.clickHandler);
+    if (this._drawHandler.dblclickHandler) this.native.off('dblclick', this._drawHandler.dblclickHandler);
+    this._drawHandler = null;
+  }
+  // Clean up click-draw state
+  if (this._clickDrawState) {
+    var prevPoly = this._clickDrawState.getPreviewPolygon ? this._clickDrawState.getPreviewPolygon() : null;
+    var prevLine = this._clickDrawState.getPreviewPolyline ? this._clickDrawState.getPreviewPolyline() : null;
+    if (prevPoly) this.removePolygon(prevPoly);
+    if (prevLine) this.removePolyline(prevLine);
+    this._clickDrawState = null;
+    this.native.doubleClickZoom.enable();
+  }
+  var container = this.native.getContainer();
+  if (container) container.classList.remove('bemap-drawing-active');
+  return this;
+};
+
+bemap.LeafletMap.prototype.editPolygon = function(polygon, callback) {
+  if (!polygon || !polygon.native) return new bemap.Listener();
+  var _this = this;
+  var map = this.native;
+  var MERGE_PX = 15;
+
+  // Remove any previous vertex handles for this polygon
+  if (polygon._vertexHandlesLayer) {
+    map.removeLayer(polygon._vertexHandlesLayer);
+  }
+
+  var vertexHandlesLayer = L.layerGroup().addTo(map);
+  polygon._vertexHandlesLayer = vertexHandlesLayer;
+
+  var vertexIcon = L.divIcon({
+    className: 'leaflet-div-icon leaflet-editing-icon',
+    iconSize: [10, 10],
+    iconAnchor: [5, 5]
+  });
+
+  var middleIcon = L.divIcon({
+    className: 'leaflet-div-icon leaflet-editing-icon',
+    iconSize: [10, 10],
+    iconAnchor: [5, 5]
+  });
+
+  function syncCoords() {
+    var latlngs = polygon.native.getLatLngs()[0];
+    var coords = [];
+    for (var i = 0; i &lt; latlngs.length; i++) {
+      coords.push(new bemap.Coordinate(latlngs[i].lng, latlngs[i].lat));
+    }
+    polygon.coords = coords;
+  }
+
+  function rebuildHandles() {
+    vertexHandlesLayer.clearLayers();
+    var latlngs = polygon.native.getLatLngs()[0];
+    if (!latlngs || latlngs.length &lt; 3) return;
+
+    // Vertex handles
+    for (var i = 0; i &lt; latlngs.length; i++) {
+      (function(idx) {
+        var handle = L.marker(latlngs[idx], {
+          icon: vertexIcon,
+          draggable: true,
+          zIndexOffset: 2000
+        });
+
+        handle.on('drag', function(ev) {
+          var pos = ev.target.getLatLng();
+          var pts = polygon.native.getLatLngs()[0];
+          pts[idx] = pos;
+          polygon.native.setLatLngs(pts);
+          syncCoords();
+        });
+
+        handle.on('dragend', function(ev) {
+          var pts = polygon.native.getLatLngs()[0];
+          if (pts.length &lt;= 3) { rebuildHandles(); return; }
+          var dropPx = map.latLngToLayerPoint(ev.target.getLatLng());
+          for (var j = 0; j &lt; pts.length; j++) {
+            if (j === idx) continue;
+            var px = map.latLngToLayerPoint(pts[j]);
+            if (dropPx.distanceTo(px) &lt; MERGE_PX) {
+              var next = pts.filter(function(_, k) { return k !== idx; });
+              polygon.native.setLatLngs(next);
+              syncCoords();
+              rebuildHandles();
+              if (callback) {
+                callback(new bemap.MapEvent({ map: _this, bemapObject: polygon }));
+              }
+              return;
+            }
+          }
+          rebuildHandles();
+          if (callback) {
+            callback(new bemap.MapEvent({ map: _this, bemapObject: polygon }));
+          }
+        });
+
+        // Right-click to delete vertex
+        handle.on('contextmenu', function(ev) {
+          L.DomEvent.preventDefault(ev.originalEvent);
+          L.DomEvent.stopPropagation(ev.originalEvent);
+          var pts = polygon.native.getLatLngs()[0];
+          if (pts.length &lt;= 3) return;
+          var next = pts.filter(function(_, k) { return k !== idx; });
+          polygon.native.setLatLngs(next);
+          syncCoords();
+          rebuildHandles();
+          if (callback) {
+            callback(new bemap.MapEvent({ map: _this, bemapObject: polygon }));
+          }
+        });
+
+        vertexHandlesLayer.addLayer(handle);
+      })(i);
+    }
+
+    // Middle handles (click or drag to insert new vertex)
+    for (var m = 0; m &lt; latlngs.length; m++) {
+      (function(idx) {
+        var a = latlngs[idx];
+        var b = latlngs[(idx + 1) % latlngs.length];
+        var mid = L.latLng((a.lat + b.lat) / 2, (a.lng + b.lng) / 2);
+        var midHandle = L.marker(mid, {
+          icon: middleIcon,
+          draggable: true,
+          opacity: 0.5,
+          zIndexOffset: 1500
+        });
+
+        midHandle.on('dragstart', function() {
+          // Insert the new vertex
+          var pts = polygon.native.getLatLngs()[0].slice();
+          pts.splice(idx + 1, 0, midHandle.getLatLng());
+          polygon.native.setLatLngs(pts);
+          syncCoords();
+        });
+
+        midHandle.on('drag', function(ev) {
+          var pos = ev.target.getLatLng();
+          var pts = polygon.native.getLatLngs()[0];
+          pts[idx + 1] = pos;
+          polygon.native.setLatLngs(pts);
+          syncCoords();
+        });
+
+        midHandle.on('dragend', function() {
+          rebuildHandles();
+          if (callback) {
+            callback(new bemap.MapEvent({ map: _this, bemapObject: polygon }));
+          }
+        });
+
+        vertexHandlesLayer.addLayer(midHandle);
+      })(m);
+    }
+  }
+
+  // Remove previous click handler if editPolygon was called before
+  if (polygon._editClickHandler) {
+    polygon.native.off('click', polygon._editClickHandler);
+  }
+
+  // Also allow clicking on polygon edge to insert vertex
+  var editClickHandler = function(ev) {
+    var pts = polygon.native.getLatLngs()[0];
+    var clickPx = map.latLngToLayerPoint(ev.latlng);
+    var bestIdx = 0, bestDist = Infinity;
+    for (var i = 0; i &lt; pts.length; i++) {
+      var a = map.latLngToLayerPoint(pts[i]);
+      var b = map.latLngToLayerPoint(pts[(i + 1) % pts.length]);
+      var d = _this._distToSegmentPxLeaflet(clickPx, a, b);
+      if (d &lt; bestDist) { bestDist = d; bestIdx = i; }
+    }
+    if (bestDist &lt; 20) {
+      var next = pts.slice();
+      next.splice(bestIdx + 1, 0, ev.latlng);
+      polygon.native.setLatLngs(next);
+      syncCoords();
+      rebuildHandles();
+      if (callback) {
+        callback(new bemap.MapEvent({ map: _this, bemapObject: polygon }));
+      }
+    }
+  };
+  polygon.native.on('click', editClickHandler);
+  polygon._editClickHandler = editClickHandler;
+
+  rebuildHandles();
+
+  return new bemap.Listener({ native: polygon.native, bemapObject: polygon, key: 'editPolygon' });
+};
+
+bemap.LeafletMap.prototype._distToSegmentPxLeaflet = function(p, a, b) {
+  var dx = b.x - a.x, dy = b.y - a.y;
+  if (dx === 0 &amp;&amp; dy === 0) return p.distanceTo(a);
+  var t = Math.max(0, Math.min(1, ((p.x - a.x) * dx + (p.y - a.y) * dy) / (dx * dx + dy * dy)));
+  var proj = L.point(a.x + t * dx, a.y + t * dy);
+  return p.distanceTo(proj);
+};
+
+/**
+ * Click-based drawing fallback (when L.Draw is not loaded).
+ */
+bemap.LeafletMap.prototype._clickDraw = function(type, opts, callback) {
+  var _this = this;
+  var coords = [];
+  var previewPolyline = null;
+  var previewPolygon = null;
+  var defaultPolyStyle = new bemap.PolygonStyle({
+    fillColor: new bemap.Color(0, 102, 204, 0.2),
+    borderColor: new bemap.Color(0, 102, 204, 1),
+    borderWidth: 2
+  });
+  var defaultLineStyle = new bemap.LineStyle({
+    color: new bemap.Color(230, 57, 70, 1),
+    width: 3
+  });
+  var style = opts.style || (type === 'Polyline' ? defaultLineStyle : defaultPolyStyle);
+
+  this.native.doubleClickZoom.disable();
+
+  var clickHandler = function(e) {
+    coords.push(new bemap.Coordinate(e.latlng.lng, e.latlng.lat));
+
+    // Update preview
+    if (previewPolygon) { _this.removePolygon(previewPolygon); previewPolygon = null; }
+    if (previewPolyline) { _this.removePolyline(previewPolyline); previewPolyline = null; }
+
+    if (coords.length === 2) {
+      previewPolyline = new bemap.Polyline(coords, { style: style });
+      _this.addPolyline(previewPolyline);
+    } else if (coords.length >= 3) {
+      if (type === 'Polygon') {
+        previewPolygon = new bemap.Polygon(coords, { style: style });
+        _this.addPolygon(previewPolygon);
+      } else {
+        previewPolyline = new bemap.Polyline(coords, { style: style });
+        _this.addPolyline(previewPolyline);
+      }
+    }
+  };
+
+  var dblclickHandler = function() {
+    _this.native.off('click', clickHandler);
+    _this.native.off('dblclick', dblclickHandler);
+    _this.native.doubleClickZoom.enable();
+
+    if (previewPolygon) { _this.removePolygon(previewPolygon); previewPolygon = null; }
+    if (previewPolyline) { _this.removePolyline(previewPolyline); previewPolyline = null; }
+
+    var container = _this.native.getContainer();
+    if (container) container.classList.remove('bemap-drawing-active');
+
+    if (coords.length >= 3 &amp;&amp; type === 'Polygon') {
+      var polygon = new bemap.Polygon(coords, { style: style });
+      if (callback) callback(new bemap.MapEvent({ map: _this, bemapObject: polygon, coordinate: coords[0] }));
+      if (opts.addToMap !== false) _this.addPolygon(polygon);
+      if (opts.editable !== false) _this.editPolygon(polygon, callback);
+    } else if (coords.length >= 2 &amp;&amp; type === 'Polyline') {
+      var polyline = new bemap.Polyline(coords, { style: style });
+      if (callback) callback(new bemap.MapEvent({ map: _this, bemapObject: polyline, coordinate: coords[0] }));
+      if (opts.addToMap !== false) _this.addPolyline(polyline);
+    }
+    _this._clickDrawState = null;
+  };
+
+  this.native.on('click', clickHandler);
+  this.native.on('dblclick', dblclickHandler);
+  this._drawHandler = { clickHandler: clickHandler, dblclickHandler: dblclickHandler };
+  this._clickDrawState = {
+    coords: coords,
+    getPreviewPolygon: function() { return previewPolygon; },
+    getPreviewPolyline: function() { return previewPolyline; }
+  };
+
+  var container = this.native.getContainer();
+  if (container) container.classList.add('bemap-drawing-active');
+
+  return new bemap.Listener();
+};
+
+/**
+ * Helper: convert bemap.Color to hex string.
+ */
+bemap.LeafletMap.prototype._colorToHex = function(color) {
+  if (!color) return '#000000';
+  var r = color.getRed ? color.getRed() : 0;
+  var g = color.getGreen ? color.getGreen() : 0;
+  var b = color.getBlue ? color.getBlue() : 0;
+  return '#' + ((1 &lt;&lt; 24) + (r &lt;&lt; 16) + (g &lt;&lt; 8) + b).toString(16).slice(1);
+};
+</code></pre>
+        </article>
+    </section>
+
+
+
+
+</div>
+
+<nav>
+    <h2><a href="index.html">Home</a></h2><h3>Classes</h3><ul><li><a href="bemap.AclDetailsResponse.html">AclDetailsResponse</a></li><li><a href="bemap.AclLabel.html">AclLabel</a></li><li><a href="bemap.AclService.html">AclService</a></li><li><a href="bemap.Address.html">Address</a></li><li><a href="bemap.AttributionWidget.html">AttributionWidget</a></li><li><a href="bemap.Autocomplete.html">Autocomplete</a></li><li><a href="bemap.AutocompleteElement.html">AutocompleteElement</a></li><li><a href="bemap.AutocompleteGeocodingRequest.html">AutocompleteGeocodingRequest</a></li><li><a href="bemap.AutocompleteGeocodingResponse.html">AutocompleteGeocodingResponse</a></li><li><a href="bemap.BemapLayer.html">BemapLayer</a></li><li><a href="bemap.BoundingBox.html">BoundingBox</a></li><li><a href="bemap.BrowserCache.html">BrowserCache</a></li><li><a href="bemap.BuildingsLayer.html">BuildingsLayer</a></li><li><a href="bemap.ChargingPoint.html">ChargingPoint</a></li><li><a href="bemap.ChargingStation.html">ChargingStation</a></li><li><a href="bemap.ChargingStationPool.html">ChargingStationPool</a></li><li><a href="bemap.ChargingStations.html">ChargingStations</a></li><li><a href="bemap.ChargingStationSearchRequest.html">ChargingStationSearchRequest</a></li><li><a href="bemap.ChargingStationSearchResponse.html">ChargingStationSearchResponse</a></li><li><a href="bemap.ChargingStationStep.html">ChargingStationStep</a></li><li><a href="bemap.ChargingTime.html">ChargingTime</a></li><li><a href="bemap.ChargingTimeRequest.html">ChargingTimeRequest</a></li><li><a href="bemap.ChargingTimeResponse.html">ChargingTimeResponse</a></li><li><a href="bemap.Circle.html">Circle</a></li><li><a href="bemap.CircleStyle.html">CircleStyle</a></li><li><a href="bemap.clusterStyle.html">clusterStyle</a></li><li><a href="bemap.Color.html">Color</a></li><li><a href="bemap.CondMaxSpeed.html">CondMaxSpeed</a></li><li><a href="bemap.Context.html">Context</a></li><li><a href="bemap.Coordinate.html">Coordinate</a></li><li><a href="bemap.CoordinateSat.html">CoordinateSat</a></li><li><a href="bemap.Destination.html">Destination</a></li><li><a href="bemap.Error.html">Error</a></li><li><a href="bemap.EvBrand.html">EvBrand</a></li><li><a href="bemap.EvReachableArea.html">EvReachableArea</a></li><li><a href="bemap.EvReachableAreaRequest.html">EvReachableAreaRequest</a></li><li><a href="bemap.EvReachableAreaResponse.html">EvReachableAreaResponse</a></li><li><a href="bemap.EvseRouting.html">EvseRouting</a></li><li><a href="bemap.EvSmartRouting.html">EvSmartRouting</a></li><li><a href="bemap.EvSmartRoutingRequest.html">EvSmartRoutingRequest</a></li><li><a href="bemap.EvSmartRoutingResponse.html">EvSmartRoutingResponse</a></li><li><a href="bemap.EvStepPoint.html">EvStepPoint</a></li><li><a href="bemap.EvVehicle.html">EvVehicle</a></li><li><a href="bemap.EvVehicles.html">EvVehicles</a></li><li><a href="bemap.Exception.html">Exception</a></li><li><a href="bemap.GeoAutocomplete.html">GeoAutocomplete</a></li><li><a href="bemap.Geocoder.html">Geocoder</a></li><li><a href="bemap.GeocodingItem.html">GeocodingItem</a></li><li><a href="bemap.GeocodingRequest.html">GeocodingRequest</a></li><li><a href="bemap.GeocodingResponse.html">GeocodingResponse</a></li><li><a href="bemap.GeoSearchInfo.html">GeoSearchInfo</a></li><li><a href="bemap.GeoServerInfoResponse.html">GeoServerInfoResponse</a></li><li><a href="bemap.GeoServerInfoService.html">GeoServerInfoService</a></li><li><a href="bemap.GeoServerServiceInfo.html">GeoServerServiceInfo</a></li><li><a href="bemap.GeoServerServiceLimit.html">GeoServerServiceLimit</a></li><li><a href="bemap.HeatmapLayer.html">HeatmapLayer</a></li><li><a href="bemap.Icon.html">Icon</a></li><li><a href="bemap.Isochrone.html">Isochrone</a></li><li><a href="bemap.Layer.html">Layer</a></li><li><a href="bemap.LeafletMap.html">LeafletMap</a></li><li><a href="bemap.LineStyle.html">LineStyle</a></li><li><a href="bemap.Listener.html">Listener</a></li><li><a href="bemap.Map.html">Map</a></li><li><a href="bemap.MapEvent.html">MapEvent</a></li><li><a href="bemap.MapLibreMap.html">MapLibreMap</a></li><li><a href="bemap.Marker.html">Marker</a></li><li><a href="bemap.MultiMarker.html">MultiMarker</a></li><li><a href="bemap.NearPoint.html">NearPoint</a></li><li><a href="bemap.NearPoiRequest.html">NearPoiRequest</a></li><li><a href="bemap.NearPoiResponse.html">NearPoiResponse</a></li><li><a href="bemap.NearPoiSearch.html">NearPoiSearch</a></li><li><a href="bemap.Object.html">Object</a></li><li><a href="bemap.Ol3Map.html">Ol3Map</a></li><li><a href="bemap.OlMap.html">OlMap</a></li><li><a href="bemap.OsmLayer.html">OsmLayer</a></li><li><a href="bemap.PMTilesLayer.html">PMTilesLayer</a></li><li><a href="bemap.Polygon.html">Polygon</a></li><li><a href="bemap.PolygonStyle.html">PolygonStyle</a></li><li><a href="bemap.Polyline.html">Polyline</a></li><li><a href="bemap.Popup.html">Popup</a></li><li><a href="bemap.PostalAddress.html">PostalAddress</a></li><li><a href="bemap.RasterLayer.html">RasterLayer</a></li><li><a href="bemap.ReverseGeocoder.html">ReverseGeocoder</a></li><li><a href="bemap.ReverseGeocodingRequest.html">ReverseGeocodingRequest</a></li><li><a href="bemap.RevGeoSearchInfo.html">RevGeoSearchInfo</a></li><li><a href="bemap.RoadFeature.html">RoadFeature</a></li><li><a href="bemap.Route.html">Route</a></li><li><a href="bemap.Route.Event.html">Event</a></li><li><a href="bemap.Route.RoutesheetInstruction.html">RoutesheetInstruction</a></li><li><a href="bemap.Routing.html">Routing</a></li><li><a href="bemap.RoutingDestination.html">RoutingDestination</a></li><li><a href="bemap.RoutingInstruction.html">RoutingInstruction</a></li><li><a href="bemap.RoutingRequest.html">RoutingRequest</a></li><li><a href="bemap.RoutingResponse.html">RoutingResponse</a></li><li><a href="bemap.RoutingRoute.html">RoutingRoute</a></li><li><a href="bemap.RoutingSummary.html">RoutingSummary</a></li><li><a href="bemap.RoutingV2.html">RoutingV2</a></li><li><a href="bemap.RoutingVehicleProfile.html">RoutingVehicleProfile</a></li><li><a href="bemap.RoutingWaypoint.html">RoutingWaypoint</a></li><li><a href="bemap.Service.html">Service</a></li><li><a href="bemap.TextStyle.html">TextStyle</a></li><li><a href="bemap.TilesAuth.html">TilesAuth</a></li><li><a href="bemap.TilesOverlayCatalog.html">TilesOverlayCatalog</a></li><li><a href="global.html#bemap#.TraceRoute">TraceRoute</a></li><li><a href="bemap.TraceRouteDestination.html">TraceRouteDestination</a></li><li><a href="bemap.TraceRouteRequest.html">TraceRouteRequest</a></li><li><a href="bemap.VectorLayer.html">VectorLayer</a></li><li><a href="bemap.VectorTileLayer.html">VectorTileLayer</a></li><li><a href="bemap.WmsLayer.html">WmsLayer</a></li></ul><h3>Global</h3><ul><li><a href="global.html#AC">AC</a></li><li><a href="global.html#AC_SINGLE_PHASE">AC_SINGLE_PHASE</a></li><li><a href="global.html#AC_THREE_PHASES">AC_THREE_PHASES</a></li><li><a href="global.html#bemap">bemap</a></li><li><a href="global.html#DC">DC</a></li><li><a href="global.html#NA">NA</a></li></ul>
+</nav>
+
+<br class="clear">
+
+<footer>
+    Documentation generated by <a href="https://github.com/jsdoc/jsdoc">JSDoc 3.6.3</a> on Tue Jun 02 2026 11:46:44 GMT+0200 (heure d’été d’Europe centrale)
+</footer>
+
+<script> prettyPrint(); </script>
+<script src="scripts/linenumber.js"> </script>
+</body>
+</html>

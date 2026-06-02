@@ -1,0 +1,677 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>JSDoc: Source: bemap-attribution/bemap-attribution-widget.js</title>
+
+    <script src="scripts/prettify/prettify.js"> </script>
+    <script src="scripts/prettify/lang-css.js"> </script>
+    <!--[if lt IE 9]>
+      <script src="//html5shiv.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+    <link type="text/css" rel="stylesheet" href="styles/prettify-tomorrow.css">
+    <link type="text/css" rel="stylesheet" href="styles/jsdoc-default.css">
+</head>
+
+<body>
+
+<div id="main">
+
+    <h1 class="page-title">Source: bemap-attribution/bemap-attribution-widget.js</h1>
+
+    
+
+
+
+    
+    <section>
+        <article>
+            <pre class="prettyprint source linenums"><code>/**
+ * BeNomad BeMap JavaScript API - AttributionWidget
+ *
+ * A single, consistent attributions widget shipped across all three map
+ * engines (Leaflet, OpenLayers, MapLibre). Visually it is a small ⓘ info
+ * icon sitting in a corner of the map; clicking or focussing it expands
+ * a popover panel listing every legal mention that applies to the
+ * current view (data source, rendering library, BeNomad copyright, any
+ * customer-added line).
+ *
+ * Engine detection is internal — the same constructor works for any
+ * `bemap.LeafletMap`, `bemap.OlMap` / `bemap.Ol3Map`, or `bemap.MapLibreMap`.
+ *
+ * @since 1.5.0
+ */
+
+/**
+ * @classdesc
+ * AttributionWidget — cross-engine map credits and legal mentions panel.
+ *
+ * Customers don't usually instantiate this directly; it is created
+ * automatically by each map constructor when `options.attribution`
+ * is omitted or set to a truthy value. Power users who want a fully
+ * customised setup can construct it explicitly.
+ *
+ * @public
+ * @constructor
+ * @since 1.5.0
+ * @param {bemap.Map} map The bemap map instance the widget attaches to.
+ * @param {Object} [options]
+ * @param {String} [options.position='bottom-right'] One of 'top-left' / 'top-right' / 'bottom-left' / 'bottom-right'.
+ * @param {Array.&lt;String|{text:String,href:String}>} [options.customLines] Extra attribution lines (brand mention, overlay data licence, etc.). Each entry may be a plain string or a `{ text, href }` object.
+ * @param {String} [options.noticesUrl] URL to the full open-source notices document (typically `OPEN_SOURCE_NOTICES.md` or `.txt`). When set, the popover shows a "Open source notices" footer link that opens the URL in a new tab.
+ * @param {String} [options.noticesLabel='Open source notices'] Label of the notices footer link.
+ * @param {Boolean} [options.enabled=true] When false, the widget is constructed but not rendered.
+ */
+bemap.AttributionWidget = function(map, options) {
+    var opts = options || {};
+
+    if (!map) {
+        if (typeof console !== 'undefined' &amp;&amp; console.warn) {
+            console.warn('bemap.AttributionWidget: a map instance is required.');
+        }
+        return;
+    }
+
+    /**
+     * @type {bemap.Map}
+     * @protected
+     */
+    this.map = map;
+
+    /**
+     * @type {String}
+     * @protected
+     */
+    this.position = bemap.AttributionWidget._normalisePosition(opts.position);
+
+    /**
+     * @type {Array.&lt;String|{text:String,href:String}>}
+     * @protected
+     */
+    this.customLines = (opts.customLines &amp;&amp; opts.customLines.slice) ? opts.customLines.slice() : [];
+
+    /**
+     * @type {String|null}
+     * @protected
+     */
+    this.noticesUrl = (typeof opts.noticesUrl === 'string' &amp;&amp; opts.noticesUrl) ? opts.noticesUrl : null;
+
+    /**
+     * @type {String}
+     * @protected
+     */
+    this.noticesLabel = (typeof opts.noticesLabel === 'string' &amp;&amp; opts.noticesLabel) ? opts.noticesLabel : 'Open source notices';
+
+    /**
+     * @type {Boolean}
+     * @protected
+     */
+    this.enabled = opts.enabled !== false;
+
+    /**
+     * Off by default — the popover is for legal mentions, not UI controls.
+     * Opt-in via `new bemap.AttributionWidget(map, { keyboardToggle: true })`.
+     * @type {Boolean}
+     * @protected
+     */
+    this.showKeyboardToggle = (opts.keyboardToggle === true);
+
+    /**
+     * Engine identifier: 'leaflet' | 'openlayers' | 'maplibre' | 'unknown'.
+     * @type {String}
+     * @protected
+     */
+    this._engine = bemap.AttributionWidget._detectEngine(map);
+
+    /**
+     * @type {HTMLElement|null}
+     * @private
+     */
+    this._iconElement = null;
+
+    /**
+     * @type {HTMLElement|null}
+     * @private
+     */
+    this._popoverElement = null;
+
+    /**
+     * @type {Function|null}
+     * @private
+     */
+    this._documentClickHandler = null;
+
+    if (this.enabled) {
+        this._render();
+    }
+};
+
+/* ============================================================
+ * Static helpers
+ * ============================================================ */
+
+bemap.AttributionWidget._VALID_POSITIONS = ['top-left', 'top-right', 'bottom-left', 'bottom-right'];
+
+bemap.AttributionWidget._normalisePosition = function(value) {
+    if (typeof value !== 'string') return 'bottom-right';
+    var idx = bemap.AttributionWidget._VALID_POSITIONS.indexOf(value);
+    return idx >= 0 ? bemap.AttributionWidget._VALID_POSITIONS[idx] : 'bottom-right';
+};
+
+bemap.AttributionWidget._detectEngine = function(map) {
+    if (typeof bemap.LeafletMap !== 'undefined' &amp;&amp; map instanceof bemap.LeafletMap) {
+        return 'leaflet';
+    }
+    if (typeof bemap.MapLibreMap !== 'undefined' &amp;&amp; map instanceof bemap.MapLibreMap) {
+        return 'maplibre';
+    }
+    if ((typeof bemap.OlMap !== 'undefined' &amp;&amp; map instanceof bemap.OlMap) ||
+        (typeof bemap.Ol3Map !== 'undefined' &amp;&amp; map instanceof bemap.Ol3Map)) {
+        return 'openlayers';
+    }
+    return 'unknown';
+};
+
+/* ============================================================
+ * Public methods
+ * ============================================================ */
+
+/**
+ * Render the widget if it is not already attached to the DOM.
+ * @public
+ * @return {bemap.AttributionWidget} this.
+ */
+bemap.AttributionWidget.prototype.show = function() {
+    this.enabled = true;
+    if (!this._iconElement) {
+        this._render();
+    }
+    if (this._iconElement) this._iconElement.style.display = '';
+    return this;
+};
+
+/**
+ * Hide the widget (icon and popover) without destroying it.
+ * @public
+ * @return {bemap.AttributionWidget} this.
+ */
+bemap.AttributionWidget.prototype.hide = function() {
+    this.enabled = false;
+    if (this._iconElement) this._iconElement.style.display = 'none';
+    if (this._popoverElement) this._popoverElement.style.display = 'none';
+    return this;
+};
+
+/**
+ * Move the icon to a different corner of the map.
+ * @public
+ * @param {String} corner 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right'.
+ * @return {bemap.AttributionWidget} this.
+ */
+bemap.AttributionWidget.prototype.setPosition = function(corner) {
+    var normalised = bemap.AttributionWidget._normalisePosition(corner);
+    this.position = normalised;
+    if (this._iconElement) {
+        this._iconElement.className = 'bemap-attribution-icon bemap-attribution-' + normalised;
+    }
+    if (this._popoverElement) {
+        this._popoverElement.className = 'bemap-attribution-popover bemap-attribution-popover-' + normalised;
+    }
+    return this;
+};
+
+/**
+ * Replace the customer-supplied extra attribution lines.
+ * @public
+ * @param {Array.&lt;String>} lines
+ * @return {bemap.AttributionWidget} this.
+ */
+bemap.AttributionWidget.prototype.setCustomLines = function(lines) {
+    this.customLines = (lines &amp;&amp; lines.slice) ? lines.slice() : [];
+    this.refresh();
+    return this;
+};
+
+/**
+ * Re-compute the attribution line set and re-render the popover content.
+ * @public
+ * @return {bemap.AttributionWidget} this.
+ */
+bemap.AttributionWidget.prototype.refresh = function() {
+    if (this._popoverElement) {
+        this._refreshPopoverContent(this._popoverElement);
+    }
+    return this;
+};
+
+/**
+ * Detach the widget from the DOM and clean up event listeners.
+ * @public
+ * @return {bemap.AttributionWidget} this.
+ */
+bemap.AttributionWidget.prototype.destroy = function() {
+    if (this._documentClickHandler &amp;&amp; typeof document !== 'undefined') {
+        document.removeEventListener('click', this._documentClickHandler);
+        this._documentClickHandler = null;
+    }
+    if (this._iconElement &amp;&amp; this._iconElement.parentNode) {
+        this._iconElement.parentNode.removeChild(this._iconElement);
+    }
+    if (this._popoverElement &amp;&amp; this._popoverElement.parentNode) {
+        this._popoverElement.parentNode.removeChild(this._popoverElement);
+    }
+    this._iconElement = null;
+    this._popoverElement = null;
+    return this;
+};
+
+/**
+ * @public
+ * @return {String} The detected engine identifier.
+ */
+bemap.AttributionWidget.prototype.getEngine = function() {
+    return this._engine;
+};
+
+/**
+ * @public
+ * @return {Array.&lt;String>} The current list of attribution lines that the popover would show.
+ */
+bemap.AttributionWidget.prototype.getLines = function() {
+    return this._computeLines();
+};
+
+/* ============================================================
+ * Internal — line composition
+ * ============================================================ */
+
+/**
+ * Compose the popover line entries as objects (text + optional href).
+ * Used internally by the renderer; the public getLines() returns only text.
+ * @private
+ * @return {Array.&lt;{text:String, href:?String}>}
+ */
+bemap.AttributionWidget.prototype._computeLineEntries = function() {
+    var entries = [];
+    var seen = {};
+    var year = new Date().getFullYear();
+
+    function add(text, href) {
+        if (!text || seen[text]) return;
+        seen[text] = true;
+        entries.push({ text: text, href: href || null });
+    }
+
+    // 1. BeNomad copyright
+    add('© BeNomad ' + year, 'https://benomad.com');
+
+    // 2. Rendering engine notice — short text + link to the project page.
+    //    The detailed BSD / ISC / MIT licence text lives in OPEN_SOURCE_NOTICES.txt
+    //    shipped with the library; we do not duplicate it here.
+    if (this._engine === 'leaflet') {
+        add('Leaflet', 'https://leafletjs.com');
+    } else if (this._engine === 'openlayers') {
+        add('OpenLayers', 'https://openlayers.org');
+    } else if (this._engine === 'maplibre') {
+        add('MapLibre', 'https://maplibre.org');
+    }
+
+    // 3. Data source attribution, derived from the Context's geoserver setting.
+    //    This is a legal obligation for the data licence (OSM ODbL / HERE terms).
+    var geoserver = this._getGeoserver();
+    if (geoserver === 'here') {
+        add('© HERE', 'https://legal.here.com/terms');
+    } else {
+        // Default to OSM contributors — the WMS background and the public
+        // BeNomad Tiles distribution are both derived from OpenStreetMap.
+        add('© OpenStreetMap contributors', 'https://www.openstreetmap.org/copyright');
+    }
+
+    // 4. Per-layer attributions surfaced via the base Map / Layer API.
+    //    Deduplicated against the auto-added lines above.
+    var layerEntries = this._collectLayerAttributions();
+    for (var i = 0; i &lt; layerEntries.length; i++) {
+        add(layerEntries[i].text, layerEntries[i].href);
+    }
+
+    // 5. Customer-supplied custom lines (string or { text, href } object).
+    for (var j = 0; j &lt; this.customLines.length; j++) {
+        var line = this.customLines[j];
+        if (typeof line === 'string') {
+            add(line, null);
+        } else if (line &amp;&amp; typeof line === 'object' &amp;&amp; line.text) {
+            add(line.text, line.href || null);
+        }
+    }
+
+    return entries;
+};
+
+/**
+ * Read the geoserver hint from the map's Context, used to drive the
+ * automatic data-source attribution line. Returns a lowercased string
+ * such as 'osm', 'here', or null when no Context is attached.
+ * @private
+ * @return {String|null}
+ */
+bemap.AttributionWidget.prototype._getGeoserver = function() {
+    var map = this.map;
+    if (!map || !map.ctx) return null;
+    var gs = map.ctx.geoserver;
+    return (typeof gs === 'string') ? gs.toLowerCase() : null;
+};
+
+/**
+ * Compose the popover lines as plain strings — kept for backward compatibility
+ * with the public `getLines()` accessor.
+ * @private
+ * @return {Array.&lt;String>}
+ */
+bemap.AttributionWidget.prototype._computeLines = function() {
+    var entries = this._computeLineEntries();
+    var lines = [];
+    for (var i = 0; i &lt; entries.length; i++) lines.push(entries[i].text);
+    return lines;
+};
+
+/**
+ * Pull attribution from every layer attached to the map.
+ * Each layer can return either a string (text only) or an object
+ * `{ text, href }` (clickable line). Duplicates are eliminated by `text`.
+ * @private
+ * @return {Array.&lt;{text:String, href:?String}>}
+ */
+bemap.AttributionWidget.prototype._collectLayerAttributions = function() {
+    var result = [];
+    var seen = {};
+    var map = this.map;
+
+    if (map &amp;&amp; typeof map.getLayers === 'function') {
+        var layers;
+        try { layers = map.getLayers(); } catch (e) { layers = null; }
+        if (layers &amp;&amp; layers.length) {
+            for (var i = 0; i &lt; layers.length; i++) {
+                var layer = layers[i];
+                if (!layer) continue;
+                var raw = null;
+                if (typeof layer.getAttribution === 'function') {
+                    try { raw = layer.getAttribution(); } catch (e) { raw = null; }
+                } else if (layer.attribution) {
+                    raw = layer.attribution;
+                }
+                if (!raw) continue;
+
+                var entry = (typeof raw === 'string')
+                    ? { text: raw, href: null }
+                    : (raw &amp;&amp; raw.text ? { text: raw.text, href: raw.href || null } : null);
+
+                if (entry &amp;&amp; !seen[entry.text]) {
+                    seen[entry.text] = true;
+                    result.push(entry);
+                }
+            }
+        }
+    }
+
+    return result;
+};
+
+/* ============================================================
+ * Internal — DOM rendering
+ * ============================================================ */
+
+bemap.AttributionWidget.prototype._getMapContainer = function() {
+    var map = this.map;
+    if (!map) return null;
+
+    var native = map.native;
+    if (native) {
+        if (this._engine === 'leaflet' &amp;&amp; typeof native.getContainer === 'function') {
+            return native.getContainer();
+        }
+        if (this._engine === 'openlayers' &amp;&amp; typeof native.getTargetElement === 'function') {
+            return native.getTargetElement();
+        }
+        if (this._engine === 'maplibre' &amp;&amp; typeof native.getContainer === 'function') {
+            return native.getContainer();
+        }
+    }
+
+    // Fallback: target attribute on the bemap Map instance
+    if (map.target) {
+        if (typeof map.target === 'string') {
+            return (typeof document !== 'undefined') ? document.getElementById(map.target) : null;
+        }
+        return map.target;
+    }
+    return null;
+};
+
+/**
+ * Inject minimal inline CSS so the widget renders even when the consumer
+ * page never linked `bemap-js-api.css`. Without this, downstream apps
+ * (evmove5, BeMap-Doc, …) that only include the JS bundle see the icon
+ * as a zero-size unstyled div. The full stylesheet still wins on cascade
+ * when linked — we only declare the layout / visibility essentials.
+ * @private
+ */
+bemap.AttributionWidget._ensureBaseStyles = function() {
+    if (typeof document === 'undefined') return;
+    if (bemap.AttributionWidget._stylesInjected) return;
+    if (document.getElementById('bemap-attribution-base-styles')) {
+        bemap.AttributionWidget._stylesInjected = true;
+        return;
+    }
+    // Visibility-first defaults: opacity 1 (vs the linked stylesheet's 0.65)
+    // so the widget is obvious by default in apps that have never linked
+    // bemap-js-api.css. Apps that DO link the CSS will see the linked
+    // 0.65 win on cascade (link tag in head precedes runtime-injected
+    // &lt;style> in document order, but equal-specificity-later-wins means
+    // the injected rules WOULD win — that's why we keep the injected
+    // values aligned with the desired final UX, not the legacy 0.65).
+    var css = [
+        '.bemap-attribution-icon{position:absolute;width:24px;height:24px;border-radius:50%;',
+        'background:rgba(255,255,255,0.95);box-shadow:0 1px 3px rgba(0,0,0,0.25);',
+        'display:flex;align-items:center;justify-content:center;cursor:pointer;z-index:1000;',
+        'opacity:1;transition:opacity .15s,background .15s,box-shadow .15s;',
+        'font-family:Arial,Helvetica,sans-serif;color:#333;-webkit-user-select:none;',
+        '-moz-user-select:none;-ms-user-select:none;user-select:none;}',
+        '.bemap-attribution-icon:hover{background:#fff;box-shadow:0 1px 6px rgba(0,0,0,0.3);}',
+        '.bemap-attribution-icon svg{width:14px;height:14px;}',
+        '.bemap-attribution-bottom-right{bottom:8px;right:8px;}',
+        '.bemap-attribution-bottom-left{bottom:8px;left:8px;}',
+        '.bemap-attribution-top-right{top:8px;right:8px;}',
+        '.bemap-attribution-top-left{top:8px;left:8px;}',
+        '.bemap-attribution-popover{position:absolute;background:#fff;border:1px solid #ccc;',
+        'border-radius:4px;padding:8px 10px;font:12px/1.4 Arial,Helvetica,sans-serif;color:#333;',
+        'box-shadow:0 2px 8px rgba(0,0,0,0.15);z-index:1001;max-width:280px;min-width:160px;}',
+        '.bemap-attribution-popover-bottom-right{bottom:44px;right:8px;}',
+        '.bemap-attribution-popover-bottom-left{bottom:44px;left:8px;}',
+        '.bemap-attribution-popover-top-right{top:44px;right:8px;}',
+        '.bemap-attribution-popover-top-left{top:44px;left:8px;}',
+        '.bemap-attribution-line{padding:3px 0;}',
+        '.bemap-attribution-line a{color:#0066cc;text-decoration:none;}',
+        '.bemap-attribution-line a:hover{text-decoration:underline;}',
+        '.bemap-attribution-notices{margin-top:6px;padding-top:6px;border-top:1px solid #eee;font-size:11px;}',
+        '.bemap-attribution-kbd-row{display:flex;align-items:center;justify-content:space-between;',
+        'margin-top:8px;padding-top:8px;border-top:1px solid #eee;}',
+        '.bemap-attribution-kbd-label{font-size:11px;color:#555;}',
+        '.bemap-attribution-kbd-toggle{position:relative;width:32px;height:18px;border:0;padding:0;',
+        'background:transparent;cursor:pointer;flex-shrink:0;}',
+        '.bemap-attribution-kbd-track{position:absolute;inset:0;background:#ccc;border-radius:9px;',
+        'transition:background .15s;}',
+        '.bemap-attribution-kbd-toggle.on .bemap-attribution-kbd-track{background:#0066cc;}',
+        '.bemap-attribution-kbd-thumb{position:absolute;top:2px;left:2px;width:14px;height:14px;',
+        'background:#fff;border-radius:50%;box-shadow:0 1px 2px rgba(0,0,0,0.25);',
+        'transition:left .15s;}',
+        '.bemap-attribution-kbd-toggle.on .bemap-attribution-kbd-thumb{left:16px;}',
+        '.bemap-attribution-kbd-toggle:focus{outline:2px solid #0066cc;outline-offset:2px;}'
+    ].join('');
+    var style = document.createElement('style');
+    style.id = 'bemap-attribution-base-styles';
+    style.type = 'text/css';
+    if (style.styleSheet) {
+        // IE legacy — bemap-js-api still claims IE11 in some retro tests.
+        style.styleSheet.cssText = css;
+    } else {
+        style.appendChild(document.createTextNode(css));
+    }
+    (document.head || document.getElementsByTagName('head')[0] || document.body).appendChild(style);
+    bemap.AttributionWidget._stylesInjected = true;
+};
+
+bemap.AttributionWidget.prototype._render = function() {
+    if (typeof document === 'undefined') return;
+    bemap.AttributionWidget._ensureBaseStyles();
+    var container = this._getMapContainer();
+    if (!container) return;
+
+    // Anchor absolute-positioned children (the icon / popover) to the map
+    // container itself rather than the document, in case the host page
+    // did not give the map div an explicit `position: relative`.
+    if (typeof window !== 'undefined' &amp;&amp; typeof window.getComputedStyle === 'function') {
+        var currentPos = window.getComputedStyle(container).position;
+        if (!currentPos || currentPos === 'static') {
+            container.style.position = 'relative';
+        }
+    }
+
+    var icon = document.createElement('div');
+    icon.className = 'bemap-attribution-icon bemap-attribution-' + this.position;
+    icon.setAttribute('role', 'button');
+    icon.setAttribute('aria-label', 'Map attributions');
+    icon.setAttribute('tabindex', '0');
+    icon.innerHTML = this._getIconSvg();
+
+    var popover = document.createElement('div');
+    popover.className = 'bemap-attribution-popover bemap-attribution-popover-' + this.position;
+    popover.style.display = 'none';
+
+    var self = this;
+    function togglePopover(event) {
+        if (event &amp;&amp; event.stopPropagation) event.stopPropagation();
+        if (popover.style.display === 'none') {
+            self._refreshPopoverContent(popover);
+            popover.style.display = 'block';
+        } else {
+            popover.style.display = 'none';
+        }
+    }
+
+    icon.addEventListener('click', togglePopover);
+    icon.addEventListener('keydown', function(e) {
+        if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            togglePopover(e);
+        }
+    });
+
+    // Click anywhere else to close
+    this._documentClickHandler = function(e) {
+        if (popover.style.display !== 'block') return;
+        if (icon.contains(e.target) || popover.contains(e.target)) return;
+        popover.style.display = 'none';
+    };
+    document.addEventListener('click', this._documentClickHandler);
+
+    container.appendChild(icon);
+    container.appendChild(popover);
+    this._iconElement = icon;
+    this._popoverElement = popover;
+};
+
+bemap.AttributionWidget.prototype._refreshPopoverContent = function(popoverEl) {
+    var entries = this._computeLineEntries();
+    var html = '';
+    var esc = bemap.AttributionWidget._escapeHtml;
+    for (var i = 0; i &lt; entries.length; i++) {
+        var entry = entries[i];
+        if (entry.href) {
+            html += '&lt;div class="bemap-attribution-line">'
+                +    '&lt;a href="' + esc(entry.href) + '" target="_blank" rel="noopener noreferrer">'
+                +    esc(entry.text)
+                +    '&lt;/a>&lt;/div>';
+        } else {
+            html += '&lt;div class="bemap-attribution-line">' + esc(entry.text) + '&lt;/div>';
+        }
+    }
+
+    // Keyboard-arrow navigation toggle. Available iff the engine adapter
+    // implements `setKeyboard()` (Leaflet, OL v10, MapLibre v5 all do).
+    // Hidden when neither the map nor the toggle was opted in via the
+    // widget option, so apps that have no keyboard concern stay clean.
+    if (this.showKeyboardToggle &amp;&amp; this.map &amp;&amp; typeof this.map.setKeyboard === 'function') {
+        var on = (typeof this.map.getKeyboard === 'function') ? this.map.getKeyboard() : false;
+        html += '&lt;div class="bemap-attribution-kbd-row">'
+            +    '&lt;span class="bemap-attribution-kbd-label">Keyboard arrows&lt;/span>'
+            +    '&lt;button type="button" class="bemap-attribution-kbd-toggle' + (on ? ' on' : '') + '"'
+            +      ' role="switch" aria-checked="' + (on ? 'true' : 'false') + '"'
+            +      ' aria-label="Toggle keyboard arrow navigation">'
+            +      '&lt;span class="bemap-attribution-kbd-track">&lt;/span>'
+            +      '&lt;span class="bemap-attribution-kbd-thumb">&lt;/span>'
+            +    '&lt;/button>'
+            +    '&lt;/div>';
+    }
+
+    if (this.noticesUrl) {
+        html += '&lt;div class="bemap-attribution-footer">'
+            +    '&lt;a href="' + esc(this.noticesUrl) + '" target="_blank" rel="noopener noreferrer">'
+            +    esc(this.noticesLabel)
+            +    ' &amp;rsaquo;&lt;/a>'
+            +    '&lt;/div>';
+    }
+    popoverEl.innerHTML = html;
+
+    // Wire the toggle (after innerHTML so the element exists).
+    var toggleEl = popoverEl.querySelector('.bemap-attribution-kbd-toggle');
+    if (toggleEl) {
+        var widget = this;
+        toggleEl.addEventListener('click', function (e) {
+            e.stopPropagation();
+            if (!widget.map || typeof widget.map.setKeyboard !== 'function') return;
+            var nextOn = !widget.map.getKeyboard();
+            widget.map.setKeyboard(nextOn);
+            toggleEl.classList.toggle('on', nextOn);
+            toggleEl.setAttribute('aria-checked', nextOn ? 'true' : 'false');
+        });
+    }
+};
+
+bemap.AttributionWidget._escapeHtml = function(s) {
+    return String(s)
+        .replace(/&amp;/g, '&amp;amp;')
+        .replace(/&lt;/g, '&amp;lt;')
+        .replace(/>/g, '&amp;gt;')
+        .replace(/"/g, '&amp;quot;')
+        .replace(/'/g, '&amp;#39;');
+};
+
+bemap.AttributionWidget.prototype._getIconSvg = function() {
+    return '&lt;svg width="18" height="18" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">' +
+           '&lt;circle cx="12" cy="12" r="10" fill="rgba(255,255,255,0.95)" stroke="#0066cc" stroke-width="1.5"/>' +
+           '&lt;text x="12" y="17" text-anchor="middle" font-family="Georgia,serif" font-size="14" font-weight="bold" fill="#0066cc">i&lt;/text>' +
+           '&lt;/svg>';
+};
+</code></pre>
+        </article>
+    </section>
+
+
+
+
+</div>
+
+<nav>
+    <h2><a href="index.html">Home</a></h2><h3>Classes</h3><ul><li><a href="bemap.AclDetailsResponse.html">AclDetailsResponse</a></li><li><a href="bemap.AclLabel.html">AclLabel</a></li><li><a href="bemap.AclService.html">AclService</a></li><li><a href="bemap.Address.html">Address</a></li><li><a href="bemap.AttributionWidget.html">AttributionWidget</a></li><li><a href="bemap.Autocomplete.html">Autocomplete</a></li><li><a href="bemap.AutocompleteElement.html">AutocompleteElement</a></li><li><a href="bemap.AutocompleteGeocodingRequest.html">AutocompleteGeocodingRequest</a></li><li><a href="bemap.AutocompleteGeocodingResponse.html">AutocompleteGeocodingResponse</a></li><li><a href="bemap.BemapLayer.html">BemapLayer</a></li><li><a href="bemap.BoundingBox.html">BoundingBox</a></li><li><a href="bemap.BrowserCache.html">BrowserCache</a></li><li><a href="bemap.BuildingsLayer.html">BuildingsLayer</a></li><li><a href="bemap.ChargingPoint.html">ChargingPoint</a></li><li><a href="bemap.ChargingStation.html">ChargingStation</a></li><li><a href="bemap.ChargingStationPool.html">ChargingStationPool</a></li><li><a href="bemap.ChargingStations.html">ChargingStations</a></li><li><a href="bemap.ChargingStationSearchRequest.html">ChargingStationSearchRequest</a></li><li><a href="bemap.ChargingStationSearchResponse.html">ChargingStationSearchResponse</a></li><li><a href="bemap.ChargingStationStep.html">ChargingStationStep</a></li><li><a href="bemap.ChargingTime.html">ChargingTime</a></li><li><a href="bemap.ChargingTimeRequest.html">ChargingTimeRequest</a></li><li><a href="bemap.ChargingTimeResponse.html">ChargingTimeResponse</a></li><li><a href="bemap.Circle.html">Circle</a></li><li><a href="bemap.CircleStyle.html">CircleStyle</a></li><li><a href="bemap.clusterStyle.html">clusterStyle</a></li><li><a href="bemap.Color.html">Color</a></li><li><a href="bemap.CondMaxSpeed.html">CondMaxSpeed</a></li><li><a href="bemap.Context.html">Context</a></li><li><a href="bemap.Coordinate.html">Coordinate</a></li><li><a href="bemap.CoordinateSat.html">CoordinateSat</a></li><li><a href="bemap.Destination.html">Destination</a></li><li><a href="bemap.Error.html">Error</a></li><li><a href="bemap.EvBrand.html">EvBrand</a></li><li><a href="bemap.EvReachableArea.html">EvReachableArea</a></li><li><a href="bemap.EvReachableAreaRequest.html">EvReachableAreaRequest</a></li><li><a href="bemap.EvReachableAreaResponse.html">EvReachableAreaResponse</a></li><li><a href="bemap.EvseRouting.html">EvseRouting</a></li><li><a href="bemap.EvSmartRouting.html">EvSmartRouting</a></li><li><a href="bemap.EvSmartRoutingRequest.html">EvSmartRoutingRequest</a></li><li><a href="bemap.EvSmartRoutingResponse.html">EvSmartRoutingResponse</a></li><li><a href="bemap.EvStepPoint.html">EvStepPoint</a></li><li><a href="bemap.EvVehicle.html">EvVehicle</a></li><li><a href="bemap.EvVehicles.html">EvVehicles</a></li><li><a href="bemap.Exception.html">Exception</a></li><li><a href="bemap.GeoAutocomplete.html">GeoAutocomplete</a></li><li><a href="bemap.Geocoder.html">Geocoder</a></li><li><a href="bemap.GeocodingItem.html">GeocodingItem</a></li><li><a href="bemap.GeocodingRequest.html">GeocodingRequest</a></li><li><a href="bemap.GeocodingResponse.html">GeocodingResponse</a></li><li><a href="bemap.GeoSearchInfo.html">GeoSearchInfo</a></li><li><a href="bemap.GeoServerInfoResponse.html">GeoServerInfoResponse</a></li><li><a href="bemap.GeoServerInfoService.html">GeoServerInfoService</a></li><li><a href="bemap.GeoServerServiceInfo.html">GeoServerServiceInfo</a></li><li><a href="bemap.GeoServerServiceLimit.html">GeoServerServiceLimit</a></li><li><a href="bemap.HeatmapLayer.html">HeatmapLayer</a></li><li><a href="bemap.Icon.html">Icon</a></li><li><a href="bemap.Isochrone.html">Isochrone</a></li><li><a href="bemap.Layer.html">Layer</a></li><li><a href="bemap.LeafletMap.html">LeafletMap</a></li><li><a href="bemap.LineStyle.html">LineStyle</a></li><li><a href="bemap.Listener.html">Listener</a></li><li><a href="bemap.Map.html">Map</a></li><li><a href="bemap.MapEvent.html">MapEvent</a></li><li><a href="bemap.MapLibreMap.html">MapLibreMap</a></li><li><a href="bemap.Marker.html">Marker</a></li><li><a href="bemap.MultiMarker.html">MultiMarker</a></li><li><a href="bemap.NearPoint.html">NearPoint</a></li><li><a href="bemap.NearPoiRequest.html">NearPoiRequest</a></li><li><a href="bemap.NearPoiResponse.html">NearPoiResponse</a></li><li><a href="bemap.NearPoiSearch.html">NearPoiSearch</a></li><li><a href="bemap.Object.html">Object</a></li><li><a href="bemap.Ol3Map.html">Ol3Map</a></li><li><a href="bemap.OlMap.html">OlMap</a></li><li><a href="bemap.OsmLayer.html">OsmLayer</a></li><li><a href="bemap.PMTilesLayer.html">PMTilesLayer</a></li><li><a href="bemap.Polygon.html">Polygon</a></li><li><a href="bemap.PolygonStyle.html">PolygonStyle</a></li><li><a href="bemap.Polyline.html">Polyline</a></li><li><a href="bemap.Popup.html">Popup</a></li><li><a href="bemap.PostalAddress.html">PostalAddress</a></li><li><a href="bemap.RasterLayer.html">RasterLayer</a></li><li><a href="bemap.ReverseGeocoder.html">ReverseGeocoder</a></li><li><a href="bemap.ReverseGeocodingRequest.html">ReverseGeocodingRequest</a></li><li><a href="bemap.RevGeoSearchInfo.html">RevGeoSearchInfo</a></li><li><a href="bemap.RoadFeature.html">RoadFeature</a></li><li><a href="bemap.Route.html">Route</a></li><li><a href="bemap.Route.Event.html">Event</a></li><li><a href="bemap.Route.RoutesheetInstruction.html">RoutesheetInstruction</a></li><li><a href="bemap.Routing.html">Routing</a></li><li><a href="bemap.RoutingDestination.html">RoutingDestination</a></li><li><a href="bemap.RoutingInstruction.html">RoutingInstruction</a></li><li><a href="bemap.RoutingRequest.html">RoutingRequest</a></li><li><a href="bemap.RoutingResponse.html">RoutingResponse</a></li><li><a href="bemap.RoutingRoute.html">RoutingRoute</a></li><li><a href="bemap.RoutingSummary.html">RoutingSummary</a></li><li><a href="bemap.RoutingV2.html">RoutingV2</a></li><li><a href="bemap.RoutingVehicleProfile.html">RoutingVehicleProfile</a></li><li><a href="bemap.RoutingWaypoint.html">RoutingWaypoint</a></li><li><a href="bemap.Service.html">Service</a></li><li><a href="bemap.TextStyle.html">TextStyle</a></li><li><a href="bemap.TilesAuth.html">TilesAuth</a></li><li><a href="bemap.TilesOverlayCatalog.html">TilesOverlayCatalog</a></li><li><a href="global.html#bemap#.TraceRoute">TraceRoute</a></li><li><a href="bemap.TraceRouteDestination.html">TraceRouteDestination</a></li><li><a href="bemap.TraceRouteRequest.html">TraceRouteRequest</a></li><li><a href="bemap.VectorLayer.html">VectorLayer</a></li><li><a href="bemap.VectorTileLayer.html">VectorTileLayer</a></li><li><a href="bemap.WmsLayer.html">WmsLayer</a></li></ul><h3>Global</h3><ul><li><a href="global.html#AC">AC</a></li><li><a href="global.html#AC_SINGLE_PHASE">AC_SINGLE_PHASE</a></li><li><a href="global.html#AC_THREE_PHASES">AC_THREE_PHASES</a></li><li><a href="global.html#bemap">bemap</a></li><li><a href="global.html#DC">DC</a></li><li><a href="global.html#NA">NA</a></li></ul>
+</nav>
+
+<br class="clear">
+
+<footer>
+    Documentation generated by <a href="https://github.com/jsdoc/jsdoc">JSDoc 3.6.3</a> on Tue Jun 02 2026 11:46:44 GMT+0200 (heure d’été d’Europe centrale)
+</footer>
+
+<script> prettyPrint(); </script>
+<script src="scripts/linenumber.js"> </script>
+</body>
+</html>

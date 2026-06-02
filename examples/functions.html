@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>BeMap JS API — Function Showcase</title>
+  <link rel="stylesheet" href="../lib/bootstrap/dist/css/bootstrap.min.css">
+  <link rel="stylesheet" href="../dist/ol.css">
+  <link rel="stylesheet" href="../dist/leaflet.css">
+  <link rel="stylesheet" href="../dist/MarkerCluster.Default.css">
+  <link rel="stylesheet" href="../dist/maplibre-gl.css">
+  <link rel="stylesheet" href="../dist/bemap-js-api.css">
+  <link rel="stylesheet" href="active-effects-bar.css">
+  <link rel="stylesheet" href="bn-2026.css">
+  <script src="../dist/ol.js"></script>
+  <script src="../dist/leaflet.js"></script>
+  <script src="../dist/leaflet.markercluster.js"></script>
+  <script src="../dist/maplibre-gl.js"></script>
+  <script src="../dist/pmtiles.js"></script>
+  <script src="../dist/bemap-js-api.js"></script>
+  <script src="effect-bridge.js"></script>
+  <script src="context.js"></script>
+  <style>
+    /* functions.html — layout uses bn-2026.css tokens for the palette,
+       but keeps its own grid because it has a unique 3-map showcase shape.
+       Page-specific classes (.func-list, .map-col, .controls, .log-panel,
+       .code-panel) are referenced by IDs in functions.js — do not rename. */
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: var(--bn-font); background: var(--bn-ink-900); color: var(--bn-text); height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
+
+    .top-bar { background: linear-gradient(135deg, var(--bn-ink-800), var(--bn-ink-600)); padding: 0 16px; height: var(--bn-topbar-h); display: flex; align-items: center; gap: 12px; border-bottom: 2px solid var(--bn-accent); flex-shrink: 0; }
+    .top-bar .bn-topbar__brand { padding-right: 14px; border-right: 1px solid var(--bn-line); margin-right: 8px; }
+    .top-bar h1 { margin: 0; font-size: 16px; color: var(--bn-accent); white-space: nowrap; }
+    .top-bar select { padding: 4px 8px; border-radius: 5px; border: 1px solid var(--bn-line); background: var(--bn-ink-800); color: var(--bn-text); font-size: 12px; }
+    .top-bar .badge { font-size: 10px; padding: 2px 6px; border-radius: 3px; margin-left: 4px; font-weight: 600; }
+    .badge-ol { background: #3498db; color: #fff; }
+    .badge-lf { background: #27ae60; color: #fff; }
+    .badge-ml { background: #9b59b6; color: #fff; }
+
+    .main { flex: 1; display: flex; overflow: hidden; min-height: 0; }
+
+    /* Left navigation rail */
+    .func-list { width: 220px; background: var(--bn-ink-800); overflow-y: auto; border-right: 1px solid var(--bn-line); flex-shrink: 0; }
+    .func-list h3 { color: var(--bn-accent); font-size: 11px; text-transform: uppercase; padding: 10px 10px 4px; margin: 0; letter-spacing: 1px; }
+    .func-list a { display: block; padding: 4px 10px 4px 18px; color: var(--bn-text-muted); font-size: 12px; text-decoration: none; cursor: pointer; border-left: 3px solid transparent; }
+    .func-list a:hover { background: var(--bn-ink-700); color: var(--bn-text); }
+    .func-list a.active { background: var(--bn-ink-700); color: var(--bn-accent); border-left-color: var(--bn-accent); }
+    .func-list a .ml-tag { font-size: 9px; color: #9b59b6; margin-left: 4px; }
+
+    .content { flex: 1; display: flex; flex-direction: column; overflow: hidden; min-width: 0; }
+
+    .maps-row { display: flex; height: 45%; min-height: 200px; }
+    .map-col { flex: 1; display: flex; flex-direction: column; border-right: 1px solid var(--bn-line); min-width: 0; }
+    .map-col:last-child { border-right: none; }
+    .map-label { text-align: center; font-size: 11px; font-weight: 700; padding: 4px; letter-spacing: 0.5px; text-transform: uppercase; color: #fff; }
+    .map-label.ol { background: #3498db; }
+    .map-label.lf { background: #27ae60; }
+    .map-label.ml { background: #9b59b6; }
+    /* overflow:hidden clips Leaflet's rotated .leaflet-container so the
+       rotated bounding box doesn't bleed into adjacent map cells. */
+    .map-container { flex: 1; position: relative; overflow: hidden; }
+    /* Light water-blue bleeds through while tiles paint. Same hue as the
+       bundled style's water layer (#75CFF0) but pale, so the loading state
+       blends with the first frame instead of the dark page bg. */
+    .map-container > div { width: 100%; height: 100%; background: #d4ecf5; }
+
+    .controls { background: var(--bn-ink-800); padding: 10px 14px; border-top: 1px solid var(--bn-line); border-bottom: 1px solid var(--bn-line); display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+    .controls button { padding: 5px 12px; border: none; border-radius: 5px; font-size: 11px; cursor: pointer; font-weight: 600; letter-spacing: 0.5px; text-transform: uppercase; }
+    .controls .btn-run { background: var(--bn-accent); color: #fff; }
+    .controls .btn-run:hover { background: #c0392b; }
+    .controls .btn-action { background: var(--bn-brand-end); color: #fff; }
+    .controls .btn-action:hover { background: #2980b9; }
+    .controls .btn-reset { background: var(--bn-ink-700); color: var(--bn-text); }
+    .controls .btn-reset:hover { background: var(--bn-line); }
+    .controls .func-title { color: var(--bn-accent); font-size: 14px; font-weight: 700; margin-right: 10px; }
+
+    .code-toggle { background: #161b22; padding: 6px 14px; border-bottom: 1px solid var(--bn-line); cursor: pointer; display: flex; justify-content: space-between; align-items: center; }
+    .code-toggle span { color: var(--bn-ok-2); font-size: 11px; font-weight: 600; letter-spacing: 0.5px; }
+    .code-toggle .arrow { color: var(--bn-text-muted); font-size: 14px; }
+    .code-panel { background: var(--bn-ink-900); padding: 10px 14px; font-family: var(--bn-font-mono); font-size: 12px; color: var(--bn-ok-2); max-height: 150px; overflow-y: auto; border-bottom: 1px solid var(--bn-line); white-space: pre-wrap; line-height: 1.5; display: none; }
+    .code-panel.expanded { display: block; }
+
+    .log-panel { flex: 1; background: var(--bn-ink-900); padding: 8px 14px; overflow-y: auto; font-family: var(--bn-font-mono); font-size: 11px; min-height: 100px; }
+    .log-entry { padding: 2px 0; border-bottom: 1px solid var(--bn-ink-800); line-height: 1.6; }
+    .log-ok { color: var(--bn-ok); }
+    .log-err { color: var(--bn-err); }
+    .log-warn { color: var(--bn-warn); }
+    .log-info { color: var(--bn-info); }
+    .log-time { color: var(--bn-text-muted); margin-left: 6px; }
+  </style>
+</head>
+<body>
+
+<div class="top-bar">
+  <a class="bn-topbar__brand" href="index.html" title="Back to BeMap dashboard">
+    <img src="benomad-logo.png" alt="BeNomad">
+    <div class="bn-topbar__brand-text">BeMap<small>JS API · 2026</small></div>
+  </a>
+  <h1>Function Showcase</h1>
+  <span class="badge badge-ol">OL v10</span>
+  <span class="badge badge-lf">Leaflet 1.9</span>
+  <span class="badge badge-ml">MapLibre v5</span>
+  <select id="mlStyleSelect" onchange="switchMapLibreStyle(this.value)" style="padding:3px 6px;border-radius:5px;border:1px solid #9b59b6;background:var(--bn-ink-800);color:#9b59b6;font-size:11px;font-weight:600;margin-left:8px;">
+    <option value="raster">OSM Raster</option>
+    <option value="vector">Vector Tiles</option>
+  </select>
+  <span style="font-size:9px;color:#9b59b6;">ML only</span>
+  <span style="color:var(--bn-text-muted);font-size:11px;margin-left:auto;">82 methods · 3 backends · interactive testing</span>
+</div>
+
+<div class="main">
+  <!-- Left: Function list -->
+  <div class="func-list" id="funcList"></div>
+
+  <!-- Right: Maps + Controls + Log -->
+  <div class="content">
+    <div class="maps-row">
+      <div class="map-col">
+        <div class="map-label ol">OpenLayers v10</div>
+        <div class="map-container"><div id="map-ol"></div></div>
+      </div>
+      <div class="map-col">
+        <div class="map-label lf">Leaflet 1.9</div>
+        <div class="map-container"><div id="map-lf"></div></div>
+      </div>
+      <div class="map-col">
+        <div class="map-label ml" title="HTML markers in MapLibre are DOM siblings of the WebGL canvas — they always render above canvas-drawn features (polylines, polygons, fills). For true z-stacking, use a symbol layer (map.native.addLayer({type:'symbol', ...})). OL + Leaflet z-index canvas+DOM together.">MapLibre v5 <span style="font-size:9px;opacity:0.7;font-weight:normal;">— HTML markers always above canvas</span></div>
+        <div class="map-container"><div id="map-ml"></div></div>
+      </div>
+    </div>
+
+    <div class="controls" id="controls">
+      <span class="func-title" id="funcTitle">Select a function →</span>
+    </div>
+
+    <div class="code-toggle" onclick="document.getElementById('codePanel').classList.toggle('expanded'); this.querySelector('.arrow').textContent = document.getElementById('codePanel').classList.contains('expanded') ? '▼' : '▶';">
+      <span>📋 Implementation Code</span>
+      <span class="arrow">▶</span>
+    </div>
+    <div class="code-panel expanded" id="codePanel">// Select a function from the left panel to see its code and test it on all 3 backends.</div>
+
+    <div class="log-panel" id="logPanel">
+      <div class="log-entry log-info">Ready. Select a function to test.</div>
+    </div>
+  </div>
+</div>
+
+<script src="functions.js"></script>
+<script src="active-effects-bar.js"></script>
+</body>
+</html>

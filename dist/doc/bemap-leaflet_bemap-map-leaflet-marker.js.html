@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>JSDoc: Source: bemap-leaflet/bemap-map-leaflet-marker.js</title>
+
+    <script src="scripts/prettify/prettify.js"> </script>
+    <script src="scripts/prettify/lang-css.js"> </script>
+    <!--[if lt IE 9]>
+      <script src="//html5shiv.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+    <link type="text/css" rel="stylesheet" href="styles/prettify-tomorrow.css">
+    <link type="text/css" rel="stylesheet" href="styles/jsdoc-default.css">
+</head>
+
+<body>
+
+<div id="main">
+
+    <h1 class="page-title">Source: bemap-leaflet/bemap-map-leaflet-marker.js</h1>
+
+    
+
+
+
+    
+    <section>
+        <article>
+            <pre class="prettyprint source linenums"><code>/**
+ * Add a marker to the layer
+ * @public
+ * @param {bemap.Marker} marker
+ * @param {object} options
+ * @return {bemap.LeafletMap} this
+ */
+
+bemap.LeafletMap.prototype.addMarker = function(marker, options) {
+  if (marker !== null &amp;&amp; bemap.inheritsof(marker, bemap.Marker)) {
+    var opts = options || {};
+    var l = null;
+
+    if (opts.layer !== undefined &amp;&amp; (bemap.inheritsof(opts.layer, bemap.VectorLayer) || bemap.inheritsof(opts.layer, bemap.ClusterLayer))) {
+      l = opts.layer;
+    } else {
+      l = this.getLayerByName(bemap.Map.DEFAULT_LAYER.MARKER);
+      if (l === null) {
+        l = new bemap.VectorLayer({
+          name: bemap.Map.DEFAULT_LAYER.MARKER
+        });
+        this.addLayer(l);
+      }
+    }
+
+    var icon = marker.getIcon();
+    var nativeIcon = null;
+
+    // Build the Leaflet L.icon. Two paths:
+    //   - Explicit width+height: use L.icon with computed pixel iconAnchor.
+    //   - Missing width or height: use L.divIcon + an &lt;img> with a CSS
+    //     translate(-X%, -Y%) so the natural image size + fractional anchor
+    //     work without needing to know W/H upfront. The previous code path
+    //     emitted iconAnchor = [NaN, NaN] in this case → Leaflet treated it
+    //     as 0,0 (top-left) and the pin tip floated ~half-icon-height
+    //     south of the actual lat/lng — invisible at high zoom, ~50 km off
+    //     at zoom 5.
+    var _buildIcon = function (ic) {
+      var _sc = ic.scale || 1;
+      if (ic.width &amp;&amp; ic.height) {
+        return L.icon({
+          iconUrl:    ic.getSrc(),
+          iconSize:   [ic.width * _sc, ic.height * _sc],
+          iconAnchor: [ic.width * _sc * ic.getAnchorX(), ic.height * _sc * ic.getAnchorY()]
+        });
+      }
+      // No explicit size — let the browser use the image's natural dimensions
+      // and anchor it via CSS translate (-fracX*100%, -fracY*100%).
+      var fracX = (typeof ic.getAnchorX === 'function') ? ic.getAnchorX() : 0.5;
+      var fracY = (typeof ic.getAnchorY === 'function') ? ic.getAnchorY() : 1;
+      var tx = (-100 * fracX).toFixed(2) + '%';
+      var ty = (-100 * fracY).toFixed(2) + '%';
+      var img = '&lt;img src="' + ic.getSrc() + '" draggable="false"' +
+                ' style="display:block;transform:translate(' + tx + ',' + ty + ');' +
+                '-webkit-user-drag:none;pointer-events:none;">';
+      return L.divIcon({
+        className: 'bemap-marker',
+        html:      img,
+        // Zero-size wrapper sits exactly at the lat/lng; the &lt;img> spills
+        // outside via the CSS translate, positioning by fractional anchor.
+        iconSize:  [0, 0]
+      });
+    };
+
+    if (icon) {
+       if (!icon.native) {
+         nativeIcon = _buildIcon(icon);
+         icon.native = nativeIcon;
+       }
+
+     } else if (bemap.inheritsof(l, bemap.ClusterLayer)) {
+
+       icon = l.style.icon;
+       if (icon &amp;&amp; !icon.native) {
+         nativeIcon = _buildIcon(icon);
+         icon.native = nativeIcon;
+
+       }
+     }
+
+    // Use a default SVG icon if none provided (no PNG assets needed)
+    var markerOpts = {};
+    if (icon &amp;&amp; icon.native) {
+      markerOpts.icon = icon.native;
+    } else {
+      markerOpts.icon = L.divIcon({
+        className: 'bemap-default-marker',
+        html: '&lt;svg xmlns="http://www.w3.org/2000/svg" width="24" height="36" viewBox="0 0 24 36">&lt;path d="M12 0C5.4 0 0 5.4 0 12c0 9 12 24 12 24s12-15 12-24c0-6.6-5.4-12-12-12z" fill="#0066cc" stroke="#fff" stroke-width="2"/>&lt;circle cx="12" cy="12" r="5" fill="#fff"/>&lt;/svg>',
+        iconSize: [24, 36],
+        iconAnchor: [12, 36]
+      });
+    }
+    // Always create with `draggable: true` so Leaflet attaches the
+    // Marker.Drag handler (otherwise `marker.dragging` is undefined and
+    // calling draggableMarker() later does nothing). We immediately
+    // disable it — markers are non-draggable until the customer calls
+    // `map.draggableMarker(marker, fn)`, which flips it back on.
+    markerOpts.draggable = true;
+    // If the target layer has its own custom pane (set up by addLayer for
+    // VectorLayer), put the marker INTO that pane so zIndexLayer can
+    // restack the whole layer by mutating the pane's CSS z-index.
+    // User-named VectorLayers have a dedicated marker pane (z=600 default,
+    // shifted by zIndexLayer). Default layers (MARKER / POLYLINE / ROUTE)
+    // skip this and inherit Leaflet's native markerPane.
+    if (l &amp;&amp; l._paneNameMarker) markerOpts.pane = l._paneNameMarker;
+    marker.native = L.marker(marker.getCoordinate().getLatLonArray(), markerOpts);
+    if (marker.native.dragging) marker.native.dragging.disable();
+
+    if (marker.map === null) {
+      marker.map = this;
+    }
+
+    if (marker.layer === null) {
+      marker.layer = l;
+    }
+
+    marker.native.addTo(l.native);
+  }
+
+  return this;
+};
+
+/**
+ * Set the coordinates of the marker.
+ * @protected
+ * @param {bemap.Marker} marker the marker object to remove.
+ * @return {bemap.LeafletMap} this
+ */
+bemap.LeafletMap.prototype.setCoordinateMarker = function(marker) {
+  var c = marker.getCoordinate();
+  marker.native.setLatLng(L.latLng(c.getLat(), c.getLon()));
+
+  return this;
+};
+
+/**
+ * Remove a marker from his layer.
+ * @param {bemap.Marker} marker the marker object to remove.
+ * @return {bemap.LeafletMap} this
+ */
+bemap.LeafletMap.prototype.removeMarker = function(marker) {
+  if (marker !== null &amp;&amp; bemap.inheritsof(marker, bemap.Marker) &amp;&amp; marker.layer &amp;&amp; marker.layer.native) {
+    marker.map.native.removeLayer(marker.native);
+    marker.layer = null;
+    marker.map = null;
+  }
+  return this;
+};
+
+/**
+ * Set the listner when an specified eventType occur on bemap.Marker.
+ * @public
+ * @param {bemap.Marker} marker
+ * @param {bemap.Map.EventType} eventType Event type.
+ * @param {function} callback Function will be called when the specified eventType is occur.
+ * @param {object} options options.
+ * @return {bemap.Listener} this.
+ */
+bemap.LeafletMap.prototype.onMarker = function(marker, eventType, callback, options) {
+  var opts = options ? options : {};
+
+  var nativeListener = marker.native.on(eventType, function(evt) {
+    var mapEvent = new bemap.MapEvent({
+      native: evt,
+      bemapObject: marker,
+      x: evt.containerPoint ? evt.containerPoint.x : undefined,
+      y: evt.containerPoint ? evt.containerPoint.y : undefined,
+      coordinate: evt.latlng ? new bemap.Coordinate(evt.latlng.lng, evt.latlng.lat) : undefined,
+      properties: options,
+      map: this
+    });
+    callback(mapEvent);
+  });
+  var listener = new bemap.Listener({
+    native: nativeListener,
+    callback: callback,
+    key: eventType,
+    bemapObject: marker
+  });
+  return listener;
+};
+
+/**
+ * Define the draggable capability for bemap.Marker.
+ * @protected
+ * @param {bemap.Marker} marker bemap object.
+ * @param {function} callback Function will be called when the specified eventType is occur.
+ * @param {object} options Options.
+ * @param {bemap.Layer} options.layerFilter set the bemap layer used as filter.
+ * @return {bemap.Listener} bemap.listener.
+ */
+bemap.LeafletMap.prototype.draggableMarker = function(marker, callback, options) {
+  var _this = this;
+  // Use Leaflet's built-in drag handler instead of the manual
+  // mousedown/mousemove/mouseup tracking that snapped the marker
+  // under the cursor on every click. The native L.Marker drag
+  // honours a click-vs-drag threshold and only moves the marker
+  // when the cursor actually moves.
+  if (marker.native &amp;&amp; marker.native.dragging &amp;&amp; typeof marker.native.dragging.enable === 'function') {
+    marker.native.dragging.enable();
+  } else if (marker.native &amp;&amp; typeof marker.native.options === 'object') {
+    // Older Leaflet versions: set the option directly.
+    marker.native.options.draggable = true;
+  }
+
+  marker.native.on('dragend', function (evt) {
+    var ll = marker.native.getLatLng();
+    // Keep the bemap.Coordinate on the marker in sync.
+    if (marker.coordinate &amp;&amp; typeof marker.coordinate.setLat === 'function') {
+      marker.coordinate.setLon(ll.lng).setLat(ll.lat);
+    }
+    var mapEvent = new bemap.MapEvent({
+      native: evt,
+      bemapObject: marker,
+      coordinate: new bemap.Coordinate(ll.lng, ll.lat),
+      properties: options,
+      map: _this
+    });
+    if (typeof callback === 'function') callback(mapEvent);
+  });
+
+  this.events.dragFeature = new bemap.Listener({
+    native: null,
+    key: "dragFeature",
+    bemapObject: marker
+  });
+
+  return this.events.dragFeature;
+};
+</code></pre>
+        </article>
+    </section>
+
+
+
+
+</div>
+
+<nav>
+    <h2><a href="index.html">Home</a></h2><h3>Classes</h3><ul><li><a href="bemap.AclDetailsResponse.html">AclDetailsResponse</a></li><li><a href="bemap.AclLabel.html">AclLabel</a></li><li><a href="bemap.AclService.html">AclService</a></li><li><a href="bemap.Address.html">Address</a></li><li><a href="bemap.AttributionWidget.html">AttributionWidget</a></li><li><a href="bemap.Autocomplete.html">Autocomplete</a></li><li><a href="bemap.AutocompleteElement.html">AutocompleteElement</a></li><li><a href="bemap.AutocompleteGeocodingRequest.html">AutocompleteGeocodingRequest</a></li><li><a href="bemap.AutocompleteGeocodingResponse.html">AutocompleteGeocodingResponse</a></li><li><a href="bemap.BemapLayer.html">BemapLayer</a></li><li><a href="bemap.BoundingBox.html">BoundingBox</a></li><li><a href="bemap.BrowserCache.html">BrowserCache</a></li><li><a href="bemap.BuildingsLayer.html">BuildingsLayer</a></li><li><a href="bemap.ChargingPoint.html">ChargingPoint</a></li><li><a href="bemap.ChargingStation.html">ChargingStation</a></li><li><a href="bemap.ChargingStationPool.html">ChargingStationPool</a></li><li><a href="bemap.ChargingStations.html">ChargingStations</a></li><li><a href="bemap.ChargingStationSearchRequest.html">ChargingStationSearchRequest</a></li><li><a href="bemap.ChargingStationSearchResponse.html">ChargingStationSearchResponse</a></li><li><a href="bemap.ChargingStationStep.html">ChargingStationStep</a></li><li><a href="bemap.ChargingTime.html">ChargingTime</a></li><li><a href="bemap.ChargingTimeRequest.html">ChargingTimeRequest</a></li><li><a href="bemap.ChargingTimeResponse.html">ChargingTimeResponse</a></li><li><a href="bemap.Circle.html">Circle</a></li><li><a href="bemap.CircleStyle.html">CircleStyle</a></li><li><a href="bemap.clusterStyle.html">clusterStyle</a></li><li><a href="bemap.Color.html">Color</a></li><li><a href="bemap.CondMaxSpeed.html">CondMaxSpeed</a></li><li><a href="bemap.Context.html">Context</a></li><li><a href="bemap.Coordinate.html">Coordinate</a></li><li><a href="bemap.CoordinateSat.html">CoordinateSat</a></li><li><a href="bemap.Destination.html">Destination</a></li><li><a href="bemap.Error.html">Error</a></li><li><a href="bemap.EvBrand.html">EvBrand</a></li><li><a href="bemap.EvReachableArea.html">EvReachableArea</a></li><li><a href="bemap.EvReachableAreaRequest.html">EvReachableAreaRequest</a></li><li><a href="bemap.EvReachableAreaResponse.html">EvReachableAreaResponse</a></li><li><a href="bemap.EvseRouting.html">EvseRouting</a></li><li><a href="bemap.EvSmartRouting.html">EvSmartRouting</a></li><li><a href="bemap.EvSmartRoutingRequest.html">EvSmartRoutingRequest</a></li><li><a href="bemap.EvSmartRoutingResponse.html">EvSmartRoutingResponse</a></li><li><a href="bemap.EvStepPoint.html">EvStepPoint</a></li><li><a href="bemap.EvVehicle.html">EvVehicle</a></li><li><a href="bemap.EvVehicles.html">EvVehicles</a></li><li><a href="bemap.Exception.html">Exception</a></li><li><a href="bemap.GeoAutocomplete.html">GeoAutocomplete</a></li><li><a href="bemap.Geocoder.html">Geocoder</a></li><li><a href="bemap.GeocodingItem.html">GeocodingItem</a></li><li><a href="bemap.GeocodingRequest.html">GeocodingRequest</a></li><li><a href="bemap.GeocodingResponse.html">GeocodingResponse</a></li><li><a href="bemap.GeoSearchInfo.html">GeoSearchInfo</a></li><li><a href="bemap.GeoServerInfoResponse.html">GeoServerInfoResponse</a></li><li><a href="bemap.GeoServerInfoService.html">GeoServerInfoService</a></li><li><a href="bemap.GeoServerServiceInfo.html">GeoServerServiceInfo</a></li><li><a href="bemap.GeoServerServiceLimit.html">GeoServerServiceLimit</a></li><li><a href="bemap.HeatmapLayer.html">HeatmapLayer</a></li><li><a href="bemap.Icon.html">Icon</a></li><li><a href="bemap.Isochrone.html">Isochrone</a></li><li><a href="bemap.Layer.html">Layer</a></li><li><a href="bemap.LeafletMap.html">LeafletMap</a></li><li><a href="bemap.LineStyle.html">LineStyle</a></li><li><a href="bemap.Listener.html">Listener</a></li><li><a href="bemap.Map.html">Map</a></li><li><a href="bemap.MapEvent.html">MapEvent</a></li><li><a href="bemap.MapLibreMap.html">MapLibreMap</a></li><li><a href="bemap.Marker.html">Marker</a></li><li><a href="bemap.MultiMarker.html">MultiMarker</a></li><li><a href="bemap.NearPoint.html">NearPoint</a></li><li><a href="bemap.NearPoiRequest.html">NearPoiRequest</a></li><li><a href="bemap.NearPoiResponse.html">NearPoiResponse</a></li><li><a href="bemap.NearPoiSearch.html">NearPoiSearch</a></li><li><a href="bemap.Object.html">Object</a></li><li><a href="bemap.Ol3Map.html">Ol3Map</a></li><li><a href="bemap.OlMap.html">OlMap</a></li><li><a href="bemap.OsmLayer.html">OsmLayer</a></li><li><a href="bemap.PMTilesLayer.html">PMTilesLayer</a></li><li><a href="bemap.Polygon.html">Polygon</a></li><li><a href="bemap.PolygonStyle.html">PolygonStyle</a></li><li><a href="bemap.Polyline.html">Polyline</a></li><li><a href="bemap.Popup.html">Popup</a></li><li><a href="bemap.PostalAddress.html">PostalAddress</a></li><li><a href="bemap.RasterLayer.html">RasterLayer</a></li><li><a href="bemap.ReverseGeocoder.html">ReverseGeocoder</a></li><li><a href="bemap.ReverseGeocodingRequest.html">ReverseGeocodingRequest</a></li><li><a href="bemap.RevGeoSearchInfo.html">RevGeoSearchInfo</a></li><li><a href="bemap.RoadFeature.html">RoadFeature</a></li><li><a href="bemap.Route.html">Route</a></li><li><a href="bemap.Route.Event.html">Event</a></li><li><a href="bemap.Route.RoutesheetInstruction.html">RoutesheetInstruction</a></li><li><a href="bemap.Routing.html">Routing</a></li><li><a href="bemap.RoutingDestination.html">RoutingDestination</a></li><li><a href="bemap.RoutingInstruction.html">RoutingInstruction</a></li><li><a href="bemap.RoutingRequest.html">RoutingRequest</a></li><li><a href="bemap.RoutingResponse.html">RoutingResponse</a></li><li><a href="bemap.RoutingRoute.html">RoutingRoute</a></li><li><a href="bemap.RoutingSummary.html">RoutingSummary</a></li><li><a href="bemap.RoutingV2.html">RoutingV2</a></li><li><a href="bemap.RoutingVehicleProfile.html">RoutingVehicleProfile</a></li><li><a href="bemap.RoutingWaypoint.html">RoutingWaypoint</a></li><li><a href="bemap.Service.html">Service</a></li><li><a href="bemap.TextStyle.html">TextStyle</a></li><li><a href="bemap.TilesAuth.html">TilesAuth</a></li><li><a href="bemap.TilesOverlayCatalog.html">TilesOverlayCatalog</a></li><li><a href="global.html#bemap#.TraceRoute">TraceRoute</a></li><li><a href="bemap.TraceRouteDestination.html">TraceRouteDestination</a></li><li><a href="bemap.TraceRouteRequest.html">TraceRouteRequest</a></li><li><a href="bemap.VectorLayer.html">VectorLayer</a></li><li><a href="bemap.VectorTileLayer.html">VectorTileLayer</a></li><li><a href="bemap.WmsLayer.html">WmsLayer</a></li></ul><h3>Global</h3><ul><li><a href="global.html#AC">AC</a></li><li><a href="global.html#AC_SINGLE_PHASE">AC_SINGLE_PHASE</a></li><li><a href="global.html#AC_THREE_PHASES">AC_THREE_PHASES</a></li><li><a href="global.html#bemap">bemap</a></li><li><a href="global.html#DC">DC</a></li><li><a href="global.html#NA">NA</a></li></ul>
+</nav>
+
+<br class="clear">
+
+<footer>
+    Documentation generated by <a href="https://github.com/jsdoc/jsdoc">JSDoc 3.6.3</a> on Tue Jun 02 2026 11:46:44 GMT+0200 (heure d’été d’Europe centrale)
+</footer>
+
+<script> prettyPrint(); </script>
+<script src="scripts/linenumber.js"> </script>
+</body>
+</html>

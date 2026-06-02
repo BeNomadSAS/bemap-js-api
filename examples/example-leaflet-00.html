@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>BeNomad BeMap JavaScript API</title>
+  <link rel="stylesheet" href="../dist/ol.css" type="text/css">
+  <link rel="stylesheet" href="../dist/leaflet.css" type="text/css">
+  <link rel="stylesheet" href="../dist/maplibre-gl.css" type="text/css">
+  <link rel="stylesheet" href="../dist/MarkerCluster.Default.css" />
+  <link rel="stylesheet" type="text/css" href="../dist/bemap-js-api.css" media="screen">
+  <script language="JavaScript" src="../dist/ol.js"></script>
+  <script language="JavaScript" src="../dist/leaflet.js"></script>
+  <script language="JavaScript" src="../dist/leaflet.markercluster.js"></script>
+  <script language="JavaScript" src="../dist/maplibre-gl.js"></script>
+  <script language="JavaScript" src="../dist/pmtiles.js"></script>
+  <script language="JavaScript" src="../dist/bemap-js-api.js"></script>
+  <script language="JavaScript" src="context.js"></script>
+  <script language="JavaScript" src="example-leaflet-00.js"></script>
+  <style>
+    body,
+    html {
+      height: 100%;
+      padding: 0;
+      margin: 0;
+    }
+
+    #map1 {
+      height: calc(100vh - 80px);
+    }
+
+  /*  .mycluster {
+      height: 2rem;
+      width: 2rem;
+      border-radius: 50%;
+      background-color: white;
+      color: var(--dark);
+      border: 0.1rem solid gray;
+      text-align: center;
+      font-size: 1rem;
+      line-height: 2rem;
+      font-weight: bold;
+      margin-top: -1.5rem;
+      margin-left: -1.5rem;
+    }*/
+
+    .mycluster {
+    height: 40px;
+    width: 40px;
+    border-radius: 50%;
+    background-color: #3498db;
+    color: white;
+    text-align: center;
+    font-size: 20px;
+    line-height: 40px;
+    margin-top: -20px;
+    margin-left: -20px;
+}
+  </style>
+</head>
+
+<body onload="onLoaded();" style="margin:0;padding:0;">
+  <div id="pageHeader" style="padding:10px;background:#f5f5f5;border-bottom:1px solid #ddd;">
+      <h3 style="margin-top:0;">Leaflet Map with Clustering &amp; Shapes</h3>
+      <p style="margin:0;color:#555;">LeafletMap backend with marker clustering, polylines, polygons, circles, popups, and draggable objects. Click any shape to see a popup. Drag the circle to move it.</p>
+  </div>
+  <div id="map1"></div>
+  <script>
+    // Hide this page's own header when embedded in the BeMap 2026 dashboard
+    // iframe — the dashboard top bar already shows the title.
+    try {
+      if (window.parent !== window) {
+        var h = document.getElementById('pageHeader');
+        if (h) h.style.display = 'none';
+        var m = document.getElementById('map1');
+        if (m) m.style.height = '100vh';
+      }
+    } catch (e) {}
+  </script>
+</body>
+
+</html>

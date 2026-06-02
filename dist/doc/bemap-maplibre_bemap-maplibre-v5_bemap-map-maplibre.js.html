@@ -1,0 +1,2143 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>JSDoc: Source: bemap-maplibre/bemap-maplibre-v5/bemap-map-maplibre.js</title>
+
+    <script src="scripts/prettify/prettify.js"> </script>
+    <script src="scripts/prettify/lang-css.js"> </script>
+    <!--[if lt IE 9]>
+      <script src="//html5shiv.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+    <link type="text/css" rel="stylesheet" href="styles/prettify-tomorrow.css">
+    <link type="text/css" rel="stylesheet" href="styles/jsdoc-default.css">
+</head>
+
+<body>
+
+<div id="main">
+
+    <h1 class="page-title">Source: bemap-maplibre/bemap-maplibre-v5/bemap-map-maplibre.js</h1>
+
+    
+
+
+
+    
+    <section>
+        <article>
+            <pre class="prettyprint source linenums"><code>/**
+ * BeNomad BeMap JavaScript API - Map - MapLibre GL JS v5
+ */
+
+// Event name translation: bemap → MapLibre
+bemap.MapLibreMap_eventMap = {
+  'pointerup': 'mouseup',
+  'pointerdown': 'mousedown',
+  'pointerdrag': 'drag',
+  'pointermove': 'mousemove',
+  'singleclick': 'click',
+  'postrender': 'render',
+  'postcompose': 'render',
+  'precompose': 'render',
+  'propertychange': 'moveend',
+  'change': 'moveend',
+  'change:size': 'resize',
+  'change:view': 'moveend'
+};
+
+/**
+ * @classdesc
+ * Map implementation using MapLibre GL JS.
+ * @public
+ * @constructor
+ * @extends {bemap.Map}
+ */
+bemap.MapLibreMap = function(context, target, options) {
+  // Runtime dependency check FIRST — emits a loud console banner with
+  // the exact &lt;script>/&lt;link> tags to add when maplibregl / pmtiles /
+  // maplibre-gl.css are missing. Throws on missing critical JS deps.
+  var _hasTiles = !!(context &amp;&amp; typeof context.hasTilesConfig === 'function' &amp;&amp; context.hasTilesConfig());
+  bemap.Map._checkDependencies('maplibre', { tilesHost: _hasTiles });
+
+  this.target = target;
+  bemap.Map.call(this, context, options);
+
+  var opts = options || {};
+  this._layerCounter = 0;
+  // Tiles config is active when the Context exposes a tilesHost. This is the
+  // single switch that promotes the MapLibre background to BeNomad Tiles —
+  // explicit, surfaced through `ctx.hasTilesConfig()` so consumers can read it.
+  this._hasTilesConfig = !!(context &amp;&amp; typeof context.hasTilesConfig === 'function' &amp;&amp; context.hasTilesConfig());
+  this._hasCustomStyle = !!(opts.style || opts.tiles);
+  this._featureRegistry = {};   // _bemapId → bemap object
+  this._markerElements = {};    // _bemapId → { element, bemapObject }
+  this._geoJsonLayerIds = [];   // track all GeoJSON layer IDs for hit-testing
+  this._geoJsonData = {};       // sourceId → GeoJSON data (for drag updates)
+
+  // Per-instance overlay catalogue — used by setStyle() to replay overlays
+  // after the native style swap that would otherwise wipe markers/polylines.
+  if (typeof bemap.TilesOverlayCatalog === 'function') {
+    this._overlayCatalog = new bemap.TilesOverlayCatalog();
+  }
+
+  // Register the pmtiles:// MapLibre protocol once per page load.
+  if (typeof pmtiles !== 'undefined' &amp;&amp; !bemap.MapLibreMap._pmtilesRegistered) {
+    var _proto = new pmtiles.Protocol();
+    maplibregl.addProtocol('pmtiles', _proto.tile);
+    bemap.MapLibreMap._pmtilesRegistered = true;
+  }
+
+  // BeNomad Tiles auth — replaces the global window.fetch patch with a
+  // transformRequest that captures `getToken()` (not the token value) so
+  // proactive / reactive renewal flows are transparent.
+  var _self = this;
+  this._tilesAuth = null;
+  this._currentStyleSpec = null;
+  if (this._hasTilesConfig &amp;&amp; typeof bemap.TilesAuth === 'function') {
+    this._tilesAuth = new bemap.TilesAuth(context, {
+      onError: function (err) { _self._fireError(err); },
+      onToken: function (info) {
+        // Only reload the style when the new token has actually been
+        // fetched (`reason: 'refresh'`). Doing it on `'expired'` would
+        // reload with the still-expired token and trigger another 401
+        // → refresh loop. We also route through the wrapper's setStyle
+        // (not native) so the overlay catalogue replay listener fires.
+        if (info &amp;&amp; info.reason === 'refresh' &amp;&amp; _self.native &amp;&amp; _self._currentStyleSpec) {
+          try { _self.setStyle(_self._currentStyleSpec); } catch (e) { /* ignore */ }
+        }
+      }
+    });
+    // Install the scoped fetch interceptor BEFORE the native MapLibre
+    // map is constructed — pmtiles.js issues range requests via
+    // `fetch()` directly, bypassing MapLibre's `transformRequest`. The
+    // interceptor awaits the in-flight login and attaches
+    // X-Session-Token on every request to ctx.tilesHost.
+    bemap.TilesAuth.installFetchInterceptor(this._tilesAuth, context.tilesHost);
+    // Kick off login if no valid token is in storage. The interceptor
+    // is what actually waits for it — the constructor stays sync.
+    if (this._tilesAuth.getToken() == null || !this._tilesAuth.isValid()) {
+      this._tilesAuth.login().catch(function () { /* surfaced via onError */ });
+    }
+  }
+
+  // Build style. Precedence:
+  //   opts.style              → explicit style wins
+  //   opts.tiles              → custom PMTiles URL with optional style URL
+  //   ctx.hasTilesConfig()    → BeNomad Tiles default style
+  //   none                    → empty background (legacy fallback)
+  var style;
+  if (opts.style) {
+    style = opts.style;
+  } else if (opts.tiles) {
+    // PMTiles URL — build a minimal style, then load real style async
+    var tilesUrl = opts.tiles.indexOf('pmtiles://') === 0 ? opts.tiles : 'pmtiles://' + opts.tiles;
+    style = {
+      version: 8,
+      glyphs: 'https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf',
+      sources: { tiles: { type: 'vector', url: tilesUrl, maxzoom: 14 } },
+      layers: [{ id: 'background', type: 'background', paint: { 'background-color': '#f0f0f0' } }]
+    };
+    this._pendingTilesStyle = opts.tilesStyle || null;
+    this._pendingTilesUrl = tilesUrl;
+  } else if (this._hasTilesConfig &amp;&amp; typeof bemap.defaultStyle !== 'undefined' &amp;&amp; typeof bemap.TilesStyle !== 'undefined') {
+    // BeNomad Tiles default — clone the frozen default style then resolve
+    // placeholders against the configured ctx/tilesFile. When the
+    // customer set tilesHost but not tilesFile, fall back to the public
+    // demo tileset so the map renders zero-config.
+    style = JSON.parse(JSON.stringify(bemap.defaultStyle));
+    var _tilesFile = opts.tilesFile || context.tilesFile || 'OSM_250901_WORLD.pmtiles';
+    bemap.TilesStyle.resolvePlaceholders(style, context, _tilesFile);
+    if (typeof bemap.TilesStyle.hardenSymbolCollisions === 'function') {
+      bemap.TilesStyle.hardenSymbolCollisions(style);
+    }
+  } else {
+    style = {
+      version: 8,
+      sources: {},
+      layers: [{ id: 'background', type: 'background', paint: { 'background-color': '#f0f0f0' } }]
+    };
+  }
+  this._currentStyleSpec = style;
+
+  // Set up token injection for authenticated PMTiles via opts.tilesToken.
+  // The v2 ctx.tilesHost path uses TilesAuth + transformRequest below (not
+  // the global fetch patch). This legacy block stays for opts.tiles users.
+  if (opts.tiles &amp;&amp; opts.tilesToken) {
+    this._setupTilesAuth(opts.tiles, opts.tilesToken, opts.tilesTokenHeader || 'X-Session-Token');
+  }
+
+  // Apply globe projection request before construction so the first style
+  // load picks it up (MapLibre v5 reads `projection` off the style).
+  if (opts.projection === 'globe' &amp;&amp; style &amp;&amp; typeof style === 'object') {
+    style.projection = { type: 'globe' };
+  }
+
+  // Resolve native-attribution + zoom-control options (uniform across engines).
+  // bemap.Map._resolveControlOptions hides MapLibre's built-in attribution
+  // by default when the BeMap AttributionWidget is enabled. For zoom, we
+  // add a NavigationControl when zoomControl is enabled — gives MapLibre
+  // the same +/- buttons Leaflet + OL expose by default, at the same
+  // configurable position.
+  var _ctrl = bemap.Map._resolveControlOptions(opts);
+
+  // UX tuning for BeNomad Tiles (snappier than the MapLibre defaults):
+  //   - fadeDuration: 200ms (default 300) — tiles snap in faster, less mid-pan grey
+  //   - maxTileCacheSize: 500 — keep more recently-seen tiles in memory so
+  //     pan-back is instant (default is viewport * ~5, often 50–100 on big screens)
+  //   - refreshExpiredTiles: true (default) — keep stale tiles painted while
+  //     re-fetching, avoids flashing transparent during cache-validation
+  // Consumers can override via opts.fadeDuration / opts.maxTileCacheSize.
+  var _nativeOpts = {
+    container: target,
+    style: style,
+    center: [0, 0],
+    zoom: opts.zoom || 2,
+    pitch: opts.pitch || 0,
+    bearing: opts.bearing || 0,
+    minZoom: opts.minZoom || 0,
+    maxZoom: opts.maxZoom || 22,
+    maxBounds: bemap.MapLibreMap._normalizeBounds(opts.maxBounds),
+    fadeDuration: opts.fadeDuration != null ? opts.fadeDuration : 200,
+    maxTileCacheSize: opts.maxTileCacheSize != null ? opts.maxTileCacheSize : 500,
+    refreshExpiredTiles: opts.refreshExpiredTiles !== false,
+    attributionControl: _ctrl.nativeAttribution,
+    // Keyboard interactions — default OFF (see bemap.Map._resolveControlOptions).
+    // MapLibre v5's `KeyboardHandler` is one bundled unit (arrow pan + `=`/`-`
+    // zoom + `Shift+arrow` rotate/tilt); granular `{pan, zoom}` collapses to
+    // "either-or" here. Consumers needing finer control can reach
+    // `map.native.keyboard.disableRotation()` etc. after construction.
+    keyboard: _ctrl.keyboard.pan || _ctrl.keyboard.zoom
+  };
+  this._keyboardEnabled = !!(_ctrl.keyboard.pan || _ctrl.keyboard.zoom);
+  this._keyboardOptions = _ctrl.keyboard;
+  if (this._tilesAuth) {
+    _nativeOpts.transformRequest = this._tilesAuth.buildTransformRequest();
+  }
+  this.native = new maplibregl.Map(_nativeOpts);
+
+  // Reload tiles on resize. MapLibre v5 already observes the container and
+  // resizes its canvas, but resize() updates the canvas + transform WITHOUT
+  // marking the sources dirty — so the newly-exposed strip never requests tiles
+  // and paints the style background (the grey/blank bar after a panel collapse).
+  // Nudge the camera once per resize to force the tile request: setCenter →
+  // jumpTo fires move/moveend → _sourcesDirty → _updateSources(transform). Skip
+  // while a camera animation runs (its own move events already do this). The
+  // listener lives on the native map, so native.remove() tears it down — no leak.
+  var _roSelf = this;
+  this.native.on('resize', function () {
+    if (_roSelf.native &amp;&amp; !_roSelf.native.isMoving()) {
+      try { _roSelf.native.setCenter(_roSelf.native.getCenter()); } catch (e) {}
+    }
+  });
+
+  // Browser-cache wiring — opts.browserCache (true | false | 'auto', default 'auto').
+  //
+  // Logging contract (so consumers know whether tile caching is active):
+  //   - tilesHost set + SW registers     → console.info "browser cache active"
+  //   - tilesHost set + SW not supported → console.warn (HTTP without localhost, or no SW API)
+  //   - tilesHost set + opt-out          → console.info "browser cache disabled by opts.browserCache"
+  //   - tilesHost set + register failed  → console.warn with the underlying error
+  //   - tilesHost set + bemap.BrowserCache class missing (script not loaded) → console.warn
+  // No tilesHost: silent — non-tiles consumers don't care.
+  this._browserCache = null;
+  if (this._hasTilesConfig) {
+    if (opts.browserCache === false) {
+      console.info('[bemap] BeNomad Tiles: browser cache disabled by opts.browserCache:false — every tile will hit the network');
+    } else if (typeof bemap.BrowserCache !== 'function') {
+      console.warn('[bemap] BeNomad Tiles: bemap.BrowserCache is not loaded — tile caching is OFF. Verify dist/bemap-js-api.js is up to date.');
+    } else {
+      var _bcSelf = this;
+      // Only forward serviceWorkerPath when the consumer actually pinned it —
+      // BrowserCache treats any provided value as "explicit", which disables
+      // the auto-fallback chain. Defaulting it here would defeat discovery.
+      var _bcOpts = {
+        tilesHost: context &amp;&amp; context.tilesHost,
+        onStats: function (stats) {
+          if (_bcSelf._cacheStatsListeners) {
+            for (var _csi = 0; _csi &lt; _bcSelf._cacheStatsListeners.length; _csi++) {
+              try { _bcSelf._cacheStatsListeners[_csi](stats); } catch (e) {}
+            }
+          }
+        },
+        onError: function (err) { _bcSelf._fireError(err); }
+      };
+      if (opts.serviceWorkerPath != null) _bcOpts.serviceWorkerPath = opts.serviceWorkerPath;
+      this._browserCache = new bemap.BrowserCache(_bcOpts);
+      if (!this._browserCache.isSupported()) {
+        console.warn(
+          '[bemap] BeNomad Tiles: Service Worker not supported here — tile caching is OFF.\n' +
+          '   Cause: page is served over plain HTTP (Service Workers require HTTPS, or localhost/127.0.0.1).\n' +
+          '   Effect: every tile hits the network. First-load UX will feel slower than with caching.\n' +
+          '   Fix:   serve over HTTPS in production. See docs/sw-tile-caching.md.'
+        );
+      } else {
+        var _bc = this._browserCache;
+        _bc.register().then(function (reg) {
+          if (reg) {
+            console.info('[bemap] BeNomad Tiles: browser cache active (Service Worker registered at ' + _bc.swPath + ')');
+          } else {
+            var attempts = (typeof _bc.getRegistrationAttempts === 'function') ? _bc.getRegistrationAttempts() : [];
+            var bundleInfo = (typeof bemap.BrowserCache._findBemapScriptInfo === 'function')
+              ? bemap.BrowserCache._findBemapScriptInfo() : null;
+            var origin = (typeof window !== 'undefined' &amp;&amp; window.location) ? window.location.origin : '';
+            var pageUrl = (typeof window !== 'undefined' &amp;&amp; window.location) ? window.location.href : '(unknown)';
+            var pageDir = (typeof window !== 'undefined' &amp;&amp; window.location)
+              ? window.location.pathname.replace(/[^/]*$/, '') : '/';
+            var bundleLine = bundleInfo
+              ? '   Bundle URL:  ' + bundleInfo.src
+              : '   Bundle URL:  (no &lt;script src="…bemap-js-api.js"> found — bundler-inlined?)';
+            var triedLines = attempts.length
+              ? '\n   Tried:\n     - ' + attempts.map(function (a) {
+                  var parts = a.split(' → ');
+                  return origin + parts[0] + '  →  ' + (parts[1] || '');
+                }).join('\n     - ')
+              : '';
+            console.warn(
+              '[bemap] BeNomad Tiles: Service Worker could not be registered — tile caching is OFF.\n' +
+              bundleLine + '\n' +
+              '   Page URL:    ' + pageUrl + triedLines + '\n\n' +
+              '   To fix, copy dist/bemap-sw-tiles.js to ONE of these URLs and reload:\n' +
+              '     ' + origin + '/bemap-sw-tiles.js                (site root — preferred)\n' +
+              (pageDir !== '/' ? '     ' + origin + pageDir + 'bemap-sw-tiles.js   (app sub-root, next to your page)\n' : '') +
+              '   …or pass an explicit path:\n' +
+              "     new bemap.MapLibreMap(ctx, target, { serviceWorkerPath: '/path/to/bemap-sw-tiles.js', ... })\n" +
+              '   See docs/sw-tile-caching.md.'
+            );
+          }
+        }).catch(function (err) {
+          console.warn(
+            '[bemap] BeNomad Tiles: Service Worker registration failed — tile caching is OFF.\n' +
+            '   Error: ' + (err &amp;&amp; err.message ? err.message : err) + '\n' +
+            '   Fix:   verify bemap-sw-tiles.js is reachable (see ' + _bc.swPath + ').\n' +
+            '   See docs/sw-tile-caching.md.'
+          );
+        });
+      }
+    }
+  }
+
+  // Surface 401s / 403s from MapLibre's error channel into TilesAuth + the
+  // public error event. Without this, an expired token silently fails tiles.
+  if (this._tilesAuth) {
+    var _authSelf = this;
+    this.native.on('error', function (e) {
+      var err = e &amp;&amp; e.error;
+      var status = err &amp;&amp; (err.status || (err.statusText ? parseInt(err.statusText, 10) : 0));
+      if (status === 401) {
+        // Pass the WRAPPER (_authSelf), not _authSelf.native. handle401
+        // calls `arg.setStyle(spec)` internally — when arg is the wrapper,
+        // bemap.MapLibreMap.prototype.setStyle attaches the
+        // `once('styledata', () => _overlayCatalog.replayOnto(self))`
+        // listener so every polyline / marker / popup / heatmap registered
+        // before the 401 storm gets re-added on the new style.
+        // Previously we passed .native → wrapper.setStyle bypassed → no
+        // replay → 24 of 33 polylines silently dropped (the ones added
+        // before the post-401 setStyle wiped them).
+        _authSelf._tilesAuth.handle401(_authSelf, _authSelf._currentStyleSpec)
+          .catch(function () { /* surfaced via TilesAuth.onError */ });
+      } else if (status === 403) {
+        _authSelf._fireError(new bemap.Error({
+          code: bemap.Error.FORBIDDEN, status: 403,
+          message: 'BeNomad Tiles: forbidden — your account is not authorised for this resource'
+        }));
+      } else if (status === 429) {
+        _authSelf._fireError(new bemap.Error({
+          code: bemap.Error.RATE_LIMITED, status: 429,
+          message: 'BeNomad Tiles: rate limited'
+        }));
+      }
+    });
+  }
+
+  if (_ctrl.zoomControl &amp;&amp; typeof maplibregl.NavigationControl === 'function') {
+    var _navCtrl = new maplibregl.NavigationControl({
+      showZoom: true,
+      showCompass: false,
+      visualizePitch: false
+    });
+    this.native.addControl(_navCtrl,
+      bemap.Map._translateZoomPosition('maplibre', _ctrl.zoomPosition));
+  }
+
+  // Suppress WMS tile decode errors (server returns XML/text error instead of image)
+  this.native.on('error', function(e) {
+    if (e &amp;&amp; e.error &amp;&amp; e.error.message &amp;&amp; e.error.message.indexOf('could not be decoded') !== -1) {
+      return; // Silently ignore WMS tile decode errors
+    }
+  });
+
+  // Cursor pointer on hover over GeoJSON features
+  var _mapRef = this;
+  this.native.on('mousemove', function(evt) {
+    if (!_mapRef._geoJsonLayerIds.length) return;
+    var existingLayers = [];
+    for (var i = 0; i &lt; _mapRef._geoJsonLayerIds.length; i++) {
+      try { if (_mapRef.native.getLayer(_mapRef._geoJsonLayerIds[i])) existingLayers.push(_mapRef._geoJsonLayerIds[i]); } catch(e) {}
+    }
+    if (!existingLayers.length) { _mapRef.native.getCanvas().style.cursor = ''; return; }
+    var features = _mapRef.native.queryRenderedFeatures(evt.point, { layers: existingLayers });
+    _mapRef.native.getCanvas().style.cursor = (features &amp;&amp; features.length > 0) ? 'pointer' : '';
+  });
+  // If tiles option with a style URL, load the full style async after map init
+  if (this._pendingTilesStyle) {
+    var _mapInst = this;
+    var _tilesUrl = this._pendingTilesUrl;
+    var styleUrl = this._pendingTilesStyle;
+    var xhr2 = new XMLHttpRequest();
+    xhr2.open('GET', styleUrl, true);
+    if (opts.tilesToken) xhr2.setRequestHeader(opts.tilesTokenHeader || 'X-Session-Token', opts.tilesToken);
+    xhr2.onload = function() {
+      if (xhr2.status === 200) {
+        try {
+          var fullStyle = JSON.parse(xhr2.responseText);
+          var placeholder = (fullStyle.metadata &amp;&amp; fullStyle.metadata.source_placeholder) || 'TILES_SOURCE';
+          fullStyle.sources['tiles'] = Object.assign({}, fullStyle.sources[placeholder] || {}, { type: 'vector', url: _tilesUrl, maxzoom: 14 });
+          if (placeholder !== 'tiles' &amp;&amp; fullStyle.sources[placeholder]) delete fullStyle.sources[placeholder];
+          for (var si = 0; si &lt; fullStyle.layers.length; si++) { if (fullStyle.layers[si].source === placeholder) fullStyle.layers[si].source = 'tiles'; }
+          if (!fullStyle.glyphs) fullStyle.glyphs = 'https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf';
+          _mapInst.native.setStyle(fullStyle);
+        } catch(e) {}
+      }
+    };
+    xhr2.send();
+  }
+
+  // Attribution widget (v1.5.0) — auto-instantiated unless options.attribution === false
+  if (typeof bemap.AttributionWidget === 'function') {
+    var _attr = opts.attribution;
+    if (_attr !== false) {
+      var _attrOpts = (_attr &amp;&amp; typeof _attr === 'object') ? _attr : {};
+      this._attributionWidget = new bemap.AttributionWidget(this, _attrOpts);
+    }
+  }
+};
+bemap.inherits(bemap.MapLibreMap, bemap.Map);
+
+/**
+ * Toggle keyboard navigation (arrow-pan + `=`/`-` zoom + `Shift+arrow`
+ * rotate/tilt — MapLibre's `KeyboardHandler` is one bundle) at runtime.
+ * @public
+ * @param {Boolean} enabled
+ * @return {bemap.MapLibreMap}
+ */
+bemap.MapLibreMap.prototype.setKeyboard = function (enabled) {
+  if (this.native &amp;&amp; this.native.keyboard) {
+    if (enabled) this.native.keyboard.enable();
+    else this.native.keyboard.disable();
+  }
+  this._keyboardEnabled = !!enabled;
+  return this;
+};
+
+/** @public @return {Boolean} */
+bemap.MapLibreMap.prototype.getKeyboard = function () { return !!this._keyboardEnabled; };
+
+/**
+ * Normalize a bounds-shaped input into MapLibre's `[[west, south], [east, north]]`.
+ * Accepts MapLibre's own forms (passthrough), Leaflet LatLngBounds
+ * (getSouthWest/getNorthEast → {lat,lng}), bemap.BoundingBox
+ * ({minLon,minLat,maxLon,maxLat}), and `[west,south,east,north]` flat arrays.
+ * Returns the original value when it can't be classified — let MapLibre throw
+ * its own error rather than swallow a genuinely bad input.
+ */
+bemap.MapLibreMap._normalizeBounds = function (b) {
+  if (b == null) return undefined;
+
+  // Web Mercator's safe latitude limit is atan(sinh(π)) ≈ 85.05112878°.
+  // Any value at or beyond ±85.05113 pushes mercatorYfromLat() to NaN /
+  // Infinity, which propagates into vec4.transformMat4 inside MapLibre's
+  // _calcMatrices and crashes with "Cannot read properties of null
+  // (reading '0')". Use 85.0 (well inside the limit) as the conservative
+  // clamp so legacy callers passing L.latLngBounds(-90..90, -180..180)
+  // simply work.
+  var MAX_LAT = 85.0,     MIN_LAT = -85.0;
+  var MAX_LON = 180,      MIN_LON = -180;
+
+  // If the bounds cover essentially the whole world there's nothing to
+  // constrain — drop the option entirely so MapLibre doesn't bother
+  // computing constraint geometry that could still produce NaN at edges.
+  function isWholeWorld(swLng, swLat, neLng, neLat) {
+    return (neLng - swLng) >= 359.5 &amp;&amp; (neLat - swLat) >= 169.5;
+  }
+  function cl(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+  function ok(swLng, swLat, neLng, neLat) {
+    if (isWholeWorld(swLng, swLat, neLng, neLat)) return undefined;
+    return [[cl(swLng, MIN_LON, MAX_LON), cl(swLat, MIN_LAT, MAX_LAT)],
+            [cl(neLng, MIN_LON, MAX_LON), cl(neLat, MIN_LAT, MAX_LAT)]];
+  }
+
+  if (typeof b.getSouthWest === 'function' &amp;&amp; typeof b.getNorthEast === 'function') {
+    var sw = b.getSouthWest();
+    var ne = b.getNorthEast();
+    if (sw &amp;&amp; ne &amp;&amp; sw.lng != null &amp;&amp; ne.lng != null) {
+      return ok(sw.lng, sw.lat, ne.lng, ne.lat);
+    }
+  }
+  if (typeof b.getWest === 'function' &amp;&amp; typeof b.getNorth === 'function') {
+    // MapLibre LngLatBounds — already typed correctly. Still check for
+    // whole-world by reading the accessors, otherwise pass through.
+    var w = b.getWest(), s = b.getSouth(), e2 = b.getEast(), n = b.getNorth();
+    if (isWholeWorld(w, s, e2, n)) return undefined;
+    return b;
+  }
+  if (b.minLon != null &amp;&amp; b.minLat != null &amp;&amp; b.maxLon != null &amp;&amp; b.maxLat != null) {
+    return ok(b.minLon, b.minLat, b.maxLon, b.maxLat);
+  }
+  if (Object.prototype.toString.call(b) === '[object Array]' &amp;&amp; b.length === 4 &amp;&amp;
+      typeof b[0] === 'number' &amp;&amp; typeof b[1] === 'number' &amp;&amp;
+      typeof b[2] === 'number' &amp;&amp; typeof b[3] === 'number') {
+    return ok(b[0], b[1], b[2], b[3]);
+  }
+  // [[lng,lat],[lng,lat]] — already MapLibre-shaped; still check + clamp.
+  if (Object.prototype.toString.call(b) === '[object Array]' &amp;&amp; b.length === 2 &amp;&amp;
+      Object.prototype.toString.call(b[0]) === '[object Array]' &amp;&amp;
+      Object.prototype.toString.call(b[1]) === '[object Array]') {
+    return ok(b[0][0], b[0][1], b[1][0], b[1][1]);
+  }
+  return b;
+};
+
+/**
+ * Run a callback when the map style is ready.
+ * If the style is already loaded, executes immediately; otherwise waits for the 'load' event
+ * with a safety timeout fallback.
+ */
+bemap.MapLibreMap.prototype._whenStyleReady = function(fn) {
+  var _this = this;
+  // `isStyleLoaded()` LIES during the post-setStyle gap: it returns true
+  // for the OLD style while MapLibre is parsing the new stylesheet. Any
+  // addSource / addLayer issued in that window hits the stale Style and
+  // gets wiped wholesale when MapLibre's Style#_load replaces it. That's
+  // the root cause of "5 of 33 polylines survive in evsmartrouting" — the
+  // first 5 polylines arrive during the gap, hit the fast path, run
+  // against the doomed Style, and get discarded.
+  //
+  // Use `'idle'` instead — MapLibre fires it once everything has settled:
+  // style fully loaded AND first render pass complete. After idle, addSource
+  // / addLayer reliably stick.
+  var inFlight = this._setStyleInFlight === true;
+  if (!inFlight &amp;&amp; this.native.isStyleLoaded()) { fn(); return; }
+  var fired = false;
+  var done = function () { if (fired) return; fired = true; fn(); };
+
+  this.native.once('idle', done);
+  // After a setStyle, MapLibre fires 'style.load' once the new stylesheet
+  // is parsed but BEFORE everything is settled. Chain to 'idle' after that.
+  this.native.once('style.load', function () { _this.native.once('idle', done); });
+  // Single safety net for cached / synchronously-resolved styles where the
+  // events never fire (rare). Cut from 4 staggered polls to 1 — 33 polylines
+  // each with 4 timers = 132 timers, which felt "heavy" in the consumer app.
+  setTimeout(function () {
+    if (_this._setStyleInFlight !== true &amp;&amp; _this.native.isStyleLoaded()) done();
+  }, 1500);
+};
+
+/* ------------------------------------------------------------
+ * Style-op coalescing — collect bursts of addSource/addLayer
+ * calls into a single requestAnimationFrame so the user sees ONE
+ * MapLibre render pass per render-cycle instead of 17–66.
+ *
+ * Eliminates the flicker between `polylineLayer.clear()` and the
+ * subsequent re-add loop in consumer apps that re-render routes
+ * on every selection change (e.g. evmove5's EV routing UI).
+ *
+ * Currently used only by addPolyline. Same pattern can be applied
+ * later to addPolygon / addCircle / addRasterLayer if those see
+ * similar burst patterns.
+ * ------------------------------------------------------------ */
+bemap.MapLibreMap.prototype._enqueueStyleOp = function (id, fn) {
+  if (!this._pendingStyleOps) this._pendingStyleOps = [];
+  this._pendingStyleOps.push({ id: id, fn: fn });
+  if (this._styleOpsScheduled) return;
+  this._styleOpsScheduled = true;
+  var _this = this;
+  var flush = function () {
+    _this._styleOpsScheduled = false;
+    var ops = _this._pendingStyleOps || [];
+    _this._pendingStyleOps = [];
+    _this._flushStyleOps(ops);
+  };
+  // Prefer rAF for visual frame alignment; fall back to setTimeout(0) for
+  // environments where rAF is unavailable (Karma / headless tests, etc.).
+  if (typeof requestAnimationFrame === 'function') {
+    requestAnimationFrame(flush);
+  } else {
+    setTimeout(flush, 0);
+  }
+};
+
+bemap.MapLibreMap.prototype._flushStyleOps = function (ops) {
+  if (!ops || !ops.length) return;
+  var _this = this;
+  var runAll = function () {
+    for (var i = 0; i &lt; ops.length; i++) {
+      try { ops[i].fn(); } catch (e) { /* per-op error logged inside fn */ }
+    }
+  };
+  // ONE _whenStyleReady subscription for the whole batch instead of one
+  // per op — avoids 17 separate listeners + 17 timeouts.
+  if (this.native.isStyleLoaded() &amp;&amp; this._setStyleInFlight !== true) {
+    runAll();
+  } else {
+    this._whenStyleReady(runAll);
+  }
+};
+
+/**
+ * Legacy auth path for the `opts.tiles` + `opts.tilesToken` usage shape.
+ * **Deprecated** in v2.0 — prefer `ctx.tilesHost` + `bemap.TilesAuth` (the
+ * v2 path uses MapLibre's `transformRequest` instead of patching the global
+ * `window.fetch`). Kept callable for backwards compatibility.
+ *
+ * @deprecated Since 2.0.0. Use `ctx.tilesHost` instead.
+ */
+bemap.MapLibreMap.prototype._setupTilesAuth = function(tilesUrl, token, headerName) {
+  // If the v2 `bemap.TilesAuth` interceptor is already patched on this
+  // page, stay out of its way. Stacking two interceptors would have the
+  // legacy wrapper capture the v2-patched fetch as its "original" and
+  // double-wrap every request.
+  if (typeof bemap.TilesAuth !== 'undefined' &amp;&amp; bemap.TilesAuth._fetchPatched) {
+    console.warn('bemap.MapLibreMap._setupTilesAuth is deprecated; ctx.tilesHost (v2) is already active on this page, ignoring the legacy call.');
+    return;
+  }
+  bemap.MapLibreMap._tokenMap = bemap.MapLibreMap._tokenMap || {};
+  if (bemap.MapLibreMap._fetchIntercepted) {
+    var domain = tilesUrl.replace('pmtiles://', '').split('/')[2] || tilesUrl.split('/')[2];
+    bemap.MapLibreMap._tokenMap[domain] = { header: headerName, token: token };
+    return;
+  }
+  var domain2 = tilesUrl.replace('pmtiles://', '').split('/')[2] || tilesUrl.split('/')[2];
+  bemap.MapLibreMap._tokenMap[domain2] = { header: headerName, token: token };
+  // Capture the original fetch reference and wrap it. Uses a rest-parameter
+  // bridge to avoid the `arguments` re-binding bug present in the v1
+  // prototype (where reassigning `arguments[1]` did not actually change
+  // the outgoing call on some engines). Host comparison uses `new URL`
+  // host parsing — substring matching would leak the token to attacker
+  // URLs like `https://evil.com/?h=mptiles-api.benomad.net`.
+  var _origFetch = window.fetch;
+  window.fetch = function (input, init) {
+    var url = (typeof input === 'string' ? input : (input &amp;&amp; input.url)) || '';
+    var newInit = init;
+    var reqHost = null;
+    try { reqHost = new URL(url, (window.location &amp;&amp; window.location.href) || 'http://localhost/').host; } catch (e) { /* malformed */ }
+    if (reqHost) {
+      for (var d in bemap.MapLibreMap._tokenMap) {
+        if (d === reqHost) {
+          var tokenInfo = bemap.MapLibreMap._tokenMap[d];
+          var headers = new Headers((init || {}).headers || {});
+          headers.set(tokenInfo.header, tokenInfo.token);
+          newInit = Object.assign({}, init || {}, { headers: headers });
+          break;
+        }
+      }
+    }
+    return _origFetch.call(this, input, newInit);
+  };
+  bemap.MapLibreMap._fetchIntercepted = true;
+};
+
+/**
+ * Add default layers. If no custom style was provided, adds WMS background
+ * from the BeMap server (same as OlMap). Always adds overlay layers.
+ */
+bemap.MapLibreMap.prototype.defaultLayers = function(options) {
+  var opts = options || {};
+  // Short-circuit WMS when an explicit style is present OR when BeNomad
+  // Tiles is configured on the Context — in both cases the background is
+  // already supplied (via the custom style or the bundled default).
+  if (!this._hasCustomStyle &amp;&amp; !this._hasTilesConfig) {
+    this.addLayer(new bemap.BemapLayer({
+      name: bemap.Map.DEFAULT_LAYER.BACKGROUND,
+      styles: opts.styles ? opts.styles : ''
+    }));
+  }
+  bemap.Map.prototype.defaultOverlayLayers.call(this, opts);
+  return this;
+};
+
+// backgroundLayers / switchBackgroundLayer not yet supported for MapLibre
+bemap.MapLibreMap.prototype.backgroundLayers = function(geoservers, options) { return this; };
+bemap.MapLibreMap.prototype.switchBackgroundLayer = function(geoserver) { return this; };
+
+// =========================================================================
+// Internal Helpers
+// =========================================================================
+
+bemap.MapLibreMap.prototype._uniqueId = function(prefix) {
+  return (prefix || 'bemap') + '_' + (++this._layerCounter);
+};
+
+bemap.MapLibreMap.prototype._colorToRgba = function(color) {
+  if (!color) return 'rgba(0,0,0,1)';
+  return 'rgba(' + color.getRed() + ',' + color.getGreen() + ',' + color.getBlue() + ',' + color.getAlpha() + ')';
+};
+
+bemap.MapLibreMap.prototype._addOwnToProperties = function(bemapObject) {
+  var id = this._uniqueId('obj');
+  bemapObject._bemapId = id;
+  this._featureRegistry[id] = bemapObject;
+};
+
+bemap.MapLibreMap.prototype._getOwnFromProperties = function(feature) {
+  if (feature &amp;&amp; feature.properties &amp;&amp; feature.properties._bemapId) {
+    return this._featureRegistry[feature.properties._bemapId] || null;
+  }
+  return null;
+};
+
+bemap.MapLibreMap.prototype._hitTestMarkerElements = function(point) {
+  var mapContainer = this.native.getContainer();
+  if (!mapContainer) return null;
+  var mapRect = mapContainer.getBoundingClientRect();
+  var px = point.x + mapRect.left;
+  var py = point.y + mapRect.top;
+
+  for (var id in this._markerElements) {
+    var entry = this._markerElements[id];
+    var el = entry.element;
+    if (!el) continue;
+    var rect = el.getBoundingClientRect();
+    if (px >= rect.left &amp;&amp; px &lt;= rect.right &amp;&amp; py >= rect.top &amp;&amp; py &lt;= rect.bottom) {
+      return entry.bemapObject;
+    }
+  }
+  return null;
+};
+
+// =========================================================================
+// Event System — mirrors OlMap's _onFeature architecture
+// =========================================================================
+
+bemap.MapLibreMap.prototype._checkModeOfEvent = function(mode, bemapObject, eventType) {
+  if (bemapObject &amp;&amp; bemapObject.callback &amp;&amp; bemapObject.callback[eventType] &amp;&amp; typeof bemapObject.callback[eventType] === 'function') {
+    return bemapObject.callback[eventType];
+  }
+  if (this.events) {
+    if (this.events[eventType + 'markers'] &amp;&amp; this.events[eventType + 'markers'].callback &amp;&amp; typeof this.events[eventType + 'markers'].callback === 'function' &amp;&amp; bemap.inheritsof(bemapObject, bemap.Marker)) {
+      return this.events[eventType + 'markers'].callback;
+    }
+    if (this.events[eventType + 'multiMarkers'] &amp;&amp; this.events[eventType + 'multiMarkers'].callback &amp;&amp; typeof this.events[eventType + 'multiMarkers'].callback === 'function' &amp;&amp; bemap.inheritsof(bemapObject, bemap.MultiMarker)) {
+      return this.events[eventType + 'multiMarkers'].callback;
+    }
+    if (this.events[eventType + 'polylines'] &amp;&amp; this.events[eventType + 'polylines'].callback &amp;&amp; typeof this.events[eventType + 'polylines'].callback === 'function' &amp;&amp; bemap.inheritsof(bemapObject, bemap.Polyline)) {
+      return this.events[eventType + 'polylines'].callback;
+    }
+    if (this.events[eventType + 'polygons'] &amp;&amp; this.events[eventType + 'polygons'].callback &amp;&amp; typeof this.events[eventType + 'polygons'].callback === 'function' &amp;&amp; bemap.inheritsof(bemapObject, bemap.Polygon)) {
+      return this.events[eventType + 'polygons'].callback;
+    }
+    if (this.events[eventType + 'circles'] &amp;&amp; this.events[eventType + 'circles'].callback &amp;&amp; typeof this.events[eventType + 'circles'].callback === 'function' &amp;&amp; bemap.inheritsof(bemapObject, bemap.Circle)) {
+      return this.events[eventType + 'circles'].callback;
+    }
+  }
+  if (bemapObject &amp;&amp; bemapObject.events &amp;&amp; bemapObject.events.draggable &amp;&amp; bemapObject.callback &amp;&amp; bemapObject.callback.draggable &amp;&amp; typeof bemapObject.callback.draggable === 'function') {
+    return bemapObject.callback.draggable;
+  }
+  return null;
+};
+
+bemap.MapLibreMap.prototype._onFeature = function(declaredObj, eventType, callback, options, mode) {
+  var opts = options || {};
+  var mlEvent = bemap.MapLibreMap_eventMap[eventType] || eventType;
+  var _this = this;
+  var nativeListener;
+
+  if (!this.events[eventType]) {
+    nativeListener = function(evt) {
+      var bemapObject = null;
+
+      // Hit-test GeoJSON layers
+      if (evt.point &amp;&amp; _this._geoJsonLayerIds.length > 0) {
+        try {
+          var existingLayers = [];
+          for (var i = 0; i &lt; _this._geoJsonLayerIds.length; i++) {
+            if (_this.native.getLayer(_this._geoJsonLayerIds[i])) {
+              existingLayers.push(_this._geoJsonLayerIds[i]);
+            }
+          }
+          if (existingLayers.length > 0) {
+            var features = _this.native.queryRenderedFeatures(evt.point, { layers: existingLayers });
+            if (features &amp;&amp; features.length > 0) {
+              bemapObject = _this._getOwnFromProperties(features[0]);
+            }
+          }
+        } catch(e) {}
+      }
+
+      // Hit-test HTML markers
+      if (!bemapObject &amp;&amp; evt.point) {
+        bemapObject = _this._hitTestMarkerElements(evt.point);
+      }
+
+      // Fallback to map
+      if (!bemapObject) {
+        bemapObject = _this;
+      }
+
+      var coord = evt.lngLat ? new bemap.Coordinate(evt.lngLat.lng, evt.lngLat.lat) : new bemap.Coordinate();
+      var mapEvent = new bemap.MapEvent({
+        native: evt,
+        map: _this,
+        bemapObject: bemapObject,
+        x: evt.point ? evt.point.x : 0,
+        y: evt.point ? evt.point.y : 0,
+        coordinate: coord,
+        properties: opts
+      });
+
+      var cb = _this._checkModeOfEvent(mode, bemapObject, eventType);
+      if (cb) { cb(mapEvent); }
+    };
+
+    this.native.on(mlEvent, nativeListener);
+
+    this.events[eventType] = new bemap.Listener({
+      native: nativeListener,
+      callback: callback,
+      key: mlEvent,
+      bemapObject: declaredObj
+    });
+  } else {
+    nativeListener = this.events[eventType].native;
+  }
+
+  // Store callback routing
+  if (declaredObj &amp;&amp; mode &amp;&amp; mode.singleFeature &amp;&amp; typeof callback === 'function') {
+    if (!declaredObj.callback) declaredObj.callback = {};
+    declaredObj.callback[eventType] = callback;
+  } else if (!declaredObj &amp;&amp; mode &amp;&amp; mode.markers &amp;&amp; typeof callback === 'function') {
+    this.events[eventType + 'markers'] = new bemap.Listener({ callback: callback, key: eventType + 'markers' });
+    return this.events[eventType + 'markers'];
+  } else if (!declaredObj &amp;&amp; mode &amp;&amp; mode.multiMarkers &amp;&amp; typeof callback === 'function') {
+    this.events[eventType + 'multiMarkers'] = new bemap.Listener({ callback: callback, key: eventType + 'multiMarkers' });
+    return this.events[eventType + 'multiMarkers'];
+  } else if (!declaredObj &amp;&amp; mode &amp;&amp; mode.polylines &amp;&amp; typeof callback === 'function') {
+    this.events[eventType + 'polylines'] = new bemap.Listener({ callback: callback, key: eventType + 'polylines' });
+    return this.events[eventType + 'polylines'];
+  } else if (!declaredObj &amp;&amp; mode &amp;&amp; mode.polygons &amp;&amp; typeof callback === 'function') {
+    this.events[eventType + 'polygons'] = new bemap.Listener({ callback: callback, key: eventType + 'polygons' });
+    return this.events[eventType + 'polygons'];
+  } else if (!declaredObj &amp;&amp; mode &amp;&amp; mode.circles &amp;&amp; typeof callback === 'function') {
+    this.events[eventType + 'circles'] = new bemap.Listener({ callback: callback, key: eventType + 'circles' });
+    return this.events[eventType + 'circles'];
+  }
+
+  return this.events[eventType];
+};
+
+// Public event methods — all delegate to _onFeature
+bemap.MapLibreMap.prototype.on = function(eventType, callback, options) {
+  return this._onFeature(this, eventType, callback, options, { singleFeature: true });
+};
+
+bemap.MapLibreMap.prototype.onMarker = function(marker, eventType, callback, options) {
+  return this._onFeature(marker, eventType, callback, options, { singleFeature: true });
+};
+
+bemap.MapLibreMap.prototype.onMarkers = function(eventType, callback, options) {
+  return this._onFeature(null, eventType, callback, options, { markers: true });
+};
+
+bemap.MapLibreMap.prototype.onMultiMarkers = function(eventType, callback, options) {
+  return this._onFeature(null, eventType, callback, options, { multiMarkers: true });
+};
+
+bemap.MapLibreMap.prototype.onMultiMarker = function(multimarker, eventType, callback, options) {
+  return this._onFeature(multimarker, eventType, callback, options, { singleFeature: true });
+};
+
+bemap.MapLibreMap.prototype.onPolyline = function(polyline, eventType, callback, options) {
+  return this._onFeature(polyline, eventType, callback, options, { singleFeature: true });
+};
+
+bemap.MapLibreMap.prototype.onPolylines = function(eventType, callback, options) {
+  return this._onFeature(null, eventType, callback, options, { polylines: true });
+};
+
+bemap.MapLibreMap.prototype.onPolygon = function(polygon, eventType, callback, options) {
+  return this._onFeature(polygon, eventType, callback, options, { singleFeature: true });
+};
+
+bemap.MapLibreMap.prototype.onPolygons = function(eventType, callback, options) {
+  return this._onFeature(null, eventType, callback, options, { polygons: true });
+};
+
+bemap.MapLibreMap.prototype.onCircle = function(circle, eventType, callback, options) {
+  return this._onFeature(circle, eventType, callback, options, { singleFeature: true });
+};
+
+bemap.MapLibreMap.prototype.removeListener = function(listener, options) {
+  if (listener &amp;&amp; listener.native &amp;&amp; listener.key) {
+    this.native.off(listener.key, listener.native);
+  }
+  if (listener &amp;&amp; listener.bemapObject &amp;&amp; listener.bemapObject.callback) {
+    if (listener.key === 'dragFeature') {
+      listener.bemapObject.events.draggable = false;
+      listener.bemapObject.callback.draggable = null;
+    }
+  }
+  return this;
+};
+
+// =========================================================================
+// Layer Management
+// =========================================================================
+
+bemap.MapLibreMap.prototype.addLayer = function(layer, options) {
+  if (layer === null || !bemap.inheritsof(layer, bemap.Layer)) return this;
+
+  var _this = this;
+  var layerId = this._uniqueId('layer');
+  layer._maplibreId = layerId;
+
+  if (bemap.inheritsof(layer, bemap.BemapLayer)) {
+    // Skip WMS when an alternate background is already in use — either
+    // an explicit `opts.style` (_hasCustomStyle) OR `ctx.tilesHost`
+    // (BeNomad Tiles, _hasTilesConfig). Without the tilesHost check, a
+    // legacy app that constructs MapLibreMap with tilesHost set AND then
+    // calls `addLayer(new BemapLayer({name:"normal"}))` (the same code
+    // it ran against LeafletMap) ends up stacking the WMS raster layer
+    // ON TOP of the loaded PMTiles — symptom: "PMTiles loads then snaps
+    // back to WMS". Register the layer logically and return.
+    if (this._hasCustomStyle || this._hasTilesConfig) {
+      layer.native = { id: layerId, type: 'raster' };
+      if (layer.map === null) layer.map = this;
+      bemap.Map.prototype.addLayer.call(this, layer);
+      return this;
+    }
+    var wmsUrl = this.ctx.getBaseUrl() + 'wms?' + this.ctx.getAuthUrlParams()
+      + '&amp;geoserver=' + (layer.geoserver ? layer.geoserver : this.ctx.getGeoserver())
+      + '&amp;LAYERS=' + (layer.layers ? layer.layers : 'default')
+      + '&amp;STYLES=' + (layer.styles ? layer.styles : '')
+      + '&amp;FORMAT=' + (layer.format ? layer.format : 'image/png')
+      + '&amp;TRANSPARENT=' + (layer.transparent ? 'true' : 'false')
+      + '&amp;SERVICE=WMS&amp;VERSION=1.1.1&amp;REQUEST=GetMap&amp;SRS=EPSG:3857&amp;WIDTH=256&amp;HEIGHT=256&amp;BBOX={bbox-epsg-3857}';
+
+    var addWms = function() {
+      if (!_this.native.getSource(layerId)) {
+        _this.native.addSource(layerId, { type: 'raster', tiles: [wmsUrl], tileSize: 256 });
+        _this.native.addLayer({ id: layerId, type: 'raster', source: layerId });
+      }
+    };
+    this._whenStyleReady(addWms);
+    layer.native = { id: layerId, type: 'raster' };
+
+  } else if (bemap.inheritsof(layer, bemap.WmsLayer)) {
+    var wmsUrl2 = layer.url + '?SERVICE=WMS&amp;VERSION=1.1.1&amp;REQUEST=GetMap'
+      + '&amp;LAYERS=' + (layer.layers || '') + '&amp;STYLES=' + (layer.styles || '')
+      + '&amp;FORMAT=' + (layer.format || 'image/png') + '&amp;SRS=EPSG:3857&amp;WIDTH=256&amp;HEIGHT=256&amp;BBOX={bbox-epsg-3857}';
+    var addWms2 = function() {
+      if (!_this.native.getSource(layerId)) {
+        _this.native.addSource(layerId, { type: 'raster', tiles: [wmsUrl2], tileSize: 256 });
+        _this.native.addLayer({ id: layerId, type: 'raster', source: layerId });
+      }
+    };
+    this._whenStyleReady(addWms2);
+    layer.native = { id: layerId, type: 'raster' };
+
+  } else if (bemap.inheritsof(layer, bemap.ClusterLayer)) {
+    layer.native = { id: layerId, type: 'cluster', features: [], markers: [] };
+    layer._sourceId = layerId + '-src';
+
+  } else if (bemap.inheritsof(layer, bemap.VectorTileLayer)) {
+    var addVt = function() {
+      if (!_this.native.getSource(layerId)) {
+        _this.native.addSource(layerId, { type: 'vector', tiles: [layer.url], minzoom: layer.minZoom || 0, maxzoom: layer.maxZoom || 14 });
+      }
+    };
+    this._whenStyleReady(addVt);
+    layer.native = { id: layerId, type: 'vector' };
+
+  } else if (bemap.inheritsof(layer, bemap.VectorLayer)) {
+    layer.native = { id: layerId, type: 'vector', features: [], markers: [], geoJsonIds: [] };
+
+  } else if (bemap.inheritsof(layer, bemap.OsmLayer)) {
+    var addOsm = function() {
+      if (!_this.native.getSource(layerId)) {
+        _this.native.addSource(layerId, { type: 'raster', tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'], tileSize: 256 });
+        _this.native.addLayer({ id: layerId, type: 'raster', source: layerId });
+      }
+    };
+    this._whenStyleReady(addOsm);
+    layer.native = { id: layerId, type: 'raster' };
+  }
+
+  if (layer.map === null) layer.map = this;
+  bemap.Map.prototype.addLayer.call(this, layer);
+  return this;
+};
+
+/**
+ * Load PMTiles vector tiles with optional style and authentication.
+ * Registers the pmtiles:// protocol, sets up token injection, loads style,
+ * and applies it to the map. Requires pmtiles.js library.
+ *
+ * @public
+ * @param {bemap.PMTilesLayer} layer PMTilesLayer with url, style, token, etc.
+ * @param {function} callback Called when loading is complete (optional).
+ * @return {bemap.MapLibreMap} this
+ */
+// @todo WIP — PMTiles loading is functional but needs further production testing.
+bemap.MapLibreMap.prototype.loadPMTiles = function(layer, callback) {
+  if (!layer || !bemap.inheritsof(layer, bemap.PMTilesLayer)) {
+    console.warn('loadPMTiles() requires a bemap.PMTilesLayer');
+    return this;
+  }
+  if (typeof pmtiles === 'undefined') {
+    console.error('PMTiles library not loaded. Add &lt;script src="pmtiles.js">&lt;/script>');
+    return this;
+  }
+  if (!layer.url) {
+    console.error('PMTilesLayer.url is required');
+    return this;
+  }
+
+  var _this = this;
+  var tilesUrl = 'pmtiles://' + layer.url;
+  var sourceName = layer.sourceName || 'tiles';
+
+  // Register PMTiles protocol (safe to call multiple times)
+  if (!bemap.MapLibreMap._pmtilesRegistered) {
+    var protocol = new pmtiles.Protocol();
+    maplibregl.addProtocol('pmtiles', protocol.tile);
+    bemap.MapLibreMap._pmtilesRegistered = true;
+  }
+
+  // Set up token injection for authenticated PMTiles
+  if (layer.token) {
+    this._setupTilesAuth(layer.url, layer.token, layer.tokenHeader || 'X-Session-Token');
+  }
+
+  // Load style
+  var applyStyle = function(style) {
+    // Inject PMTiles source into style
+    var placeholder = (style.metadata &amp;&amp; style.metadata.source_placeholder) || 'TILES_SOURCE';
+    style.sources[sourceName] = Object.assign(
+      {}, style.sources[placeholder] || {},
+      { type: 'vector', url: tilesUrl, maxzoom: layer.pmtilesMaxZoom || 14 }
+    );
+    if (placeholder !== sourceName &amp;&amp; style.sources[placeholder]) {
+      delete style.sources[placeholder];
+    }
+    for (var i = 0; i &lt; style.layers.length; i++) {
+      if (style.layers[i].source === placeholder) style.layers[i].source = sourceName;
+    }
+    if (!style.glyphs) style.glyphs = layer.glyphs || 'https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf';
+
+    // Register callback BEFORE setStyle so we catch the style.load event
+    if (callback) {
+      _this.native.once('style.load', function() { callback(_this); });
+    }
+
+    _this.native.setStyle(style);
+    _this._hasCustomStyle = true;
+  };
+
+  if (typeof layer.style === 'string') {
+    // Style is a URL — fetch it
+    var xhr = new XMLHttpRequest();
+    xhr.open('GET', layer.style, true);
+    if (layer.token) {
+      xhr.setRequestHeader(layer.tokenHeader || 'X-Session-Token', layer.token);
+    }
+    xhr.onload = function() {
+      if (xhr.status === 200) {
+        try {
+          var style = JSON.parse(xhr.responseText);
+          applyStyle(style);
+        } catch(e) {
+          console.error('Failed to parse PMTiles style JSON:', e);
+        }
+      } else {
+        console.error('Failed to load PMTiles style:', xhr.status);
+      }
+    };
+    xhr.send();
+  } else if (layer.style &amp;&amp; typeof layer.style === 'object') {
+    // Style is an object — use directly
+    applyStyle(JSON.parse(JSON.stringify(layer.style))); // deep clone
+  } else {
+    // No style — create minimal style with the PMTiles source
+    applyStyle({
+      version: 8,
+      glyphs: layer.glyphs || 'https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf',
+      sources: {},
+      layers: [{ id: 'background', type: 'background', paint: { 'background-color': '#f0f0f0' } }]
+    });
+  }
+
+  layer.map = this;
+  bemap.Map.prototype.addLayer.call(this, layer);
+  return this;
+};
+bemap.MapLibreMap._pmtilesRegistered = false;
+bemap.MapLibreMap._fetchIntercepted = false;
+bemap.MapLibreMap._tokenMap = {};
+
+/**
+ * Load BeMap PMTiles vector tiles. Auto-authenticates using bemap.Context credentials.
+ *
+ * Usage:
+ *   map.loadBeMapTiles();  // uses defaults + context credentials
+ *   map.loadBeMapTiles({ url: 'https://mptiles-api.benomad.net', tilesFile: 'Europe.pmtiles', style: 'style_liberty.json' });
+ *   map.loadBeMapTiles({ token: 'existing-jwt' });  // skip login
+ *
+ * @deprecated Since 2.0.0 — prefer `ctx.tilesHost` on the Context, which
+ *             routes through `bemap.TilesAuth` + the fetch interceptor
+ *             instead of a one-shot login + setStyle.
+ * @public
+ * @param {Object} options
+ * @param {String} options.url Tiles API base URL — REQUIRED unless `ctx.tilesHost` is set.
+ * @param {String} options.tilesFile PMTiles file (default: 'OSM_250901_WORLD.pmtiles').
+ * @param {String} options.style Style name (default: 'openfreemap_graylevel.json').
+ * @param {String} options.token JWT token — if provided, skips login.
+ * @param {String} options.login Override context login.
+ * @param {String} options.password Override context password.
+ * @param {function} options.onSuccess callback(map, token).
+ * @param {function} options.onError callback(errorMessage).
+ * @return {bemap.MapLibreMap} this
+ */
+bemap.MapLibreMap.prototype.loadBeMapTiles = function(options) {
+  var opts = options || {};
+  var _this = this;
+  // Derive the tiles base from `ctx.tilesHost` when present — the
+  // staging hostname that lived here in the prototype has been removed
+  // because it leaked customer credentials to a non-production host.
+  var tilesApi = opts.url
+    || (this.ctx &amp;&amp; typeof this.ctx.getTilesBaseUrl === 'function' &amp;&amp; this.ctx.getTilesBaseUrl())
+    || null;
+  if (!tilesApi) {
+    var msg = 'loadBeMapTiles: no URL provided and ctx.tilesHost not set on Context. Pass options.url or set Context.tilesHost.';
+    console.error('[bemap] ' + msg);
+    if (typeof opts.onError === 'function') opts.onError(msg);
+    return this;
+  }
+  // Public OSM tileset is the safe default — the HERE-licensed tilesets
+  // are gated server-side and would 403 for accounts without ACL.
+  var tilesFile = opts.tilesFile || 'OSM_250901_WORLD.pmtiles';
+  var styleName = opts.style || 'openfreemap_graylevel.json';
+
+  if (typeof pmtiles === 'undefined') {
+    console.error('[bemap] loadBeMapTiles: pmtiles.js not loaded');
+    if (opts.onError) opts.onError('PMTiles library not loaded');
+    return this;
+  }
+
+  var doLoad = function(token) {
+    // Register service worker for tile caching (cache-first for PMTiles range requests)
+    if ('serviceWorker' in navigator &amp;&amp; opts.cache !== false) {
+      navigator.serviceWorker.register('sw-tiles.js').catch(function() {});
+    }
+
+    var tiles = new bemap.PMTilesLayer({
+      url: tilesApi + '/' + tilesFile,
+      style: tilesApi + '/styles/' + styleName,
+      token: token,
+      tokenHeader: 'X-Session-Token',
+      sourceName: 'tiles',
+      maxZoom: 14
+    });
+    _this.loadPMTiles(tiles, function(map) {
+      if (opts.onSuccess) opts.onSuccess(map, token);
+    });
+  };
+
+  // If token already provided, use it directly
+  if (opts.token) {
+    doLoad(opts.token);
+    return this;
+  }
+
+  // Auto-login using context credentials
+  var login = opts.login || this.ctx.login;
+  var password = opts.password || this.ctx.password;
+  if (!login || !password) {
+    console.error('[bemap] loadBeMapTiles: no credentials — set login/password in Context or options');
+    if (opts.onError) opts.onError('No credentials');
+    return this;
+  }
+
+  var xhr = new XMLHttpRequest();
+  xhr.open('POST', tilesApi + '/api/login', true);
+  xhr.setRequestHeader('Authorization', 'Basic ' + btoa(login + ':' + password));
+  xhr.onload = function() {
+    try {
+      var data = JSON.parse(xhr.responseText);
+      if (data.ok &amp;&amp; data.token) {
+        doLoad(data.token);
+      } else {
+        if (opts.onError) opts.onError('Login failed');
+      }
+    } catch(e) {
+      if (opts.onError) opts.onError('Parse error');
+    }
+  };
+  xhr.onerror = function() {
+    if (opts.onError) opts.onError('Network error');
+  };
+  xhr.send();
+
+  return this;
+};
+
+bemap.MapLibreMap.prototype.removeLayer = function(layer) {
+  if (layer &amp;&amp; bemap.inheritsof(layer, bemap.Layer) &amp;&amp; layer._maplibreId) {
+    // 1. Clear the layer's CONTENTS first — HTML markers (DOM elements
+    //    stored in layer.native.markers), GeoJSON sub-layers, feature
+    //    registry entries. Without this, addMarker(m, {layer}) markers
+    //    would remain visible after the parent layer was removed.
+    try { this.clearLayer(layer); } catch (e) {}
+
+    // 2. Remove the native layer + source for this layer's own
+    //    raster/vector backing (e.g. WMS BemapLayer, RasterLayer).
+    try {
+      if (this.native.getLayer(layer._maplibreId)) this.native.removeLayer(layer._maplibreId);
+      if (this.native.getSource(layer._maplibreId)) this.native.removeSource(layer._maplibreId);
+    } catch(e) {}
+    // 3. Defensive sweep — clearLayer above usually handles these, but
+    //    re-run to catch any GeoJSON IDs that escaped (e.g. polygons
+    //    that registered both `-fill` and `-stroke` ids).
+    if (layer.native &amp;&amp; layer.native.geoJsonIds) {
+      for (var i = 0; i &lt; layer.native.geoJsonIds.length; i++) {
+        try {
+          var gid = layer.native.geoJsonIds[i];
+          if (this.native.getLayer(gid)) this.native.removeLayer(gid);
+          if (this.native.getSource(gid)) this.native.removeSource(gid);
+        } catch(e2) {}
+      }
+    }
+    layer.map = null;
+  }
+  return this;
+};
+
+bemap.MapLibreMap.prototype.clearLayer = function(layer) {
+  if (!layer || !layer.native) return this;
+  // Determine the catalog type for a given bemap feature so we can unregister
+  // on clear (otherwise the next setStyle replays cleared polylines/markers
+  // and they pop back up — root cause of "first polyline always on top in
+  // true colour even after clicking another route" in evsmartrouting).
+  var _cat = this._overlayCatalog;
+  function _catalogTypeFor(feat) {
+    if (!feat) return null;
+    if (bemap.Polyline    &amp;&amp; bemap.inheritsof(feat, bemap.Polyline))    return 'polyline';
+    if (bemap.Polygon     &amp;&amp; bemap.inheritsof(feat, bemap.Polygon))     return 'polygon';
+    if (bemap.Circle      &amp;&amp; bemap.inheritsof(feat, bemap.Circle))      return 'circle';
+    if (bemap.Popup       &amp;&amp; bemap.inheritsof(feat, bemap.Popup))       return 'popup';
+    if (bemap.MultiMarker &amp;&amp; bemap.inheritsof(feat, bemap.MultiMarker)) return 'multimarker';
+    if (bemap.Marker      &amp;&amp; bemap.inheritsof(feat, bemap.Marker))      return 'marker';
+    return null;
+  }
+  // Clear HTML markers + registries
+  if (layer.native.markers) {
+    for (var i = 0; i &lt; layer.native.markers.length; i++) {
+      var m = layer.native.markers[i];
+      if (m.remove) m.remove();
+    }
+    layer.native.markers = [];
+  }
+  // Clean up feature registry + catalog entries for features in this layer.
+  if (layer.native.features) {
+    for (var f = 0; f &lt; layer.native.features.length; f++) {
+      var feat = layer.native.features[f];
+      if (feat &amp;&amp; feat._bemapId) {
+        delete this._featureRegistry[feat._bemapId];
+        delete this._markerElements[feat._bemapId];
+        if (feat._maplibreSourceId) delete this._geoJsonData[feat._maplibreSourceId];
+      }
+      // Unregister from the overlay catalogue so a future setStyle replay
+      // doesn't resurrect this feature.
+      if (_cat &amp;&amp; feat &amp;&amp; feat.__catalogId) {
+        var _ct = _catalogTypeFor(feat);
+        if (_ct) _cat.unregister(_ct, feat.__catalogId);
+      }
+    }
+  }
+  // Clear GeoJSON layers/sources
+  if (layer.native.geoJsonIds) {
+    for (var j = 0; j &lt; layer.native.geoJsonIds.length; j++) {
+      try {
+        var gid = layer.native.geoJsonIds[j];
+        if (this.native.getLayer(gid)) this.native.removeLayer(gid);
+        var srcId = gid.replace('-fill', '-src').replace('-layer', '-src');
+        if (this.native.getSource(srcId)) this.native.removeSource(srcId);
+        // Also clean the map-level tracking array
+        var idx = this._geoJsonLayerIds.indexOf(gid);
+        if (idx > -1) this._geoJsonLayerIds.splice(idx, 1);
+      } catch(e) {}
+    }
+    layer.native.geoJsonIds = [];
+  }
+  layer.native.features = [];
+  // Clear cluster source/layers if this is a ClusterLayer
+  if (layer._clusterLayerIds) {
+    for (var ci = 0; ci &lt; layer._clusterLayerIds.length; ci++) {
+      try { if (this.native.getLayer(layer._clusterLayerIds[ci])) this.native.removeLayer(layer._clusterLayerIds[ci]); } catch(e3) {}
+    }
+    layer._clusterLayerIds = [];
+  }
+  if (layer._clusterSourceId) {
+    try { if (this.native.getSource(layer._clusterSourceId)) this.native.removeSource(layer._clusterSourceId); } catch(e4) {}
+    layer._clusterSourceId = null;
+  }
+  if (layer._clusterFeatures) layer._clusterFeatures = [];
+  if (layer._clusterMarkerNatives) layer._clusterMarkerNatives = {};
+  if (layer._clusterBubbles) {
+    for (var bi = 0; bi &lt; layer._clusterBubbles.length; bi++) {
+      layer._clusterBubbles[bi].remove();
+    }
+    layer._clusterBubbles = [];
+  }
+  layer._lastClusterKey = null;
+  if (layer._clusterBemapObjects) layer._clusterBemapObjects = {};
+  return this;
+};
+
+bemap.MapLibreMap.prototype.visibleLayer = function(layer, visible) {
+  if (layer &amp;&amp; bemap.inheritsof(layer, bemap.Layer)) {
+    layer.visible = visible;
+    if (layer._maplibreId &amp;&amp; this.native.getLayer(layer._maplibreId)) {
+      try { this.native.setLayoutProperty(layer._maplibreId, 'visibility', visible ? 'visible' : 'none'); } catch(e) {}
+    }
+    if (layer.native &amp;&amp; layer.native.markers) {
+      for (var i = 0; i &lt; layer.native.markers.length; i++) {
+        var el = layer.native.markers[i].getElement ? layer.native.markers[i].getElement() : null;
+        if (el) el.style.display = visible ? '' : 'none';
+      }
+    }
+    if (layer.native &amp;&amp; layer.native.geoJsonIds) {
+      for (var j = 0; j &lt; layer.native.geoJsonIds.length; j++) {
+        try { this.native.setLayoutProperty(layer.native.geoJsonIds[j], 'visibility', visible ? 'visible' : 'none'); } catch(e2) {}
+      }
+    }
+  }
+  return this;
+};
+
+/**
+ * Re-stack a layer relative to the others. MapLibre keeps layers in an
+ * ordered array on the native style; later entries paint on top of earlier
+ * ones. To raise a bemap Layer, walk its tracked sub-layers (`geoJsonIds`)
+ * and `moveLayer` each to the top. To lower, move them before the first
+ * non-base layer. HTML markers (DOM elements, no style-array entry) get a
+ * matching CSS `z-index` so DOM stacking follows the same intent.
+ *
+ * Threshold: zIndex ≥ 50 counts as "on top", everything else "behind".
+ * @public
+ * @param {bemap.Layer} layer
+ * @param {Number} zIndex
+ * @return {bemap.MapLibreMap} this
+ */
+bemap.MapLibreMap.prototype.zIndexLayer = function(layer, zIndex) {
+  if (!layer) return this;
+  layer.zIndex = zIndex;
+  var high = (zIndex >= 50);
+  var nat = this.native;
+  if (!nat || !nat.getStyle) return this;
+
+  // --- GeoJSON sub-layers (polygons / polylines / circles / heatmaps) ---
+  var ids = (layer.native &amp;&amp; layer.native.geoJsonIds) ? layer.native.geoJsonIds.slice() : [];
+  for (var i = 0; i &lt; ids.length; i++) {
+    try {
+      if (!nat.getLayer(ids[i])) continue;
+      if (high) {
+        nat.moveLayer(ids[i]);                // no beforeId = move to top
+      } else {
+        // Move BEFORE the first non-base layer (lowest possible without
+        // sinking into the base map layers). Best-effort.
+        var styleLayers = nat.getStyle().layers || [];
+        var beforeId = null;
+        for (var sl = 0; sl &lt; styleLayers.length; sl++) {
+          var lid = styleLayers[sl].id;
+          if (this._geoJsonLayerIds &amp;&amp; this._geoJsonLayerIds.indexOf(lid) > -1 &amp;&amp; ids.indexOf(lid) === -1) {
+            beforeId = lid;
+            break;
+          }
+        }
+        if (beforeId) nat.moveLayer(ids[i], beforeId);
+      }
+    } catch (e) { /* layer might be mid-style-reload */ }
+  }
+
+  // --- HTML markers (maplibregl.Marker DOM elements) ---
+  // MapLibre markers are DOM siblings of the WebGL canvas. The canvas is
+  // OPAQUE (base-map tiles render with a non-transparent background), so
+  // a negative z-index would sink markers behind the canvas and they'd
+  // become invisible — not "below the polyline", just gone. Therefore
+  // markers always stay above the canvas; their CSS z-index only orders
+  // them relative to OTHER HTML markers. The polyline-vs-polyline canvas
+  // reordering above still works, but markers vs polyline is a hard
+  // architectural limit in MapLibre with HTML markers. Symbol-layer
+  // markers (canvas) would lift this, but that's a separate refactor.
+  var domZ = high ? '1000' : '500';   // both positive — never sink below canvas
+  var markers = (layer.native &amp;&amp; layer.native.markers) ? layer.native.markers : [];
+  for (var mi = 0; mi &lt; markers.length; mi++) {
+    var m = markers[mi];
+    if (m &amp;&amp; typeof m.getElement === 'function') {
+      var el = m.getElement();
+      if (el) el.style.zIndex = domZ;
+    }
+  }
+  return this;
+};
+
+bemap.MapLibreMap.prototype.refreshLayer = function(layer) {
+  return this;
+};
+
+// =========================================================================
+// GeoJSON Feature Dragging
+// =========================================================================
+
+bemap.MapLibreMap.prototype._draggableFeature = function(declaredObj, callback, options, mode) {
+  var _this = this;
+  var opts = options || {};
+  var dragging = false;
+  var dragFeature = null;
+  var dragBemapObj = null;
+  var startLngLat = null;
+  var prevLngLat = null;
+  var canvas = this.native.getCanvasContainer();
+
+  if (declaredObj) {
+    if (!declaredObj.events) declaredObj.events = {};
+    if (!declaredObj.callback) declaredObj.callback = {};
+    declaredObj.events.draggable = true;
+    declaredObj.callback.draggable = callback;
+  }
+
+  if (!this.events.dragFeature) {
+    var onMouseDown = function(evt) {
+      if (!_this._geoJsonLayerIds.length) return;
+      var existingLayers = [];
+      for (var i = 0; i &lt; _this._geoJsonLayerIds.length; i++) {
+        try { if (_this.native.getLayer(_this._geoJsonLayerIds[i])) existingLayers.push(_this._geoJsonLayerIds[i]); } catch(e) {}
+      }
+      if (!existingLayers.length) return;
+
+      var features = _this.native.queryRenderedFeatures(evt.point, { layers: existingLayers });
+      if (!features || !features.length) return;
+
+      var bemapObj = _this._getOwnFromProperties(features[0]);
+      if (!bemapObj) return;
+
+      // Check if this object has draggable enabled
+      if (bemapObj.events &amp;&amp; bemapObj.events.draggable) {
+        dragFeature = features[0];
+        dragBemapObj = bemapObj;
+        startLngLat = evt.lngLat;
+        prevLngLat = evt.lngLat;
+        dragging = true;
+        _this.native.dragPan.disable();
+        canvas.style.cursor = 'grabbing';
+        evt.preventDefault();
+      }
+    };
+
+    var onMouseMove = function(evt) {
+      if (!dragging || !dragBemapObj) return;
+
+      var dLng = evt.lngLat.lng - prevLngLat.lng;
+      var dLat = evt.lngLat.lat - prevLngLat.lat;
+      prevLngLat = evt.lngLat;
+
+      // Translate the GeoJSON geometry
+      var sourceId = dragBemapObj._maplibreSourceId;
+      if (!sourceId) return;
+
+      var src = _this.native.getSource(sourceId);
+      if (!src) return;
+
+      var storedData = _this._geoJsonData[sourceId];
+      if (!storedData) return;
+
+      var geojson = JSON.parse(JSON.stringify(storedData));
+      _translateGeojsonCoords(geojson.geometry, dLng, dLat);
+      _this._geoJsonData[sourceId] = geojson;
+      src.setData(geojson);
+
+      // Update bemap coordinates
+      if (bemap.inheritsof(dragBemapObj, bemap.Polyline) || bemap.inheritsof(dragBemapObj, bemap.Polygon)) {
+        var coords = dragBemapObj.getCoordinates();
+        for (var i = 0; i &lt; coords.length; i++) {
+          coords[i].setLon(coords[i].getLon() + dLng).setLat(coords[i].getLat() + dLat);
+        }
+      } else if (bemap.inheritsof(dragBemapObj, bemap.Circle)) {
+        var c = dragBemapObj.getCoordinate();
+        c.setLon(c.getLon() + dLng).setLat(c.getLat() + dLat);
+      }
+    };
+
+    var onMouseUp = function(evt) {
+      if (!dragging) return;
+      dragging = false;
+      _this.native.dragPan.enable();
+      canvas.style.cursor = '';
+
+      if (dragBemapObj &amp;&amp; dragBemapObj.callback &amp;&amp; dragBemapObj.callback.draggable) {
+        var coord = evt.lngLat ? new bemap.Coordinate(evt.lngLat.lng, evt.lngLat.lat) : new bemap.Coordinate();
+        dragBemapObj.callback.draggable(new bemap.MapEvent({
+          native: evt,
+          bemapObject: dragBemapObj,
+          coordinate: coord,
+          startCoordinate: startLngLat ? new bemap.Coordinate(startLngLat.lng, startLngLat.lat) : new bemap.Coordinate(),
+          map: _this
+        }));
+      }
+
+      dragFeature = null;
+      dragBemapObj = null;
+    };
+
+    this.native.on('mousedown', onMouseDown);
+    this.native.on('mousemove', onMouseMove);
+    this.native.on('mouseup', onMouseUp);
+
+    this.events.dragFeature = new bemap.Listener({
+      native: { down: onMouseDown, move: onMouseMove, up: onMouseUp },
+      key: 'dragFeature',
+      bemapObject: declaredObj
+    });
+  }
+
+  return this.events.dragFeature;
+};
+
+// Helper: translate all coordinates in a GeoJSON geometry
+function _translateGeojsonCoords(geometry, dLng, dLat) {
+  if (geometry.type === 'Point') {
+    geometry.coordinates[0] += dLng;
+    geometry.coordinates[1] += dLat;
+  } else if (geometry.type === 'LineString') {
+    for (var i = 0; i &lt; geometry.coordinates.length; i++) {
+      geometry.coordinates[i][0] += dLng;
+      geometry.coordinates[i][1] += dLat;
+    }
+  } else if (geometry.type === 'Polygon') {
+    for (var r = 0; r &lt; geometry.coordinates.length; r++) {
+      for (var j = 0; j &lt; geometry.coordinates[r].length; j++) {
+        geometry.coordinates[r][j][0] += dLng;
+        geometry.coordinates[r][j][1] += dLat;
+      }
+    }
+  }
+}
+
+// =========================================================================
+// Camera / Navigation
+// =========================================================================
+
+bemap.MapLibreMap.prototype.move = function(lon, lat, zoom, options) {
+  var opts = options || {};
+  var o = { center: [lon, lat] };
+  if (zoom) o.zoom = zoom;
+  if (opts.animate === false) {
+    this.native.jumpTo(o);
+  } else {
+    o.duration = opts.duration || 800;
+    o.essential = true;
+    this.native.easeTo(o);
+  }
+  return this;
+};
+
+bemap.MapLibreMap.prototype.flyTo = function(lon, lat, zoom, options) {
+  var opts = options || {};
+  this.native.flyTo({
+    center: [lon, lat],
+    zoom: zoom || this.native.getZoom(),
+    duration: opts.duration || 2000,
+    essential: true,
+    curve: 1.42,
+    speed: 1.2
+  });
+  return this;
+};
+
+bemap.MapLibreMap.prototype.moveToBoundingBox = function(boundingBox, options) {
+  if (boundingBox &amp;&amp; bemap.inheritsof(boundingBox, bemap.BoundingBox)) {
+    var opts = options || {};
+    // Normalize: ensure min &lt; max (callers may pass points in any order)
+    var west = Math.min(boundingBox.minLon, boundingBox.maxLon);
+    var south = Math.min(boundingBox.minLat, boundingBox.maxLat);
+    var east = Math.max(boundingBox.minLon, boundingBox.maxLon);
+    var north = Math.max(boundingBox.minLat, boundingBox.maxLat);
+    var fitOpts = { padding: opts.padding || 50 };
+    if (opts.fly) {
+      fitOpts.duration = opts.duration || 2000;
+      fitOpts.essential = true;
+    } else {
+      fitOpts.duration = opts.duration || 500;
+    }
+    this.native.fitBounds([[west, south], [east, north]], fitOpts);
+  }
+  return this;
+};
+
+bemap.MapLibreMap.prototype.moveToLayerData = function(layer, options) {
+  // Compute bounds from registered features
+  if (!layer || !layer.native || !layer.native.features) return this;
+  var minLon = 180, minLat = 90, maxLon = -180, maxLat = -90;
+  var found = false;
+  for (var i = 0; i &lt; layer.native.features.length; i++) {
+    var obj = layer.native.features[i];
+    if (obj &amp;&amp; obj.coordinate) {
+      var lon = obj.coordinate.getLon ? obj.coordinate.getLon() : obj.coordinate.lon;
+      var lat = obj.coordinate.getLat ? obj.coordinate.getLat() : obj.coordinate.lat;
+      if (lon &lt; minLon) minLon = lon;
+      if (lat &lt; minLat) minLat = lat;
+      if (lon > maxLon) maxLon = lon;
+      if (lat > maxLat) maxLat = lat;
+      found = true;
+    }
+  }
+  if (found) {
+    this.native.fitBounds([[minLon, minLat], [maxLon, maxLat]], { padding: 50 });
+  }
+  return this;
+};
+
+bemap.MapLibreMap.prototype.zoom = function(zoom, options) {
+  this.native.setZoom(zoom);
+  return this;
+};
+
+bemap.MapLibreMap.prototype.getZoom = function() {
+  return Math.round(this.native.getZoom());
+};
+
+/**
+ * @deprecated Since 2.0 — use setBearing(deg) for a cross-engine API.
+ *             rotation() stays callable but emits a one-time warn so
+ *             customer code can migrate without surprises.
+ */
+bemap.MapLibreMap.prototype.rotation = function(angle, options) {
+  bemap.MapLibreMap._rotationDeprecationWarned = bemap.MapLibreMap._rotationDeprecationWarned || false;
+  if (!bemap.MapLibreMap._rotationDeprecationWarned) {
+    bemap.MapLibreMap._rotationDeprecationWarned = true;
+    console.warn('bemap.MapLibreMap.rotation() is deprecated since 2.0 — use setBearing(deg) for the cross-engine API.');
+  }
+  this.native.setBearing(angle);
+  return this;
+};
+
+bemap.MapLibreMap.prototype.getRotation = function() {
+  return this.native.getBearing();
+};
+
+// resize() fires the native 'resize' event, whose listener (see constructor)
+// nudges the camera so the resized viewport re-requests its tiles.
+bemap.MapLibreMap.prototype.refresh = function(options) {
+  if (this.native) this.native.resize();
+  return this;
+};
+
+bemap.MapLibreMap.prototype.getCenter = function() {
+  var c = this.native.getCenter();
+  return new bemap.Coordinate(c.lng, c.lat);
+};
+
+bemap.MapLibreMap.prototype.getBoundingBox = function() {
+  var b = this.native.getBounds();
+  return new bemap.BoundingBox(b.getWest(), b.getSouth(), b.getEast(), b.getNorth());
+};
+
+bemap.MapLibreMap.prototype.isDragPan = function() {
+  return this.native.dragPan ? this.native.dragPan.isEnabled() : true;
+};
+
+bemap.MapLibreMap.prototype.setDragPan = function(active) {
+  if (active) { this.native.dragPan.enable(); } else { this.native.dragPan.disable(); }
+  return this;
+};
+
+// =========================================================================
+// 3D Features (MapLibre-exclusive)
+// =========================================================================
+
+bemap.MapLibreMap.prototype.setPitch = function(pitch) { this.native.setPitch(pitch); return this; };
+bemap.MapLibreMap.prototype.getPitch = function() { return this.native.getPitch(); };
+bemap.MapLibreMap.prototype.setBearing = function(bearing) { this.native.setBearing(bearing); return this; };
+bemap.MapLibreMap.prototype.getBearing = function() { return this.native.getBearing(); };
+
+bemap.MapLibreMap.prototype.setTerrain = function(options) {
+  try { this.native.setTerrain(options); } catch(e) {}
+  var self = this;
+  if (typeof this._registerEffect === 'function') {
+    this._registerEffect('terrain', function () { self.removeTerrain(); });
+  }
+  return this;
+};
+bemap.MapLibreMap.prototype.removeTerrain = function() {
+  try { this.native.setTerrain(null); } catch(e) {}
+  if (typeof this._unregisterEffect === 'function') this._unregisterEffect('terrain');
+  return this;
+};
+
+bemap.MapLibreMap.prototype.setProjection = function(type) {
+  try { this.native.setProjection({ type: type }); } catch(e) {}
+  var self = this;
+  // Only register the 'globe' state as an effect — mercator is the
+  // default and has nothing to tear down.
+  if (typeof this._registerEffect === 'function') {
+    if (type === 'globe') {
+      this._registerEffect('globe', function () { self.setProjection('mercator'); });
+    } else {
+      if (typeof this._unregisterEffect === 'function') this._unregisterEffect('globe');
+    }
+  }
+  return this;
+};
+
+bemap.MapLibreMap.prototype.setSky = function(options) {
+  try {
+    if (this.native.setSky) {
+      // Pass null/undefined/false straight through so MapLibre removes the
+      // sky entirely. The previous `options || {}` converted null → {} which
+      // sets an EMPTY sky config rather than disabling — the "Disable Sky"
+      // button was a no-op as a result.
+      this.native.setSky(options || undefined);
+    } else {
+      var s = this.native.getStyle();
+      if (options) { s.sky = options; } else { delete s.sky; }
+      this.native.setStyle(s);
+    }
+  } catch(e) {}
+  if (typeof this._requiresGlobe === 'function') this._requiresGlobe('setSky');
+  var self = this;
+  if (typeof this._registerEffect === 'function') {
+    if (options) {
+      this._registerEffect('setSky', function () {
+        try { if (self.native.setSky) self.native.setSky({}); } catch (e) {}
+      });
+    } else {
+      if (typeof this._unregisterEffect === 'function') this._unregisterEffect('setSky');
+    }
+  }
+  return this;
+};
+
+// setStyle is defined later in this file as the overlay-preserving v2.0
+// implementation (search for "// v2.0 — BeNomad Tiles surgical").
+bemap.MapLibreMap.prototype.jumpTo = function(options) { this.native.jumpTo(options); return this; };
+bemap.MapLibreMap.prototype.easeTo = function(options) { this.native.easeTo(options); return this; };
+
+bemap.MapLibreMap.prototype.queryRenderedFeatures = function(point, options) {
+  return this.native.queryRenderedFeatures(point, options);
+};
+
+bemap.MapLibreMap.prototype.addGeoJsonSource = function(id, data) {
+  var _this = this;
+  var add = function() {
+    if (!_this.native.getSource(id)) {
+      _this.native.addSource(id, { type: 'geojson', data: data });
+    }
+  };
+  if (this.native.isStyleLoaded()) { add(); } else { this.native.on('load', add); }
+  return this;
+};
+
+bemap.MapLibreMap.prototype.updateGeoJsonSource = function(id, data) {
+  var src = this.native.getSource(id);
+  if (src) src.setData(data);
+  return this;
+};
+
+bemap.MapLibreMap.prototype.addImage = function(id, image) {
+  var _this = this;
+  var add = function() { if (!_this.native.hasImage(id)) _this.native.addImage(id, image); };
+  if (this.native.isStyleLoaded()) { add(); } else { this.native.on('load', add); }
+  return this;
+};
+
+bemap.MapLibreMap.prototype.removeImage = function(id) {
+  try { this.native.removeImage(id); } catch(e) {}
+  return this;
+};
+
+// =========================================================================
+// Build Style Methods (translate bemap styles to MapLibre paint properties)
+// =========================================================================
+
+bemap.MapLibreMap.prototype.buildIcon = function(icon, options) { return this; };
+bemap.MapLibreMap.prototype.buildLineStyle = function(style, options) { return this; };
+bemap.MapLibreMap.prototype.buildTextStyle = function(textStyle, name, options) { return this; };
+bemap.MapLibreMap.prototype.buildPolygonStyle = function(style, options) { return this; };
+bemap.MapLibreMap.prototype.buildCircleStyle = function(style, options) { return this; };
+
+// =========================================================================
+// Light / Raster (MapLibre-exclusive advanced features)
+// =========================================================================
+
+// MapLibre's documented default light specification. Used as the reset
+// target when setLight() is called with no argument / null / undefined —
+// passing {} (the previous behaviour) overrode the active light with
+// nothing rather than restoring the defaults.
+bemap.MapLibreMap.DEFAULT_LIGHT = {
+  anchor:    'viewport',
+  color:     'white',
+  intensity: 0.5,
+  position:  [1.15, 210, 30]
+};
+
+bemap.MapLibreMap.prototype.setLight = function(options) {
+  // Use the native MapLibre setLight API directly. The old impl did
+  // `setStyle(getStyle() + {light})` which wipes every user-added layer
+  // and source — devastating for live demos where the user just placed
+  // markers / polylines / heatmap.
+  // Also surface a one-time hint when called on a non-globe projection
+  // because setLight has no visible effect in mercator without pitch.
+  try {
+    if (typeof this.native.setLight === 'function') {
+      this.native.setLight(options || bemap.MapLibreMap.DEFAULT_LIGHT);
+    } else {
+      // Older MapLibre fallback — style mutation, but only the light
+      // field, not the whole style spec.
+      var style = this.native.getStyle();
+      style.light = options;
+      this.native.setStyle(style);
+    }
+  } catch(e) {}
+  if (typeof this._requiresGlobe === 'function') this._requiresGlobe('setLight');
+  if (typeof this._registerEffect === 'function') {
+    var self = this;
+    this._registerEffect('setLight', function () {
+      try { if (typeof self.native.setLight === 'function') self.native.setLight({}); } catch (e) {}
+    });
+  }
+  return this;
+};
+
+bemap.MapLibreMap.prototype.addRasterLayer = function(layer) {
+  if (!layer || !bemap.inheritsof(layer, bemap.RasterLayer)) return this;
+
+  var _this = this;
+  var layerId = this._uniqueId('raster');
+  layer._maplibreId = layerId;
+
+  var addToMap = function() {
+    if (!_this.native.getSource(layerId)) {
+      _this.native.addSource(layerId, {
+        type: 'raster',
+        tiles: [layer.url],
+        tileSize: layer.tileSize || 256,
+        attribution: layer.attribution || ''
+      });
+      _this.native.addLayer({
+        id: layerId,
+        type: 'raster',
+        source: layerId,
+        paint: { 'raster-opacity': layer.opacity !== undefined ? layer.opacity : 1 }
+      });
+    }
+  };
+
+  if (this.native.isStyleLoaded()) { addToMap(); } else { this.native.on('load', addToMap); }
+
+  layer.native = { id: layerId, type: 'raster' };
+  if (layer.map === null) layer.map = this;
+  bemap.Map.prototype.addLayer.call(this, layer);
+
+  return this;
+};
+
+// =========================================================================
+// v2.0 — BeNomad Tiles surgical + camera + cache methods
+// =========================================================================
+
+/**
+ * Replace `bemap.Map.prototype.setStyle` for MapLibre — accepts either a
+ * URL or an inline style object, fetches + resolves placeholders via
+ * `bemap.TilesStyle`, calls native `setStyle`, and **replays the overlay
+ * catalogue** so user markers / polylines / polygons survive the swap.
+ *
+ * @public
+ * @since 2.0.0
+ */
+bemap.MapLibreMap.prototype.setStyle = function (urlOrObject, options) {
+  var self = this;
+  var opts = options || {};
+  // Same fallback chain as the constructor — without this the
+  // TILES_SOURCE placeholder stays as a literal string when the
+  // customer calls `map.setStyle(obj)` without an explicit tilesFile
+  // and `ctx.tilesFile` is unset.
+  var tilesFile = opts.tilesFile
+    || (this.ctx &amp;&amp; this.ctx.tilesFile)
+    || 'OSM_250901_WORLD.pmtiles';
+  // Inline style object → apply immediately and return `this` for chaining
+  // (matches the v1 contract and the cross-engine `.setStyle(...).move(...)`
+  // pattern customer apps rely on).
+  if (urlOrObject &amp;&amp; typeof urlOrObject === 'object') {
+    var resolved = urlOrObject;
+    if (typeof bemap.TilesStyle !== 'undefined') {
+      try {
+        resolved = JSON.parse(JSON.stringify(urlOrObject));
+        bemap.TilesStyle.resolvePlaceholders(resolved, self.ctx, tilesFile);
+        bemap.TilesStyle.hardenSymbolCollisions(resolved);
+      } catch (e) { resolved = urlOrObject; }
+    }
+    this._currentStyleSpec = resolved;
+    // Flag the in-flight setStyle so _whenStyleReady can refuse the fast
+    // path (isStyleLoaded() returns true for the OLD style during the gap).
+    this._setStyleInFlight = true;
+    this.native.setStyle(resolved);
+    // 'idle' fires AFTER style.load AND after the first render pass — the
+    // canonical "everything settled" event. 'styledata' fires too early,
+    // before MapLibre's Style#_load swaps the stylesheet, so overlays
+    // re-added then get wiped.
+    this.native.once('idle', function () {
+      self._setStyleInFlight = false;
+      if (self._overlayCatalog) self._overlayCatalog.replayOnto(self);
+    });
+    return this;
+  }
+  // URL → fetch + resolve asynchronously, but still return `this` sync so
+  // method chaining works. Errors flow to the map's error channel.
+  var getToken = this._tilesAuth ? function () { return self._tilesAuth.getToken(); } : null;
+  if (typeof bemap.TilesStyle !== 'undefined') {
+    bemap.TilesStyle.fetch(this.ctx, urlOrObject, { getToken: getToken })
+      .then(function (style) {
+        bemap.TilesStyle.resolvePlaceholders(style, self.ctx, tilesFile);
+        bemap.TilesStyle.hardenSymbolCollisions(style);
+        self._currentStyleSpec = style;
+        self._setStyleInFlight = true;
+        self.native.setStyle(style);
+        // 'idle' (not 'styledata') — see in-line setStyle path above.
+        self.native.once('idle', function () {
+          self._setStyleInFlight = false;
+          if (self._overlayCatalog) self._overlayCatalog.replayOnto(self);
+        });
+      })
+      .catch(function (err) {
+        self._fireError(err instanceof bemap.Error ? err : new bemap.Error({
+          code: bemap.Error.STYLE_LOAD_FAILED, message: 'setStyle failed: ' + (err &amp;&amp; err.message)
+        }));
+      });
+  } else {
+    try { this.native.setStyle(urlOrObject); } catch (e) {}
+  }
+  return this;
+};
+
+/**
+ * Get the current MapLibre style spec (the one resolved and applied by the
+ * library — same shape `getStyle()` would return).
+ * @public
+ * @since 2.0.0
+ * @return {Object}
+ */
+bemap.MapLibreMap.prototype.getStyle = function () { return this._currentStyleSpec || this.native.getStyle(); };
+
+/* --- Token introspection --- */
+bemap.MapLibreMap.prototype.getToken = function () { return this._tilesAuth ? this._tilesAuth.getToken() : null; };
+bemap.MapLibreMap.prototype.isTokenValid = function () { return !!(this._tilesAuth &amp;&amp; this._tilesAuth.isValid()); };
+bemap.MapLibreMap.prototype.refreshToken = function () {
+  if (!this._tilesAuth) return Promise.resolve(null);
+  return this._tilesAuth.refresh();
+};
+
+/* --- Browser cache --- */
+bemap.MapLibreMap.prototype.enableBrowserCache = function () {
+  if (this._browserCache) this._browserCache.enable();
+  return this;
+};
+bemap.MapLibreMap.prototype.disableBrowserCache = function () {
+  if (this._browserCache) this._browserCache.disable();
+  return this;
+};
+bemap.MapLibreMap.prototype.getBrowserCacheStats = function () {
+  return this._browserCache ? this._browserCache.getStats()
+    : { enabled: false, hits: 0, misses: 0, entries: 0, bytesEstimated: 0 };
+};
+bemap.MapLibreMap.prototype.clearBrowserCache = function () {
+  if (this._browserCache) return this._browserCache.clear();
+  return Promise.resolve();
+};
+bemap.MapLibreMap.prototype.onCacheStats = function (fn) {
+  if (typeof fn !== 'function') return;
+  this._cacheStatsListeners = this._cacheStatsListeners || [];
+  this._cacheStatsListeners.push(fn);
+};
+bemap.MapLibreMap.prototype.offCacheStats = function (fn) {
+  if (!this._cacheStatsListeners) return;
+  for (var i = this._cacheStatsListeners.length - 1; i >= 0; i--) {
+    if (!fn || this._cacheStatsListeners[i] === fn) this._cacheStatsListeners.splice(i, 1);
+  }
+};
+
+/* --- Surgical layer mutation --- */
+bemap.MapLibreMap.prototype.setPaintProperty = function (layerId, name, value) {
+  try { this.native.setPaintProperty(layerId, name, value); } catch (e) { /* ignore */ }
+  return this;
+};
+bemap.MapLibreMap.prototype.setLayoutProperty = function (layerId, name, value) {
+  try { this.native.setLayoutProperty(layerId, name, value); } catch (e) { /* ignore */ }
+  return this;
+};
+bemap.MapLibreMap.prototype.setFilter = function (layerId, filter) {
+  try { this.native.setFilter(layerId, filter); } catch (e) { /* ignore */ }
+  return this;
+};
+bemap.MapLibreMap.prototype.setLayerZoomRange = function (layerId, minzoom, maxzoom) {
+  try { this.native.setLayerZoomRange(layerId, minzoom, maxzoom); } catch (e) { /* ignore */ }
+  return this;
+};
+
+/* ============================================================
+ * Cross-engine camera tour (v2.0) — MapLibre real-animation
+ *
+ * Same waypoint shape as the Leaflet and OL impls. MapLibre gets
+ * full pitch + bearing per waypoint.
+ * ============================================================ */
+bemap.MapLibreMap.prototype.cameraTour = function (options) {
+  var opts = options || {};
+  var waypoints = opts.waypoints || [];
+  if (!waypoints.length) return { stop: function () {}, resume: function () {} };
+  var self = this;
+  var i = 0, stopped = false;
+  function next() {
+    if (stopped) return;
+    if (i >= waypoints.length) {
+      if (opts.loop) i = 0;
+      else { if (typeof opts.onComplete === 'function') opts.onComplete(); return; }
+    }
+    var wp = waypoints[i++];
+    self.native.easeTo({
+      center: [wp.lon, wp.lat],
+      zoom: wp.zoom,
+      pitch: wp.pitch,
+      bearing: wp.bearing,
+      duration: wp.duration || 2000
+    });
+    setTimeout(next, wp.duration || 2000);
+  }
+  next();
+  var controller = {
+    stop: function () { stopped = true; if (typeof self._unregisterEffect === 'function') self._unregisterEffect('cameraTour'); },
+    resume: function () { if (stopped) { stopped = false; next(); } }
+  };
+  if (typeof self._registerEffect === 'function') self._registerEffect('cameraTour', function () { controller.stop(); });
+  return controller;
+};
+
+/* --- Globe spinner --- */
+bemap.MapLibreMap.prototype.spinGlobe = function (options) {
+  var self = this;
+  var opts = options || {};
+  var speed = typeof opts.speed === 'number' ? opts.speed : 0.05; // deg/s
+  this.stopSpinGlobe();
+  this._globeSpinTimer = setInterval(function () {
+    if (!self.native) return;
+    var c = self.native.getCenter();
+    self.native.setCenter([c.lng + speed, c.lat]);
+  }, 50);
+  if (typeof this._registerEffect === 'function') {
+    this._registerEffect('spinGlobe', function () { self.stopSpinGlobe(); });
+  }
+  return { stop: function () { self.stopSpinGlobe(); }, resume: function () { self.spinGlobe(opts); } };
+};
+bemap.MapLibreMap.prototype.stopSpinGlobe = function () {
+  if (this._globeSpinTimer) {
+    clearInterval(this._globeSpinTimer);
+    this._globeSpinTimer = null;
+  }
+  if (typeof this._unregisterEffect === 'function') this._unregisterEffect('spinGlobe');
+  return this;
+};
+
+/* --- 3D buildings (real implementation) --- */
+bemap.MapLibreMap.prototype.add3DBuildings = function (options) {
+  var self = this;
+  var opts = options || {};
+  var layerId = opts.layerId || 'bemap-3d-buildings';
+  // Per-add cancellation token. When `remove3DBuildings` fires while
+  // the queued `fn` is still pending (style hasn't loaded yet), the
+  // token is flipped so the deferred add bails out instead of
+  // resurrecting the layer the user just removed.
+  var token = { cancelled: false };
+  var fn = function () {
+    if (token.cancelled) return;
+    if (self.native.getLayer(layerId)) return;
+    var src = opts.source || 'tiles';
+    if (!self.native.getSource(src)) return;
+    self.native.addLayer({
+      id: layerId,
+      type: 'fill-extrusion',
+      source: src,
+      'source-layer': opts.sourceLayer || 'building',
+      minzoom: opts.minzoom || 13,
+      paint: {
+        'fill-extrusion-color': opts.color || '#bdbdbd',
+        'fill-extrusion-height': opts.height || ['coalesce', ['get', 'render_height'], ['get', 'height'], 10],
+        'fill-extrusion-base': opts.base || 0,
+        'fill-extrusion-opacity': opts.opacity != null ? opts.opacity : 0.7
+      }
+    });
+  };
+  self._3dBuildingsTokens = self._3dBuildingsTokens || {};
+  self._3dBuildingsTokens[layerId] = token;
+  if (this.native.isStyleLoaded()) fn();
+  else this.native.once('load', fn);
+  if (this._overlayCatalog) this._overlayCatalog.register('3dbuildings', layerId, function (map) {
+    if (!map.native.getLayer(layerId)) fn();
+  });
+  if (typeof this._registerEffect === 'function') {
+    this._registerEffect('3DBuildings', function () { self.remove3DBuildings({ layerId: layerId }); });
+  }
+  return this;
+};
+bemap.MapLibreMap.prototype.remove3DBuildings = function (options) {
+  var opts = options || {};
+  var layerId = opts.layerId || 'bemap-3d-buildings';
+  // Cancel any pending deferred add so it can't resurrect the layer.
+  if (this._3dBuildingsTokens &amp;&amp; this._3dBuildingsTokens[layerId]) {
+    this._3dBuildingsTokens[layerId].cancelled = true;
+    delete this._3dBuildingsTokens[layerId];
+  }
+  try { if (this.native.getLayer(layerId)) this.native.removeLayer(layerId); } catch (e) {}
+  if (this._overlayCatalog) this._overlayCatalog.unregister('3dbuildings', layerId);
+  if (typeof this._unregisterEffect === 'function') this._unregisterEffect('3DBuildings');
+  return this;
+};
+
+/* --- Tear-down extension --- */
+var _origRemoveMapLibre = bemap.MapLibreMap.prototype.remove;
+bemap.MapLibreMap.prototype.remove = function () {
+  // Tear down every active effect first — without this, timers
+  // (spinGlobe), animation frames (animateAlongRoute) and SW handles
+  // (browser cache) leak across SPA navigation.
+  try { this.clearAllEffects(); } catch (e) { /* keep going */ }
+  try { if (this._tilesAuth) this._tilesAuth.destroy(); } catch (e) {}
+  try { if (this._browserCache) this._browserCache.destroy(); } catch (e) {}
+  try { if (this._overlayCatalog) this._overlayCatalog.clear(); } catch (e) {}
+  this.stopSpinGlobe();
+  if (typeof _origRemoveMapLibre === 'function') return _origRemoveMapLibre.apply(this, arguments);
+  if (this.native &amp;&amp; typeof this.native.remove === 'function') this.native.remove();
+};
+
+// =========================================================================
+// Popup clearPopup (real impl in popup sub-file)
+// =========================================================================
+</code></pre>
+        </article>
+    </section>
+
+
+
+
+</div>
+
+<nav>
+    <h2><a href="index.html">Home</a></h2><h3>Classes</h3><ul><li><a href="bemap.AclDetailsResponse.html">AclDetailsResponse</a></li><li><a href="bemap.AclLabel.html">AclLabel</a></li><li><a href="bemap.AclService.html">AclService</a></li><li><a href="bemap.Address.html">Address</a></li><li><a href="bemap.AttributionWidget.html">AttributionWidget</a></li><li><a href="bemap.Autocomplete.html">Autocomplete</a></li><li><a href="bemap.AutocompleteElement.html">AutocompleteElement</a></li><li><a href="bemap.AutocompleteGeocodingRequest.html">AutocompleteGeocodingRequest</a></li><li><a href="bemap.AutocompleteGeocodingResponse.html">AutocompleteGeocodingResponse</a></li><li><a href="bemap.BemapLayer.html">BemapLayer</a></li><li><a href="bemap.BoundingBox.html">BoundingBox</a></li><li><a href="bemap.BrowserCache.html">BrowserCache</a></li><li><a href="bemap.BuildingsLayer.html">BuildingsLayer</a></li><li><a href="bemap.ChargingPoint.html">ChargingPoint</a></li><li><a href="bemap.ChargingStation.html">ChargingStation</a></li><li><a href="bemap.ChargingStationPool.html">ChargingStationPool</a></li><li><a href="bemap.ChargingStations.html">ChargingStations</a></li><li><a href="bemap.ChargingStationSearchRequest.html">ChargingStationSearchRequest</a></li><li><a href="bemap.ChargingStationSearchResponse.html">ChargingStationSearchResponse</a></li><li><a href="bemap.ChargingStationStep.html">ChargingStationStep</a></li><li><a href="bemap.ChargingTime.html">ChargingTime</a></li><li><a href="bemap.ChargingTimeRequest.html">ChargingTimeRequest</a></li><li><a href="bemap.ChargingTimeResponse.html">ChargingTimeResponse</a></li><li><a href="bemap.Circle.html">Circle</a></li><li><a href="bemap.CircleStyle.html">CircleStyle</a></li><li><a href="bemap.clusterStyle.html">clusterStyle</a></li><li><a href="bemap.Color.html">Color</a></li><li><a href="bemap.CondMaxSpeed.html">CondMaxSpeed</a></li><li><a href="bemap.Context.html">Context</a></li><li><a href="bemap.Coordinate.html">Coordinate</a></li><li><a href="bemap.CoordinateSat.html">CoordinateSat</a></li><li><a href="bemap.Destination.html">Destination</a></li><li><a href="bemap.Error.html">Error</a></li><li><a href="bemap.EvBrand.html">EvBrand</a></li><li><a href="bemap.EvReachableArea.html">EvReachableArea</a></li><li><a href="bemap.EvReachableAreaRequest.html">EvReachableAreaRequest</a></li><li><a href="bemap.EvReachableAreaResponse.html">EvReachableAreaResponse</a></li><li><a href="bemap.EvseRouting.html">EvseRouting</a></li><li><a href="bemap.EvSmartRouting.html">EvSmartRouting</a></li><li><a href="bemap.EvSmartRoutingRequest.html">EvSmartRoutingRequest</a></li><li><a href="bemap.EvSmartRoutingResponse.html">EvSmartRoutingResponse</a></li><li><a href="bemap.EvStepPoint.html">EvStepPoint</a></li><li><a href="bemap.EvVehicle.html">EvVehicle</a></li><li><a href="bemap.EvVehicles.html">EvVehicles</a></li><li><a href="bemap.Exception.html">Exception</a></li><li><a href="bemap.GeoAutocomplete.html">GeoAutocomplete</a></li><li><a href="bemap.Geocoder.html">Geocoder</a></li><li><a href="bemap.GeocodingItem.html">GeocodingItem</a></li><li><a href="bemap.GeocodingRequest.html">GeocodingRequest</a></li><li><a href="bemap.GeocodingResponse.html">GeocodingResponse</a></li><li><a href="bemap.GeoSearchInfo.html">GeoSearchInfo</a></li><li><a href="bemap.GeoServerInfoResponse.html">GeoServerInfoResponse</a></li><li><a href="bemap.GeoServerInfoService.html">GeoServerInfoService</a></li><li><a href="bemap.GeoServerServiceInfo.html">GeoServerServiceInfo</a></li><li><a href="bemap.GeoServerServiceLimit.html">GeoServerServiceLimit</a></li><li><a href="bemap.HeatmapLayer.html">HeatmapLayer</a></li><li><a href="bemap.Icon.html">Icon</a></li><li><a href="bemap.Isochrone.html">Isochrone</a></li><li><a href="bemap.Layer.html">Layer</a></li><li><a href="bemap.LeafletMap.html">LeafletMap</a></li><li><a href="bemap.LineStyle.html">LineStyle</a></li><li><a href="bemap.Listener.html">Listener</a></li><li><a href="bemap.Map.html">Map</a></li><li><a href="bemap.MapEvent.html">MapEvent</a></li><li><a href="bemap.MapLibreMap.html">MapLibreMap</a></li><li><a href="bemap.Marker.html">Marker</a></li><li><a href="bemap.MultiMarker.html">MultiMarker</a></li><li><a href="bemap.NearPoint.html">NearPoint</a></li><li><a href="bemap.NearPoiRequest.html">NearPoiRequest</a></li><li><a href="bemap.NearPoiResponse.html">NearPoiResponse</a></li><li><a href="bemap.NearPoiSearch.html">NearPoiSearch</a></li><li><a href="bemap.Object.html">Object</a></li><li><a href="bemap.Ol3Map.html">Ol3Map</a></li><li><a href="bemap.OlMap.html">OlMap</a></li><li><a href="bemap.OsmLayer.html">OsmLayer</a></li><li><a href="bemap.PMTilesLayer.html">PMTilesLayer</a></li><li><a href="bemap.Polygon.html">Polygon</a></li><li><a href="bemap.PolygonStyle.html">PolygonStyle</a></li><li><a href="bemap.Polyline.html">Polyline</a></li><li><a href="bemap.Popup.html">Popup</a></li><li><a href="bemap.PostalAddress.html">PostalAddress</a></li><li><a href="bemap.RasterLayer.html">RasterLayer</a></li><li><a href="bemap.ReverseGeocoder.html">ReverseGeocoder</a></li><li><a href="bemap.ReverseGeocodingRequest.html">ReverseGeocodingRequest</a></li><li><a href="bemap.RevGeoSearchInfo.html">RevGeoSearchInfo</a></li><li><a href="bemap.RoadFeature.html">RoadFeature</a></li><li><a href="bemap.Route.html">Route</a></li><li><a href="bemap.Route.Event.html">Event</a></li><li><a href="bemap.Route.RoutesheetInstruction.html">RoutesheetInstruction</a></li><li><a href="bemap.Routing.html">Routing</a></li><li><a href="bemap.RoutingDestination.html">RoutingDestination</a></li><li><a href="bemap.RoutingInstruction.html">RoutingInstruction</a></li><li><a href="bemap.RoutingRequest.html">RoutingRequest</a></li><li><a href="bemap.RoutingResponse.html">RoutingResponse</a></li><li><a href="bemap.RoutingRoute.html">RoutingRoute</a></li><li><a href="bemap.RoutingSummary.html">RoutingSummary</a></li><li><a href="bemap.RoutingV2.html">RoutingV2</a></li><li><a href="bemap.RoutingVehicleProfile.html">RoutingVehicleProfile</a></li><li><a href="bemap.RoutingWaypoint.html">RoutingWaypoint</a></li><li><a href="bemap.Service.html">Service</a></li><li><a href="bemap.TextStyle.html">TextStyle</a></li><li><a href="bemap.TilesAuth.html">TilesAuth</a></li><li><a href="bemap.TilesOverlayCatalog.html">TilesOverlayCatalog</a></li><li><a href="global.html#bemap#.TraceRoute">TraceRoute</a></li><li><a href="bemap.TraceRouteDestination.html">TraceRouteDestination</a></li><li><a href="bemap.TraceRouteRequest.html">TraceRouteRequest</a></li><li><a href="bemap.VectorLayer.html">VectorLayer</a></li><li><a href="bemap.VectorTileLayer.html">VectorTileLayer</a></li><li><a href="bemap.WmsLayer.html">WmsLayer</a></li></ul><h3>Global</h3><ul><li><a href="global.html#AC">AC</a></li><li><a href="global.html#AC_SINGLE_PHASE">AC_SINGLE_PHASE</a></li><li><a href="global.html#AC_THREE_PHASES">AC_THREE_PHASES</a></li><li><a href="global.html#bemap">bemap</a></li><li><a href="global.html#DC">DC</a></li><li><a href="global.html#NA">NA</a></li></ul>
+</nav>
+
+<br class="clear">
+
+<footer>
+    Documentation generated by <a href="https://github.com/jsdoc/jsdoc">JSDoc 3.6.3</a> on Tue Jun 02 2026 11:46:44 GMT+0200 (heure d’été d’Europe centrale)
+</footer>
+
+<script> prettyPrint(); </script>
+<script src="scripts/linenumber.js"> </script>
+</body>
+</html>

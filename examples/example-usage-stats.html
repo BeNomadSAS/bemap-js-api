@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>BeMap JS API — Live usage stats</title>
+
+  <link rel="stylesheet" href="../dist/maplibre-gl.css">
+  <link rel="stylesheet" href="bn-2026.css">
+
+  <script src="../dist/maplibre-gl.js"></script>
+  <script src="../dist/pmtiles.js"></script>
+  <script src="../dist/bemap-js-api.js"></script>
+  <script src="effect-bridge.js"></script>
+  <script src="context.js"></script>
+  <script src="bn-2026.js"></script>
+
+  <style>
+    .bn-stat-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 14px; }
+    .bn-stat-grid .bn-stat { margin: 0; }
+    .bn-pill { display: inline-block; padding: 2px 8px; border-radius: 9px; font-size: 10px; font-weight: 700; letter-spacing: 0.5px; text-transform: uppercase; }
+    .bn-pill--ok  { background: rgba(46,204,113,0.2); color: var(--bn-ok); }
+    .bn-pill--err { background: rgba(231,76,60,0.2);  color: var(--bn-err); }
+  </style>
+</head>
+<body data-bn-page
+      data-bn-title="Live usage stats"
+      data-bn-subtitle="Watch the BeNomad Tiles JWT lifecycle and the browser-cache HIT / MISS ratio in real time as you pan and zoom."
+      data-bn-chips="MapLibre:ml,Cache:info,v2.0:brand">
+  <div class="bn-shell">
+    <div class="bn-stage">
+      <div id="map" class="bn-map"></div>
+
+      <aside class="bn-panel">
+        <div class="bn-panel__header">
+          <span class="bn-panel__header-title">Usage</span>
+        </div>
+        <div class="bn-panel__body">
+
+          <section class="bn-panel__section">
+            <h4>JWT Token</h4>
+            <div class="bn-stat-grid">
+              <div class="bn-stat"><span class="bn-stat__label">State</span> <span id="tokState" class="bn-pill bn-pill--err">PENDING</span></div>
+              <div class="bn-stat"><span class="bn-stat__label">TTL</span>   <span id="tokTtl" class="bn-stat__value">—</span></div>
+            </div>
+            <div class="bn-row" style="margin-top:8px">
+              <label>Token (truncated)</label>
+              <code id="tokPreview" style="display:block;font-size:10px;word-break:break-all;background:var(--bn-paper-2);padding:6px;border-radius:4px;border:1px solid var(--bn-line-light)">—</code>
+            </div>
+            <div class="bn-row bn-row__inline">
+              <button id="btnRefresh" class="bn-btn bn-btn--primary" type="button">Force refresh</button>
+            </div>
+          </section>
+
+          <section class="bn-panel__section">
+            <h4>Browser cache (Service Worker)</h4>
+            <div class="bn-stat-grid">
+              <div class="bn-stat"><span class="bn-stat__label">Status</span>  <span id="cacheEnabled" class="bn-pill bn-pill--err">OFF</span></div>
+              <div class="bn-stat"><span class="bn-stat__label">Hit ratio</span> <span id="cacheRatio" class="bn-stat__value">—</span></div>
+              <div class="bn-stat"><span class="bn-stat__label">Hits</span>    <span id="cacheHits"  class="bn-stat__value">0</span></div>
+              <div class="bn-stat"><span class="bn-stat__label">Misses</span>  <span id="cacheMisses" class="bn-stat__value">0</span></div>
+              <div class="bn-stat"><span class="bn-stat__label">Entries</span> <span id="cacheEntries" class="bn-stat__value">0</span></div>
+              <div class="bn-stat"><span class="bn-stat__label">Bytes</span>   <span id="cacheBytes" class="bn-stat__value">0</span></div>
+            </div>
+            <div class="bn-row bn-row__inline" style="margin-top:10px">
+              <button id="btnEnable"  class="bn-btn bn-btn--ok"   type="button">Enable</button>
+              <button id="btnDisable" class="bn-btn"              type="button">Disable</button>
+              <button id="btnClearC"  class="bn-btn bn-btn--err"  type="button">Clear</button>
+            </div>
+          </section>
+
+          <section class="bn-panel__section">
+            <h4>Context</h4>
+            <div class="bn-stat"><span class="bn-stat__label">tilesHost</span> <span id="ctxHost" class="bn-stat__value" style="font-size:12px">—</span></div>
+            <div class="bn-stat"><span class="bn-stat__label">login</span>     <span id="ctxLogin" class="bn-stat__value" style="font-size:12px">—</span></div>
+          </section>
+
+        </div>
+      </aside>
+    </div>
+  </div>
+
+<script>
+var ctx = new bemap.Context({
+  host:      bemapMainCtx.host,
+  secure:    bemapMainCtx.protocol === 'https',
+  login:     bemapMainCtx.login,
+  password:  bemapMainCtx.password,
+  tilesHost: 'mptiles-api.benomad.net'
+});
+
+document.getElementById('ctxHost').textContent  = ctx.tilesHost || '—';
+document.getElementById('ctxLogin').textContent = ctx.login || '—';
+
+var map = new bemap.MapLibreMap(ctx, 'map').move(2.35, 48.85, 6);
+
+bn.log('Map constructed. Watching token + cache statistics.', 'info');
+
+// Token panel updates
+function fmtTtl(ms) {
+  if (ms == null || isNaN(ms)) return '—';
+  if (ms <= 0) return 'expired';
+  var s = Math.floor(ms / 1000);
+  if (s < 60) return s + ' s';
+  return Math.floor(s / 60) + ' min ' + (s % 60) + ' s';
+}
+function refreshTokenPanel() {
+  try {
+    var valid = (typeof map.isTokenValid === 'function') ? map.isTokenValid() : false;
+    var pill = document.getElementById('tokState');
+    pill.textContent = valid ? 'VALID' : 'PENDING';
+    pill.className = 'bn-pill ' + (valid ? 'bn-pill--ok' : 'bn-pill--err');
+
+    var tok = (typeof map.getToken === 'function') ? (map.getToken() || '') : '';
+    document.getElementById('tokPreview').textContent =
+      tok ? (tok.slice(0, 24) + '…' + tok.slice(-8)) : '—';
+
+    // TTL from JWT exp (best-effort, no library coupling)
+    var ttl = null;
+    if (tok && tok.indexOf('.') > 0) {
+      try {
+        var payload = JSON.parse(atob(tok.split('.')[1].replace(/-/g,'+').replace(/_/g,'/')));
+        if (payload && payload.exp) ttl = (payload.exp * 1000) - Date.now();
+      } catch (e) {}
+    }
+    document.getElementById('tokTtl').textContent = fmtTtl(ttl);
+  } catch (e) {}
+}
+setInterval(refreshTokenPanel, 1000);
+refreshTokenPanel();
+
+document.getElementById('btnRefresh').onclick = function () {
+  if (typeof map.refreshToken === 'function') {
+    bn.log('Calling map.refreshToken() …', 'info');
+    Promise.resolve(map.refreshToken()).then(function () {
+      bn.log('Token refreshed.', 'ok');
+      refreshTokenPanel();
+    }).catch(function (e) {
+      bn.log('refreshToken() failed: ' + e.message, 'err');
+    });
+  } else {
+    bn.log('refreshToken() not available on this build.', 'warn');
+  }
+};
+
+// Cache panel updates
+function refreshCachePanel(stats) {
+  try {
+    stats = stats || ((typeof map.getBrowserCacheStats === 'function') ? map.getBrowserCacheStats() : null);
+    if (!stats) return;
+    var pill = document.getElementById('cacheEnabled');
+    pill.textContent = stats.enabled ? 'ON' : 'OFF';
+    pill.className   = 'bn-pill ' + (stats.enabled ? 'bn-pill--ok' : 'bn-pill--err');
+    document.getElementById('cacheHits').textContent    = stats.hits || 0;
+    document.getElementById('cacheMisses').textContent  = stats.misses || 0;
+    document.getElementById('cacheEntries').textContent = stats.entries || 0;
+    document.getElementById('cacheBytes').textContent   = bn.fmtKm ? (((stats.bytesEstimated || 0) / 1024).toFixed(1) + ' KiB') : String(stats.bytesEstimated || 0);
+    var total = (stats.hits || 0) + (stats.misses || 0);
+    document.getElementById('cacheRatio').textContent = total ? Math.round((stats.hits / total) * 100) + ' %' : '—';
+  } catch (e) {}
+}
+setInterval(function () { refreshCachePanel(); }, 1500);
+refreshCachePanel();
+
+if (typeof map.onCacheStats === 'function') {
+  map.onCacheStats(function (stats) {
+    refreshCachePanel(stats);
+  });
+}
+
+document.getElementById('btnEnable').onclick  = function () { map.enableBrowserCache();  bn.log('enableBrowserCache() called.',  'ok');  refreshCachePanel(); };
+document.getElementById('btnDisable').onclick = function () { map.disableBrowserCache(); bn.log('disableBrowserCache() called.', 'warn'); refreshCachePanel(); };
+document.getElementById('btnClearC').onclick  = function () {
+  Promise.resolve(map.clearBrowserCache()).then(function () {
+    bn.log('clearBrowserCache() done.', 'ok');
+    refreshCachePanel();
+  });
+};
+
+bn.onMapReady(map, function () {
+  bn.log('Map ready. Pan / zoom to fetch tiles and watch the stats above tick.', 'ok');
+});
+</script>
+</body>
+</html>

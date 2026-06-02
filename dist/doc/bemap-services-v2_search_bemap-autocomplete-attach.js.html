@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>JSDoc: Source: bemap-services-v2/search/bemap-autocomplete-attach.js</title>
+
+    <script src="scripts/prettify/prettify.js"> </script>
+    <script src="scripts/prettify/lang-css.js"> </script>
+    <!--[if lt IE 9]>
+      <script src="//html5shiv.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+    <link type="text/css" rel="stylesheet" href="styles/prettify-tomorrow.css">
+    <link type="text/css" rel="stylesheet" href="styles/jsdoc-default.css">
+</head>
+
+<body>
+
+<div id="main">
+
+    <h1 class="page-title">Source: bemap-services-v2/search/bemap-autocomplete-attach.js</h1>
+
+    
+
+
+
+    
+    <section>
+        <article>
+            <pre class="prettyprint source linenums"><code>/**
+ * BeNomad BeMap JavaScript API - Autocomplete input-attach helper (v1.5)
+ *
+ * Glue between a `&lt;input type="text">` and `bemap.Autocomplete` /
+ * `bemap.GeoAutocomplete`. Handles debouncing, in-flight cancellation
+ * (`AbortController`), keyboard navigation (Up / Down / Enter / Esc) and
+ * click-outside-to-close.
+ *
+ * **This is an OPTIONAL helper.** The service class itself
+ * (`bemap.Autocomplete`) stays a pure HTTP mapper — call its
+ * `autocomplete(request)` method directly when this glue is too opinionated
+ * for your UI. Markers, icons, dropdown styling and result rendering are
+ * the final developer's responsibility.
+ *
+ * Usage:
+ *
+ *   var ac = new bemap.Autocomplete(ctx);
+ *   var handle = bemap.helpers.attachAutocompleteToInput(ac, inputEl, {
+ *     onSelect: function(element) { ... }
+ *   });
+ *   // later: handle.destroy() removes listeners and the dropdown
+ *
+ * @since 1.5.0
+ * @public
+ * @param {bemap.Autocomplete|bemap.GeoAutocomplete} service
+ * @param {HTMLInputElement} inputEl
+ * @param {Object} options
+ * @param {Function} options.onSelect Required. Called with the picked `bemap.AutocompleteElement`.
+ * @param {Function} [options.onResults] Called with the raw result array on every keystroke that yields suggestions.
+ * @param {Function} [options.onError] Called with a `bemap.Error` on network failures.
+ * @param {Number} [options.debounceMs=250] Wait this long after the user stops typing before firing the request.
+ * @param {Number} [options.minChars=2] Don't fire until the input has at least this many characters.
+ * @param {bemap.Coordinate} [options.coordinate] Bias suggestions around this point (Flutter SDK: `coordinate`).
+ * @param {bemap.Coordinate} [options.proximity] Alias of `coordinate` for parity with older code.
+ * @param {bemap.BoundingBox} [options.boundingBox] Restrict suggestions to a bbox.
+ * @param {Number} [options.radius] Maximum search radius in metres around `coordinate`.
+ * @param {String} [options.countryCode] ISO country code filter.
+ * @param {String} [options.language='en'] BCP-47 language code (ISO 639-1).
+ * @param {Boolean} [options.addressDetails] Request structured PostalAddress per item.
+ * @param {Boolean} [options.enableHighlights]
+ * @param {Boolean} [options.enableCategories]
+ * @return {{ destroy: Function }} Handle that unbinds every listener and removes the dropdown.
+ */
+bemap.helpers = bemap.helpers || {};
+
+bemap.helpers.attachAutocompleteToInput = function(service, inputEl, options) {
+    if (!service || typeof service.autocomplete !== 'function') {
+        throw new Error('attachAutocompleteToInput: a bemap.Autocomplete / GeoAutocomplete instance is required');
+    }
+    if (!inputEl || inputEl.nodeType !== 1) {
+        throw new Error('attachAutocompleteToInput: a real &lt;input> element is required');
+    }
+    var opts = options || {};
+    var debounceMs = (typeof opts.debounceMs === 'number') ? opts.debounceMs : 250;
+    var minChars = (typeof opts.minChars === 'number') ? opts.minChars : 2;
+    var typingTimer = null;
+    var currentController = null;
+    var currentFocus = -1;
+    var listEl = null;
+
+    function closeList() {
+        if (listEl &amp;&amp; listEl.parentNode) listEl.parentNode.removeChild(listEl);
+        listEl = null;
+        currentFocus = -1;
+    }
+
+    function renderList(items) {
+        closeList();
+        if (!items || !items.length) return;
+        listEl = document.createElement('div');
+        listEl.className = 'bemap-autocomplete-list';
+        listEl.setAttribute('role', 'listbox');
+        for (var i = 0; i &lt; items.length; i++) {
+            (function(item) {
+                var row = document.createElement('div');
+                row.className = 'bemap-autocomplete-item';
+                row.setAttribute('role', 'option');
+                row.textContent = item.getPlace() || '';
+                row.addEventListener('mousedown', function(ev) {
+                    ev.preventDefault();
+                    inputEl.value = item.getPlace() || '';
+                    closeList();
+                    if (typeof opts.onSelect === 'function') opts.onSelect(item);
+                });
+                listEl.appendChild(row);
+            })(items[i]);
+        }
+        if (inputEl.parentNode) inputEl.parentNode.appendChild(listEl);
+    }
+
+    function setActive(rows) {
+        for (var i = 0; i &lt; rows.length; i++) rows[i].classList.remove('bemap-autocomplete-active');
+        if (currentFocus &lt; 0) currentFocus = rows.length - 1;
+        if (currentFocus >= rows.length) currentFocus = 0;
+        rows[currentFocus].classList.add('bemap-autocomplete-active');
+    }
+
+    function fireQuery() {
+        var value = inputEl.value || '';
+        if (value.length &lt; minChars) { closeList(); return; }
+
+        if (currentController &amp;&amp; typeof currentController.abort === 'function') {
+            try { currentController.abort(); } catch (e) { /* ignore */ }
+        }
+        currentController = (typeof AbortController === 'function') ? new AbortController() : null;
+
+        var req = new bemap.AutocompleteGeocodingRequest({
+            place: value,
+            coordinate: opts.coordinate || opts.proximity,
+            boundingBox: opts.boundingBox,
+            radius: opts.radius,
+            countryCode: opts.countryCode,
+            language: opts.language || 'en',
+            addressDetails: opts.addressDetails,
+            enableHighlights: opts.enableHighlights,
+            enableCategories: opts.enableCategories
+        });
+
+        service.autocomplete(req, {
+            signal: currentController ? currentController.signal : undefined
+        }).then(function(response) {
+            renderList(response.getItems());
+            if (typeof opts.onResults === 'function') opts.onResults(response.getItems());
+        }).catch(function(err) {
+            if (err &amp;&amp; err.getCode &amp;&amp; err.getCode() === bemap.Error.ABORTED) return;
+            if (typeof opts.onError === 'function') opts.onError(err);
+        });
+    }
+
+    function onInput() {
+        if (typingTimer) clearTimeout(typingTimer);
+        typingTimer = setTimeout(fireQuery, debounceMs);
+    }
+
+    function onKeyDown(ev) {
+        if (!listEl) return;
+        var rows = listEl.querySelectorAll('.bemap-autocomplete-item');
+        if (!rows.length) return;
+        if (ev.keyCode === 40) { ev.preventDefault(); currentFocus++; setActive(rows); }
+        else if (ev.keyCode === 38) { ev.preventDefault(); currentFocus--; setActive(rows); }
+        else if (ev.keyCode === 13) {
+            ev.preventDefault();
+            if (currentFocus >= 0 &amp;&amp; currentFocus &lt; rows.length) {
+                rows[currentFocus].dispatchEvent(new MouseEvent('mousedown'));
+            }
+        } else if (ev.keyCode === 27) {
+            closeList();
+        }
+    }
+
+    function onDocClick(ev) { if (ev.target !== inputEl) closeList(); }
+
+    inputEl.addEventListener('input', onInput);
+    inputEl.addEventListener('keydown', onKeyDown);
+    document.addEventListener('click', onDocClick);
+
+    return {
+        destroy: function() {
+            inputEl.removeEventListener('input', onInput);
+            inputEl.removeEventListener('keydown', onKeyDown);
+            document.removeEventListener('click', onDocClick);
+            if (typingTimer) clearTimeout(typingTimer);
+            if (currentController &amp;&amp; typeof currentController.abort === 'function') {
+                try { currentController.abort(); } catch (e) { /* ignore */ }
+            }
+            closeList();
+        }
+    };
+};
+</code></pre>
+        </article>
+    </section>
+
+
+
+
+</div>
+
+<nav>
+    <h2><a href="index.html">Home</a></h2><h3>Classes</h3><ul><li><a href="bemap.AclDetailsResponse.html">AclDetailsResponse</a></li><li><a href="bemap.AclLabel.html">AclLabel</a></li><li><a href="bemap.AclService.html">AclService</a></li><li><a href="bemap.Address.html">Address</a></li><li><a href="bemap.AttributionWidget.html">AttributionWidget</a></li><li><a href="bemap.Autocomplete.html">Autocomplete</a></li><li><a href="bemap.AutocompleteElement.html">AutocompleteElement</a></li><li><a href="bemap.AutocompleteGeocodingRequest.html">AutocompleteGeocodingRequest</a></li><li><a href="bemap.AutocompleteGeocodingResponse.html">AutocompleteGeocodingResponse</a></li><li><a href="bemap.BemapLayer.html">BemapLayer</a></li><li><a href="bemap.BoundingBox.html">BoundingBox</a></li><li><a href="bemap.BrowserCache.html">BrowserCache</a></li><li><a href="bemap.BuildingsLayer.html">BuildingsLayer</a></li><li><a href="bemap.ChargingPoint.html">ChargingPoint</a></li><li><a href="bemap.ChargingStation.html">ChargingStation</a></li><li><a href="bemap.ChargingStationPool.html">ChargingStationPool</a></li><li><a href="bemap.ChargingStations.html">ChargingStations</a></li><li><a href="bemap.ChargingStationSearchRequest.html">ChargingStationSearchRequest</a></li><li><a href="bemap.ChargingStationSearchResponse.html">ChargingStationSearchResponse</a></li><li><a href="bemap.ChargingStationStep.html">ChargingStationStep</a></li><li><a href="bemap.ChargingTime.html">ChargingTime</a></li><li><a href="bemap.ChargingTimeRequest.html">ChargingTimeRequest</a></li><li><a href="bemap.ChargingTimeResponse.html">ChargingTimeResponse</a></li><li><a href="bemap.Circle.html">Circle</a></li><li><a href="bemap.CircleStyle.html">CircleStyle</a></li><li><a href="bemap.clusterStyle.html">clusterStyle</a></li><li><a href="bemap.Color.html">Color</a></li><li><a href="bemap.CondMaxSpeed.html">CondMaxSpeed</a></li><li><a href="bemap.Context.html">Context</a></li><li><a href="bemap.Coordinate.html">Coordinate</a></li><li><a href="bemap.CoordinateSat.html">CoordinateSat</a></li><li><a href="bemap.Destination.html">Destination</a></li><li><a href="bemap.Error.html">Error</a></li><li><a href="bemap.EvBrand.html">EvBrand</a></li><li><a href="bemap.EvReachableArea.html">EvReachableArea</a></li><li><a href="bemap.EvReachableAreaRequest.html">EvReachableAreaRequest</a></li><li><a href="bemap.EvReachableAreaResponse.html">EvReachableAreaResponse</a></li><li><a href="bemap.EvseRouting.html">EvseRouting</a></li><li><a href="bemap.EvSmartRouting.html">EvSmartRouting</a></li><li><a href="bemap.EvSmartRoutingRequest.html">EvSmartRoutingRequest</a></li><li><a href="bemap.EvSmartRoutingResponse.html">EvSmartRoutingResponse</a></li><li><a href="bemap.EvStepPoint.html">EvStepPoint</a></li><li><a href="bemap.EvVehicle.html">EvVehicle</a></li><li><a href="bemap.EvVehicles.html">EvVehicles</a></li><li><a href="bemap.Exception.html">Exception</a></li><li><a href="bemap.GeoAutocomplete.html">GeoAutocomplete</a></li><li><a href="bemap.Geocoder.html">Geocoder</a></li><li><a href="bemap.GeocodingItem.html">GeocodingItem</a></li><li><a href="bemap.GeocodingRequest.html">GeocodingRequest</a></li><li><a href="bemap.GeocodingResponse.html">GeocodingResponse</a></li><li><a href="bemap.GeoSearchInfo.html">GeoSearchInfo</a></li><li><a href="bemap.GeoServerInfoResponse.html">GeoServerInfoResponse</a></li><li><a href="bemap.GeoServerInfoService.html">GeoServerInfoService</a></li><li><a href="bemap.GeoServerServiceInfo.html">GeoServerServiceInfo</a></li><li><a href="bemap.GeoServerServiceLimit.html">GeoServerServiceLimit</a></li><li><a href="bemap.HeatmapLayer.html">HeatmapLayer</a></li><li><a href="bemap.Icon.html">Icon</a></li><li><a href="bemap.Isochrone.html">Isochrone</a></li><li><a href="bemap.Layer.html">Layer</a></li><li><a href="bemap.LeafletMap.html">LeafletMap</a></li><li><a href="bemap.LineStyle.html">LineStyle</a></li><li><a href="bemap.Listener.html">Listener</a></li><li><a href="bemap.Map.html">Map</a></li><li><a href="bemap.MapEvent.html">MapEvent</a></li><li><a href="bemap.MapLibreMap.html">MapLibreMap</a></li><li><a href="bemap.Marker.html">Marker</a></li><li><a href="bemap.MultiMarker.html">MultiMarker</a></li><li><a href="bemap.NearPoint.html">NearPoint</a></li><li><a href="bemap.NearPoiRequest.html">NearPoiRequest</a></li><li><a href="bemap.NearPoiResponse.html">NearPoiResponse</a></li><li><a href="bemap.NearPoiSearch.html">NearPoiSearch</a></li><li><a href="bemap.Object.html">Object</a></li><li><a href="bemap.Ol3Map.html">Ol3Map</a></li><li><a href="bemap.OlMap.html">OlMap</a></li><li><a href="bemap.OsmLayer.html">OsmLayer</a></li><li><a href="bemap.PMTilesLayer.html">PMTilesLayer</a></li><li><a href="bemap.Polygon.html">Polygon</a></li><li><a href="bemap.PolygonStyle.html">PolygonStyle</a></li><li><a href="bemap.Polyline.html">Polyline</a></li><li><a href="bemap.Popup.html">Popup</a></li><li><a href="bemap.PostalAddress.html">PostalAddress</a></li><li><a href="bemap.RasterLayer.html">RasterLayer</a></li><li><a href="bemap.ReverseGeocoder.html">ReverseGeocoder</a></li><li><a href="bemap.ReverseGeocodingRequest.html">ReverseGeocodingRequest</a></li><li><a href="bemap.RevGeoSearchInfo.html">RevGeoSearchInfo</a></li><li><a href="bemap.RoadFeature.html">RoadFeature</a></li><li><a href="bemap.Route.html">Route</a></li><li><a href="bemap.Route.Event.html">Event</a></li><li><a href="bemap.Route.RoutesheetInstruction.html">RoutesheetInstruction</a></li><li><a href="bemap.Routing.html">Routing</a></li><li><a href="bemap.RoutingDestination.html">RoutingDestination</a></li><li><a href="bemap.RoutingInstruction.html">RoutingInstruction</a></li><li><a href="bemap.RoutingRequest.html">RoutingRequest</a></li><li><a href="bemap.RoutingResponse.html">RoutingResponse</a></li><li><a href="bemap.RoutingRoute.html">RoutingRoute</a></li><li><a href="bemap.RoutingSummary.html">RoutingSummary</a></li><li><a href="bemap.RoutingV2.html">RoutingV2</a></li><li><a href="bemap.RoutingVehicleProfile.html">RoutingVehicleProfile</a></li><li><a href="bemap.RoutingWaypoint.html">RoutingWaypoint</a></li><li><a href="bemap.Service.html">Service</a></li><li><a href="bemap.TextStyle.html">TextStyle</a></li><li><a href="bemap.TilesAuth.html">TilesAuth</a></li><li><a href="bemap.TilesOverlayCatalog.html">TilesOverlayCatalog</a></li><li><a href="global.html#bemap#.TraceRoute">TraceRoute</a></li><li><a href="bemap.TraceRouteDestination.html">TraceRouteDestination</a></li><li><a href="bemap.TraceRouteRequest.html">TraceRouteRequest</a></li><li><a href="bemap.VectorLayer.html">VectorLayer</a></li><li><a href="bemap.VectorTileLayer.html">VectorTileLayer</a></li><li><a href="bemap.WmsLayer.html">WmsLayer</a></li></ul><h3>Global</h3><ul><li><a href="global.html#AC">AC</a></li><li><a href="global.html#AC_SINGLE_PHASE">AC_SINGLE_PHASE</a></li><li><a href="global.html#AC_THREE_PHASES">AC_THREE_PHASES</a></li><li><a href="global.html#bemap">bemap</a></li><li><a href="global.html#DC">DC</a></li><li><a href="global.html#NA">NA</a></li></ul>
+</nav>
+
+<br class="clear">
+
+<footer>
+    Documentation generated by <a href="https://github.com/jsdoc/jsdoc">JSDoc 3.6.3</a> on Tue Jun 02 2026 11:46:44 GMT+0200 (heure d’été d’Europe centrale)
+</footer>
+
+<script> prettyPrint(); </script>
+<script src="scripts/linenumber.js"> </script>
+</body>
+</html>

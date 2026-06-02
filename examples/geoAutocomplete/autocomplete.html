@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en" dir="ltr">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>BeNomad BeMap JavaScript API</title>
+  <link rel="stylesheet" type="text/css" href="../../dist/ol.css">
+  <link rel="stylesheet" type="text/css" href="../../dist/leaflet.css">
+  <link rel="stylesheet" type="text/css" href="../../dist/MarkerCluster.Default.css" />
+  <link rel="stylesheet" type="text/css" href="../../lib/bootstrap/dist/css/bootstrap.min.css" />
+  <link rel="stylesheet" type="text/css" href="../../dist/bemap-js-api.css" media="screen">
+
+  <script language="JavaScript" type="text/javascript" src="../../lib/jquery/dist/jquery.min.js"></script>
+
+  <script language="JavaScript" type="text/javascript" src="../../dist/ol.js"></script>
+  <script language="JavaScript" type="text/javascript" src="../../dist/leaflet.js"></script>
+  <script language="JavaScript" src="../../dist/maplibre-gl.js"></script>
+  <script language="JavaScript" src="../../dist/pmtiles.js"></script>
+  <script language="JavaScript" type="text/javascript" src="../../dist/leaflet.markercluster.js"></script>
+  <script language="JavaScript" type="text/javascript" src="../../dist/bemap-js-api.js"></script>
+  <script language="JavaScript" type="text/javascript" src="../context.js"></script>
+  <script language="JavaScript" type="text/javascript" src="autocomplete.js"></script>
+  <script language="JavaScript" type="text/javascript" src="autocomplete-example.js"></script>
+  <style media="screen">
+    #map1 {
+      position: fixed;
+      width: 100%;
+      height: 100%;
+      left: 0;
+      top: 0;
+      transition: all .4s;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      font: 16px Arial;
+    }
+
+    /*the container must be positioned relative:*/
+    .autocomplete {
+      position: relative;
+      display: inline-block;
+    }
+
+    input {
+      border: 1px solid transparent;
+      background-color: #f1f1f1;
+      padding: 10px;
+      font-size: 16px;
+    }
+
+    input[type=text] {
+      background-color: #f1f1f1;
+      width: 100%;
+    }
+
+    input[type=submit] {
+      background-color: DodgerBlue;
+      color: #fff;
+      cursor: pointer;
+    }
+
+    .autocomplete-items {
+      position: absolute;
+      border: 1px solid #d4d4d4;
+      border-bottom: none;
+      border-top: none;
+      z-index: 99;
+      /*position the autocomplete items to be the same width as the container:*/
+      /*  top: 100%;*/
+      left: 0;
+      right: 0;
+    }
+
+    .autocomplete-items div {
+      padding: 10px;
+      cursor: pointer;
+      background-color: #fff;
+      border-bottom: 1px solid #d4d4d4;
+    }
+
+    /*when hovering an item:*/
+    .autocomplete-items div:hover {
+      background-color: #e9e9e9;
+    }
+
+    /*when navigating through the items using the arrow keys:*/
+    .autocomplete-active {
+      background-color: DodgerBlue !important;
+      color: #ffffff;
+    }
+  </style>
+</head>
+
+<body>
+  <div id="map1"></div>
+
+  <div class="container">
+
+    <div style="background-color:#5555558c; padding: 1rem; position: relative" class="row">
+      <div class="col-md-6">
+        <form class="form-horizontal" role="form">
+
+          <div class="row">
+            <div class="">
+              <label for="country" class="control-label">Country</label><span class="glyphicon form-control-feedback"></span>
+              <input type="text" class="form-control" id="country" value="USA" placeholder="Country" />
+            </div>
+          </div>
+
+          <div class="row">
+            <div class="">
+              <label for="city" class="control-label">City</label>
+              <input type="text" class="form-control" id="city" value="" placeholder="City" /><span class="glyphicon form-control-feedback"></span>
+            </div>
+          </div>
+
+
+
+          <div class="row">
+            <div class="">
+              <label for="inputType" class="control-label">Place (street name or POI)</label>
+              <input type="text" class="form-control" id="street" value="" placeholder="Street" />
+            </div>
+          </div>
+
+        </form>
+      </div>
+      <div class="col-md-6">
+      </div>
+    </div>
+
+  </div>
+
+
+</body>
+
+</html>

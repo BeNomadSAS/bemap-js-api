@@ -1,0 +1,877 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>BeMap JS API — 3-engine benchmark (WMS vs BeNomad PMTiles)</title>
+
+  <!-- Engine stylesheets (same set as functions.html) -->
+  <link rel="stylesheet" href="../dist/ol.css">
+  <link rel="stylesheet" href="../dist/leaflet.css">
+  <link rel="stylesheet" href="../dist/maplibre-gl.css">
+  <link rel="stylesheet" href="../dist/bemap-js-api.css">
+  <link rel="stylesheet" href="bn-2026.css">
+
+  <!-- Engines + lib (order matters: engines, then pmtiles, then bemap) -->
+  <script src="../dist/ol.js"></script>
+  <script src="../dist/leaflet.js"></script>
+  <script src="../dist/maplibre-gl.js"></script>
+  <script src="../dist/pmtiles.js"></script>
+  <script src="../dist/bemap-js-api.js"></script>
+  <script src="effect-bridge.js"></script>
+  <script src="context.js"></script>
+  <script src="bn-2026.js"></script>
+
+  <style>
+    /* The timed pass runs IN each visible map cell (you watch each engine work),
+       sequentially, so there's no network/CPU contention between engines. */
+    .bench-col { display: flex; flex-direction: column; min-height: 0; flex: 1; }
+
+    .bench-controls { background: linear-gradient(135deg,#2980b9,#3498db); color: #fff;
+                      padding: 8px 12px; display: flex; flex-wrap: wrap; gap: 8px 10px; align-items: center; }
+    .bench-controls .sep { opacity: 0.45; }
+    .bench-controls label { font-size: 11px; display: inline-flex; align-items: center; gap: 4px; color: #eaf4ff; }
+
+    .bench-maps { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 2px;
+                  background: var(--bn-line, #2c3440); height: 42vh; min-height: 220px; }
+    /* neutral grey while tiles load, like the BeNomad demo (was pale blue) */
+    .bench-cell { display: flex; flex-direction: column; min-width: 0; background: #e9ecef;
+                  outline: 0 solid transparent; transition: outline-width .12s; }
+    .bench-cell.is-active { outline: 3px solid #ffd23f; outline-offset: -3px; }
+    .bench-cell__label { display: flex; align-items: center; gap: 8px; padding: 5px 9px;
+                  font-size: 11px; font-weight: 700; color: #fff; }
+    .bench-cell.ol .bench-cell__label { background: #3498db; }
+    .bench-cell.lf .bench-cell__label { background: #27ae60; }
+    .bench-cell.ml .bench-cell__label { background: #9b59b6; }
+    .bench-cell__label select { font-size: 10px; padding: 1px 4px; border-radius: 4px; border: none;
+                  background: rgba(0,0,0,0.28); color: #fff; }
+    .bench-cell__stat { margin-left: auto; font-family: var(--bn-font-mono, monospace); font-size: 10px;
+                  font-weight: 600; opacity: 0.95; white-space: nowrap; }
+    .bench-cell__map { flex: 1; min-height: 0; position: relative; }
+
+    .bench-readout { background: #1f2733; color: #cfe7ff; font-family: var(--bn-font-mono, monospace);
+                     font-size: 11px; padding: 6px 12px; display: flex; gap: 16px; flex-wrap: wrap; }
+    .bench-readout b { color: #fff; }
+
+    /* Results — explicit light card with explicit dark text so it never inherits
+       the dashboard's light-on-dark theme colours (that made it invisible). */
+    .bench-results { flex: 1; min-height: 160px; overflow: auto; background: #ffffff; color: #1a2330;
+                     border-top: 2px solid #1f2733; padding: 0; }
+    .bench-results__head { position: sticky; top: 0; z-index: 2; display: flex; align-items: center;
+                     gap: 8px; padding: 8px 14px; background: #eef2f6; border-bottom: 1px solid #d8dee6;
+                     font-weight: 700; font-size: 13px; color: #1a2330; }
+    .bench-results__head .spacer { margin-left: auto; }
+    .bench-results__body { padding: 12px 14px; }
+    .bench-results, .bench-results * { color: #1a2330; }
+
+    table.bench-tbl { border-collapse: collapse; width: 100%; font-size: 12px; }
+    table.bench-tbl th, table.bench-tbl td { padding: 5px 8px; border-bottom: 1px solid #eceff3; text-align: right; vertical-align: middle; white-space: nowrap; }
+    table.bench-tbl th:first-child, table.bench-tbl td:first-child { text-align: left; min-width: 150px; }
+    table.bench-tbl thead th { background: #f4f6f8; font-size: 10px; text-transform: uppercase; letter-spacing: 0.3px; color: #50606e; position: sticky; top: 41px; }
+    table.bench-tbl thead th.col-ml { color: #7a3ea8; }
+    .bench-cellv { display: flex; flex-direction: column; gap: 3px; min-width: 96px; }
+    .bench-bar { position: relative; height: 12px; background: #e9eef3; border-radius: 3px; overflow: hidden; }
+    .bench-bar > span { position: absolute; left: 0; top: 0; bottom: 0; background: #5b9bd5; border-radius: 3px; }
+    .bench-bar.win > span { background: #2ecc71; }
+    .bench-val { font-variant-numeric: tabular-nums; font-size: 11.5px; }
+    .bench-val.win  { color: #1e8a4c !important; font-weight: 700; }
+
+    .verdict { background: #f4f9ff; border: 1px solid #cfe2f5; border-radius: 6px; padding: 11px 13px; font-size: 12.5px; line-height: 1.55; margin-top: 14px; }
+    .verdict h4 { margin: 0 0 6px; font-size: 12.5px; color: #1a2330; }
+    .verdict .win  { color: #1e8a4c !important; font-weight: 700; }
+    .verdict .lose { color: #b0392b !important; font-weight: 700; }
+    .caveats { font-size: 11px; color: #5b6571 !important; line-height: 1.55; margin-top: 12px; }
+    .caveats * { color: #5b6571 !important; }
+    .caveats code { background: #eef2f6; padding: 0 3px; border-radius: 3px; }
+  </style>
+</head>
+<body data-bn-page
+      data-bn-title="3-engine benchmark — WMS vs BeNomad PMTiles"
+      data-bn-subtitle="Same camera itinerary across <strong>OpenLayers</strong>, <strong>Leaflet</strong> and <strong>MapLibre</strong> (WMS raster) plus <strong>MapLibre&nbsp;·&nbsp;BeNomad&nbsp;PMTiles</strong> (vector — MapLibre-only). Each pass is timed <em>inside its own map cell</em>, one engine at a time. The <strong>warm-up pass</strong> pre-pays DNS/TLS/JIT/WebGL so the first config isn't penalised."
+      data-bn-chips="OpenLayers:ol,Leaflet:lf,MapLibre:ml,PERF:accent">
+
+  <div class="bn-shell">
+    <div class="bn-stage" style="flex-direction:column;">
+      <div class="bench-col">
+
+        <!-- ============ Controls ============ -->
+        <div class="bench-controls">
+          <button id="btnRun"  class="bn-btn bn-btn--primary" type="button">▶ Run full benchmark</button>
+          <button id="btnStop" class="bn-btn bn-btn--err" type="button" disabled>■ Stop</button>
+          <button id="btnReset" class="bn-btn bn-btn--ghost" type="button">Reset</button>
+          <span class="sep">|</span>
+          <label><input type="checkbox" id="cfgOl"  checked> OL·WMS</label>
+          <label><input type="checkbox" id="cfgLf"  checked> LF·WMS</label>
+          <label><input type="checkbox" id="cfgMlW" checked> ML·WMS</label>
+          <label><input type="checkbox" id="cfgMlP" checked> ML·PMTiles</label>
+          <label title="Run PMTiles twice: cold (Service-Worker cache cleared) and warm (cache pre-filled)"><input type="checkbox" id="cfgCache" checked> cold+warm</label>
+          <span class="sep">|</span>
+          <label title="Builds+runs each config once, discarded, to pre-pay DNS/TLS/JIT/WebGL and fill caches — so whichever config runs first isn't unfairly the slowest."><input type="checkbox" id="cfgWarmup" checked> warm-up pass</label>
+          <label>repeat <input type="number" id="cfgRepeat" value="1" min="1" max="5" style="width:42px;"></label>
+          <label><input type="checkbox" id="cfgSync" checked> sync views</label>
+        </div>
+
+        <!-- ============ The three engine cells (also the benchmark targets) ============ -->
+        <div class="bench-maps">
+          <div class="bench-cell ol" id="cellOl">
+            <div class="bench-cell__label"><span>OpenLayers v10 · WMS</span><span class="bench-cell__stat" id="statOl">idle</span></div>
+            <div id="mapOl" class="bench-cell__map"></div>
+          </div>
+          <div class="bench-cell lf" id="cellLf">
+            <div class="bench-cell__label"><span>Leaflet 1.9 · WMS</span><span class="bench-cell__stat" id="statLf">idle</span></div>
+            <div id="mapLf" class="bench-cell__map"></div>
+          </div>
+          <div class="bench-cell ml" id="cellMl">
+            <div class="bench-cell__label">
+              <span>MapLibre v5</span>
+              <select id="mlBaseSelect" title="MapLibre can render either backend (the benchmark tests both)">
+                <option value="wms">WMS raster</option>
+                <option value="pmtiles" selected>BeNomad PMTiles</option>
+              </select>
+              <span class="bench-cell__stat" id="statMl">idle</span>
+            </div>
+            <div id="mapMl" class="bench-cell__map"></div>
+          </div>
+        </div>
+
+        <!-- ============ Live readout ============ -->
+        <div class="bench-readout">
+          <span>phase: <b id="roPhase">idle</b></span>
+          <span>config: <b id="roConfig">—</b></span>
+          <span>step: <b id="roStep">—</b></span>
+          <span>FPS: <b id="roFps">—</b></span>
+          <span>tiles: <b id="roTiles">—</b></span>
+          <span>last idle: <b id="roIdle">—</b></span>
+        </div>
+
+        <!-- ============ Results (full width, explicit colours) ============ -->
+        <div class="bench-results">
+          <div class="bench-results__head">
+            <span>Results</span>
+            <span class="spacer"></span>
+            <button id="btnCopyJson" class="bn-btn bn-btn--sm bn-btn--ghost" type="button" disabled>Copy JSON</button>
+            <button id="btnCsv"      class="bn-btn bn-btn--sm bn-btn--ghost" type="button" disabled>Download CSV</button>
+          </div>
+          <div class="bench-results__body" id="resultsBody">
+            <p style="font-size:12.5px;">Pick the configs and press <b>Run full benchmark</b>. Each engine is
+              timed inside its own map cell above (you'll see the active one outlined), one at a time.
+              Lower is better for time/requests/bytes; higher is better for FPS. The headline A/B is
+              <b>ML·WMS vs ML·PMTiles</b> (same engine).</p>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+<script>
+"use strict";
+/* ============================================================================
+ * 3-engine WMS vs BeNomad-PMTiles benchmark.
+ *
+ * PMTiles is MapLibre-only, so the MapLibre cell carries the WMS↔PMTiles
+ * comparison; OpenLayers and Leaflet are WMS-only. Configs measured:
+ *   ol-wms     OpenLayers v10 · WMS raster (ol.source.TileWMS)        → OL cell
+ *   lf-wms     Leaflet 1.9    · WMS raster (L.tileLayer.wms)          → LF cell
+ *   ml-wms     MapLibre v5    · WMS raster (ctx without tilesHost)    → ML cell
+ *   ml-pmt(c)  MapLibre v5    · BeNomad PMTiles, SW cache CLEARED      → ML cell
+ *   ml-pmt(w)  MapLibre v5    · BeNomad PMTiles, SW cache pre-filled   → ML cell
+ *
+ * Each config is timed IN its engine cell, one at a time (sequential → no
+ * contention). A warm-up pass runs every config once (discarded) first, so
+ * one-time DNS/TLS/JIT/WebGL costs aren't charged to whichever config is first.
+ * ========================================================================== */
+
+var TILES_HOST = 'mptiles-api.benomad.net';
+var WMS_HOST   = bemapMainCtx.host;
+var BG_NAME    = (bemap.Map.DEFAULT_LAYER && bemap.Map.DEFAULT_LAYER.BACKGROUND) || 'background';
+
+var COLD_TIMEOUT = 25000;   // cold PMTiles (empty SW cache + cold R2 + world archive) can be very slow
+var STEP_TIMEOUT = 9000;
+var FPS_MS       = 4500;
+
+var ITINERARY = [
+  { name: 'France z5',            lon: 2.35,   lat: 48.70,   zoom: 5  },
+  { name: 'Paris city z13',       lon: 2.3488, lat: 48.8534, zoom: 13 },
+  { name: 'Paris street z16',     lon: 2.3376, lat: 48.8606, zoom: 16 },
+  { name: 'Pan → Lyon z12',       lon: 4.8357, lat: 45.7640, zoom: 12 },
+  { name: 'France z6',            lon: 2.60,   lat: 46.60,   zoom: 6  },
+  { name: 'Marseille street z15', lon: 5.3698, lat: 43.2965, zoom: 15 }
+];
+
+// id → DOM element that hosts the map for that engine cell
+var CELL_EL  = { ol: 'mapOl', lf: 'mapLf', ml: 'mapMl' };
+var STAT_EL  = { ol: 'statOl', lf: 'statLf', ml: 'statMl' };
+var CELL_BOX = { ol: 'cellOl', lf: 'cellLf', ml: 'cellMl' };
+
+function mk(id, label, engine, base, cell, extra) {
+  var c = { id: id, label: label, engine: engine, base: base, cell: cell,
+            host: (base === 'pmtiles') ? TILES_HOST : WMS_HOST };
+  if (extra) for (var k in extra) c[k] = extra[k];
+  return c;
+}
+var CONFIG = {
+  olwms:     mk('ol-wms',   'OpenLayers · WMS',          'ol', 'wms',     'ol'),
+  lfwms:     mk('lf-wms',   'Leaflet · WMS',             'lf', 'wms',     'lf'),
+  mlwms:     mk('ml-wms',   'MapLibre · WMS',            'ml', 'wms',     'ml'),
+  mlpmtCold: mk('ml-pmt-c', 'MapLibre · PMTiles (cold)', 'ml', 'pmtiles', 'ml', { cache: true, clearFirst: true }),
+  mlpmtWarm: mk('ml-pmt-w', 'MapLibre · PMTiles (warm)', 'ml', 'pmtiles', 'ml', { cache: true })
+};
+// Preview-only ML PMTiles config (no cold-clear): used by the cell's toggle.
+var PREVIEW_MLPMT = mk('ml-prev-pmt', 'MapLibre · PMTiles', 'ml', 'pmtiles', 'ml', { cache: true });
+
+// ---- Context factories -----------------------------------------------------
+// Mirror the dashboard Context (bemapMainCtx) — CRUCIALLY its `geoserver`,
+// without which WMS tile requests come back empty (the grey Leaflet/OL map).
+// functions.html works precisely because it uses bemapMainCtx (which carries
+// geoserver). WMS configs get a tilesHost-FREE copy so MapLibre renders WMS,
+// not PMTiles; the PMTiles config adds tilesHost on top.
+function baseOpts() {
+  return {
+    host:       bemapMainCtx.host,
+    secure:     bemapMainCtx.protocol === 'https',
+    login:      bemapMainCtx.login,
+    password:   bemapMainCtx.password,
+    geoserver:  bemapMainCtx.geoserver,
+    path:       bemapMainCtx.path,
+    authInPost: bemapMainCtx.authInPost
+  };
+}
+function makeCtxWms()   { return new bemap.Context(baseOpts()); }
+function makeCtxTiles() { var o = baseOpts(); o.tilesHost = TILES_HOST; return new bemap.Context(o); }
+
+// ---- helpers ---------------------------------------------------------------
+function byId(id) { return document.getElementById(id); }
+function fmtMs(v) { if (v == null) return '—'; return (typeof bn !== 'undefined' && bn.fmtMs) ? bn.fmtMs(Math.round(v)) : (Math.round(v) + ' ms'); }
+function num(v, d) { return (v == null || isNaN(v)) ? '—' : v.toFixed(d == null ? 0 : d); }
+function delay(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
+function log(msg, level) { if (typeof bn !== 'undefined' && bn.log) bn.log(msg, level || 'info'); }
+function setCellStat(cell, txt) { var e = byId(STAT_EL[cell]); if (e) e.textContent = txt; }
+function setActiveCell(cell, on) { var e = byId(CELL_BOX[cell]); if (e) e.classList.toggle('is-active', !!on); }
+
+var aborted = false, running = false;
+var cellMaps   = { ol: null, lf: null, ml: null };   // current map instance per cell
+var cellConfig = { ol: null, lf: null, ml: null };   // its config (for engine type)
+
+// ============================================================================
+// Engine adapters
+// ============================================================================
+function buildMap(config, el) {
+  var map;
+  if (config.engine === 'ol') {
+    map = new bemap.OlMap(makeCtxWms(), el);
+    attachWmsBackground(map);
+  } else if (config.engine === 'lf') {
+    map = new bemap.LeafletMap(makeCtxWms(), el);
+    attachWmsBackground(map);
+  } else {
+    if (config.base === 'wms') { map = new bemap.MapLibreMap(makeCtxWms(), el); map.defaultLayers(); }
+    else { map = new bemap.MapLibreMap(makeCtxTiles(), el, { browserCache: config.cache !== false }); }
+    applyGreyBackground(map);     // neutralise the bundled style's blue background
+  }
+  return map;
+}
+function attachWmsBackground(map) {
+  var bg = new bemap.BemapLayer({ name: BG_NAME, styles: '' });
+  map.addLayer(bg);
+  map._benchBg = bg;   // bg.native: OL → ol.layer.Tile; LF → L.TileLayer.WMS
+}
+
+// The bundled MapLibre style paints a pale-blue (#d4ecf5) `background` layer.
+// Match the BeNomad demo's neutral grey (#e3e3e3). Re-applied on every styledata
+// because the lib reloads the style on JWT refresh. (Per-instance only — we do
+// NOT touch bemap.defaultStyle, which other apps like bfleet/evmove5 share.)
+function applyGreyBackground(map) {
+  var set = function () {
+    try { if (map.native.getLayer && map.native.getLayer('background')) map.native.setPaintProperty('background', 'background-color', '#e3e3e3'); } catch (e) {}
+  };
+  try { if (map.native.isStyleLoaded && map.native.isStyleLoaded()) set(); } catch (e) {}
+  // Fire on every hook MapLibre offers — style.load / load / styledata — plus a
+  // couple of delayed retries, so the grey lands regardless of when the bundled
+  // style finishes parsing or gets reloaded on JWT refresh.
+  try { map.native.on('style.load', set); } catch (e) {}
+  try { map.native.on('styledata', set); } catch (e) {}
+  try { map.native.once('load', set); } catch (e) {}
+  setTimeout(set, 400);
+  setTimeout(set, 1500);
+}
+
+// Count actual tile loads via ENGINE events (cache-layer-independent). Resource
+// Timing misses memory-cache hits — that's why OpenLayers reported 0 requests
+// even though it clearly loaded tiles. Engine tile events fire regardless.
+function wireTileCounter(map, config) {
+  map._tiles = 0;
+  try {
+    if (config.engine === 'ol') {
+      var src = map._benchBg && map._benchBg.native && map._benchBg.native.getSource && map._benchBg.native.getSource();
+      if (src && src.on) src.on('tileloadstart', function () { map._tiles++; });
+    } else if (config.engine === 'lf') {
+      var tl = map._benchBg && map._benchBg.native;
+      if (tl && tl.on) tl.on('tileloadstart', function () { map._tiles++; });
+    } else { // maplibre — one 'dataloading' per source tile (raster WMS or vector PMTiles)
+      map.native.on('dataloading', function (e) { if (e && e.dataType === 'source' && e.tile) map._tiles++; });
+    }
+  } catch (e) {}
+}
+
+function jumpTo(map, config, lon, lat, zoom) {
+  if (config.engine === 'ml')      map.native.jumpTo({ center: [lon, lat], zoom: zoom });
+  else if (config.engine === 'ol') { var v = map.native.getView(); v.setCenter(ol.proj.fromLonLat([lon, lat])); v.setZoom(zoom); }
+  else                             map.native.setView([lat, lon], zoom, { animate: false });
+}
+
+// Resolve when the current view is fully loaded + painted, or on timeout.
+function awaitIdle(map, config, timeoutMs) {
+  return new Promise(function (resolve) {
+    var done = false;
+    var to = setTimeout(function () { finish(true); }, timeoutMs);
+    function finish(t) { if (done) return; done = true; clearTimeout(to); cleanup(); resolve({ timedOut: !!t }); }
+    var cleanup = function () {};
+
+    if (config.engine === 'ml') {
+      var onIdle = function () { finish(false); };
+      map.native.once('idle', onIdle);
+      cleanup = function () { try { map.native.off('idle', onIdle); } catch (e) {} };
+
+    } else if (config.engine === 'ol') {
+      var n = map.native, pending = 0, sawLoad = false, settleT = null, graceT = null;
+      var onStart = function () { pending++; sawLoad = true; };
+      var onEnd   = function () { pending = Math.max(0, pending - 1); if (pending === 0) schedule(); };
+      // Only resolve via pending===0 once a load was observed (OL emits loadstart
+      // on a frame AFTER jumpTo returns); the cached / no-new-tiles case is handled
+      // by graceT, never at attach time.
+      var onRender = function () { if (sawLoad && pending === 0) schedule(); };
+      function schedule() { if (settleT) clearTimeout(settleT); settleT = setTimeout(function () { if (pending === 0) finish(false); }, 120); }
+      n.on('loadstart', onStart); n.on('loadend', onEnd); n.on('rendercomplete', onRender);
+      graceT = setTimeout(function () { if (!sawLoad && pending === 0) finish(false); }, 600);
+      cleanup = function () { if (settleT) clearTimeout(settleT); if (graceT) clearTimeout(graceT); try { n.un('loadstart', onStart); n.un('loadend', onEnd); n.un('rendercomplete', onRender); } catch (e) {} };
+
+    } else { // leaflet
+      var nn = map.native, tl = map._benchBg && map._benchBg.native;
+      var loading = false, st = null, graceT2 = null, sawLf = false;
+      var onLoading = function () { loading = true; sawLf = true; };
+      var onLoad    = function () { loading = false; settle(); };
+      var onMoveEnd = function () { if (sawLf && !loading) settle(); };
+      function settle() { if (st) clearTimeout(st); st = setTimeout(function () { if (!loading) finish(false); }, 150); }
+      if (tl && tl.on) { tl.on('loading', onLoading); tl.on('load', onLoad); }
+      nn.on('moveend', onMoveEnd);
+      graceT2 = setTimeout(function () { if (!sawLf && !loading) finish(false); }, 600);
+      cleanup = function () { if (st) clearTimeout(st); if (graceT2) clearTimeout(graceT2); try { if (tl && tl.off) { tl.off('loading', onLoading); tl.off('load', onLoad); } nn.off('moveend', onMoveEnd); } catch (e) {} };
+    }
+  });
+}
+
+function awaitTokenMs(map, tConstruct, timeoutMs) {
+  return new Promise(function (resolve) {
+    if (typeof map.isTokenValid !== 'function') { resolve(null); return; }
+    var start = performance.now();
+    (function poll() {
+      if (map.isTokenValid()) { resolve(performance.now() - tConstruct); return; }
+      if (performance.now() - start > timeoutMs) { resolve(null); return; }
+      setTimeout(poll, 25);
+    })();
+  });
+}
+
+function teardown(map, config) {
+  if (!map) return;
+  try {
+    if (config && config.engine === 'ol') map.native.setTarget(undefined);
+    else map.native.remove();
+  } catch (e) {}
+}
+
+// Build a config's map in its cell, jump to the start view, wire sync. (preview)
+function buildCellMap(config) {
+  teardown(cellMaps[config.cell], cellConfig[config.cell]);
+  var el = freshCellEl(config.cell);
+  var map = buildMap(config, el);
+  cellMaps[config.cell] = map; cellConfig[config.cell] = config;
+  jumpTo(map, config, ITINERARY[0].lon, ITINERARY[0].lat, ITINERARY[0].zoom);
+  wireSyncCell(config.cell, map);
+  kickResize(map, config);
+  return map;
+}
+function freshCellEl(cellKey) {
+  var host = byId(CELL_EL[cellKey]);
+  host.innerHTML = '';
+  var el = document.createElement('div');
+  // Absolute-fill the (position:relative) cell so the map ALWAYS gets a definite
+  // pixel size. A percentage height inside a flex item can resolve to 0 at init,
+  // which silently leaves Leaflet blank — it doesn't auto-resize the way MapLibre
+  // and OpenLayers do, so it never recovers. (See kickResize below too.)
+  el.style.cssText = 'position:absolute;top:0;left:0;right:0;bottom:0;';
+  host.appendChild(el);
+  return el;
+}
+
+// Tell an engine its container size may have changed and to re-measure. Leaflet
+// in particular shows blank if it was built before its container had a size.
+function kickResize(map, config) {
+  if (!map || !config) return;
+  requestAnimationFrame(function () {
+    try {
+      if (config.engine === 'lf') map.native.invalidateSize(false);
+      else if (config.engine === 'ol') map.native.updateSize();
+      else if (map.native && map.native.resize) map.native.resize();
+    } catch (e) {}
+  });
+}
+function resizeAllCells() { ['ol', 'lf', 'ml'].forEach(function (k) { kickResize(cellMaps[k], cellConfig[k]); }); }
+
+// ============================================================================
+// Network — engine-agnostic via Resource Timing, filtered by host + window
+// ============================================================================
+function collectNetwork(host, sinceTime) {
+  var es = performance.getEntriesByType('resource');
+  var count = 0, dur = 0, bytes = 0, bytesKnown = false;
+  for (var i = 0; i < es.length; i++) {
+    var e = es[i];
+    if (e.startTime >= sinceTime - 1 && e.name.indexOf(host) > -1) {
+      count++; dur += e.duration;
+      var b = (e.transferSize && e.transferSize > 0) ? e.transferSize
+            : (e.encodedBodySize && e.encodedBodySize > 0) ? e.encodedBodySize : 0;
+      if (b > 0) { bytes += b; bytesKnown = true; }
+    }
+  }
+  return { count: count, dur: dur, bytes: bytes, bytesKnown: bytesKnown };
+}
+
+// Best-effort bytes when Resource Timing hides sizes (cross-origin host without a
+// Timing-Allow-Origin header — e.g. the WMS server). Re-fetch a few of the actual
+// tile URLs from cache and read their blob sizes; this works when the server
+// allows CORS (a DIFFERENT header than TAO), so we can still measure WMS PNGs.
+// Returns the average bytes/request, or null if the server blocks reads too.
+async function probeBytes(host) {
+  try {
+    var es = performance.getEntriesByType('resource');
+    var urls = [];
+    for (var i = es.length - 1; i >= 0 && urls.length < 6; i--) {
+      var nm = es[i].name;
+      if (nm.indexOf(host) > -1 && urls.indexOf(nm) < 0) urls.push(nm);
+    }
+    if (!urls.length) return null;
+    var sizes = [];
+    for (var u = 0; u < urls.length; u++) {
+      try {
+        var resp = await fetch(urls[u], { cache: 'force-cache' });   // from cache → no extra network
+        if (resp && resp.ok) { var b = await resp.blob(); if (b && b.size > 0) sizes.push(b.size); }
+      } catch (e) { /* CORS-blocked → skip */ }
+    }
+    if (!sizes.length) return null;
+    return sizes.reduce(function (a, b) { return a + b; }, 0) / sizes.length;
+  } catch (e) { return null; }
+}
+
+// ============================================================================
+// FPS stress
+// ============================================================================
+function animatedMove(map, config, lon, lat, zoom) {
+  if (config.engine === 'ml')      map.native.easeTo({ center: [lon, lat], zoom: zoom, duration: 550, essential: true });
+  else if (config.engine === 'ol') map.native.getView().animate({ center: ol.proj.fromLonLat([lon, lat]), zoom: zoom, duration: 550 });
+  else                             map.native.flyTo([lat, lon], Math.round(zoom), { duration: 0.55 });
+}
+function fpsStress(map, config, mode, ms) {
+  return new Promise(function (resolve) {
+    var anchor = ITINERARY[2];
+    var frames = 0, last = performance.now(), start = last, sumDt = 0, k = 0;
+    var settled = false, driver = null, hardTimer = null;
+    function done() {
+      if (settled) return; settled = true;
+      if (driver) clearInterval(driver);
+      if (hardTimer) clearTimeout(hardTimer);
+      var elapsed = (performance.now() - start) / 1000;
+      resolve({ fps: elapsed > 0 ? frames / elapsed : 0 });
+    }
+    driver = setInterval(function () {
+      k++;
+      if (aborted) { done(); return; }              // clear the interval immediately on Stop
+      if (mode === 'pan') animatedMove(map, config, anchor.lon + 0.012 * (k % 4 < 2 ? 1 : -1), anchor.lat + 0.009 * (k % 2 ? 1 : -1), anchor.zoom);
+      else                animatedMove(map, config, anchor.lon, anchor.lat, anchor.zoom + (k % 2 ? 2 : -1));
+    }, 600);
+    // Hard fallback so we ALWAYS resolve even if rAF is paused (tab backgrounded)
+    // — otherwise the await chain could hang and leave the UI stuck "running".
+    hardTimer = setTimeout(done, ms + 1500);
+    function tick(now) {
+      if (settled) return;
+      var dt = now - last; last = now; frames++;
+      if (dt > 0) sumDt += dt;
+      byId('roFps').textContent = frames > 1 ? (1000 / (sumDt / (frames - 1))).toFixed(0) : '—';
+      if (now - start >= ms || aborted) { done(); return; }
+      requestAnimationFrame(tick);
+    }
+    requestAnimationFrame(tick);
+  });
+}
+
+// ============================================================================
+// Run one config in its cell. opts.record=false → warm-up (discarded, no FPS).
+// ============================================================================
+async function runConfig(config, opts) {
+  opts = opts || {};
+  var cell = config.cell;
+  teardown(cellMaps[cell], cellConfig[cell]); cellMaps[cell] = null;
+  performance.clearResourceTimings();
+  setActiveCell(cell, true);
+  setCellStat(cell, opts.record ? '● testing…' : '◌ warming…');
+  byId('roConfig').textContent = config.label + (opts.record ? '' : ' (warm-up)');
+
+  var el = freshCellEl(cell);
+  byId('roPhase').textContent = opts.record ? 'first paint' : 'warm-up';
+  var tConstruct = performance.now();
+  var map = buildMap(config, el);
+  cellMaps[cell] = map; cellConfig[cell] = config;
+  wireSyncCell(cell, map);
+  kickResize(map, config);
+  wireTileCounter(map, config);
+
+  // Cold PMTiles: empty the Service-Worker cache so the run is genuinely cold.
+  if (config.clearFirst && opts.record && typeof map.clearBrowserCache === 'function') {
+    try { map.clearBrowserCache(); } catch (e) {}
+    await delay(150);
+  }
+
+  var tokenPromise = (config.base === 'pmtiles') ? awaitTokenMs(map, tConstruct, COLD_TIMEOUT) : Promise.resolve(null);
+  jumpTo(map, config, ITINERARY[0].lon, ITINERARY[0].lat, ITINERARY[0].zoom);
+  var coldRes = await awaitIdle(map, config, COLD_TIMEOUT);
+  var cold = performance.now() - tConstruct;
+  var jwtMs = await tokenPromise;
+
+  var rec = { id: config.id, label: config.label, engine: config.engine, base: config.base,
+              cold: cold, coldTimedOut: coldRes.timedOut, jwtMs: jwtMs, steps: [], pan: null, zoom: null, cache: null };
+
+  if (opts.record) { setCellStat(cell, 'paint ' + fmtMs(cold)); byId('roIdle').textContent = fmtMs(cold) + (coldRes.timedOut ? ' (timeout)' : ''); }
+
+  byId('roPhase').textContent = opts.record ? 'warm tour' : 'warm-up tour';
+  for (var i = 1; i < ITINERARY.length && !aborted; i++) {
+    var v = ITINERARY[i]; byId('roStep').textContent = v.name;
+    var tilesBefore = map._tiles || 0;
+    var ws = performance.now();
+    jumpTo(map, config, v.lon, v.lat, v.zoom);
+    var r = await awaitIdle(map, config, STEP_TIMEOUT);
+    var dt = performance.now() - ws;
+    if (opts.record) {
+      var net = collectNetwork(config.host, ws);
+      var reqs = (map._tiles || 0) - tilesBefore;     // engine-counted → correct even for cache hits
+      rec.steps.push({ name: v.name, ms: r.timedOut ? null : dt, timedOut: r.timedOut, reqs: reqs, dur: net.dur, bytes: net.bytes, bytesKnown: net.bytesKnown });
+      byId('roIdle').textContent = fmtMs(dt) + (r.timedOut ? ' (timeout)' : ''); byId('roTiles').textContent = reqs;
+    }
+    await delay(50);
+  }
+
+  // Bytes fallback: if Resource Timing hid every size for this host (no TAO),
+  // probe a few real tile URLs and remember avg bytes/request for the estimate.
+  if (opts.record && !aborted) {
+    var anyBytes = rec.steps.some(function (s) { return s.bytesKnown; });
+    if (!anyBytes) { var avgB = await probeBytes(config.host); if (avgB != null) rec.estBytesPerReq = avgB; }
+  }
+
+  if (opts.record && !opts.skipFps && !aborted) {
+    byId('roPhase').textContent = 'FPS · pan'; byId('roStep').textContent = '—';
+    var panRes = await fpsStress(map, config, 'pan', FPS_MS);
+    if (!aborted) rec.pan = panRes;                 // don't record a partial sample if Stopped mid-pan
+    if (!aborted) {
+      byId('roPhase').textContent = 'FPS · zoom';
+      var zoomRes = await fpsStress(map, config, 'zoom', FPS_MS);
+      if (!aborted) rec.zoom = zoomRes;
+    }
+  }
+  if (opts.record && config.engine === 'ml' && config.base === 'pmtiles' && typeof map.getBrowserCacheStats === 'function') {
+    try { rec.cache = map.getBrowserCacheStats(); } catch (e) {}
+  }
+
+  setActiveCell(cell, false);
+  setCellStat(cell, opts.record ? ('done · paint ' + fmtMs(cold)) : 'warmed');
+  return rec;
+}
+
+// ============================================================================
+// Orchestration
+// ============================================================================
+function selectedConfigs() {
+  var list = [];
+  if (byId('cfgOl').checked)  list.push(CONFIG.olwms);
+  if (byId('cfgLf').checked)  list.push(CONFIG.lfwms);
+  if (byId('cfgMlW').checked) list.push(CONFIG.mlwms);
+  if (byId('cfgMlP').checked) { if (byId('cfgCache').checked) list.push(CONFIG.mlpmtCold); list.push(CONFIG.mlpmtWarm); }
+  return list;
+}
+
+var lastResults = null;
+
+async function runBenchmark() {
+  aborted = false; running = true; setRunning(true);
+  var repeat = Math.max(1, Math.min(5, parseInt(byId('cfgRepeat').value, 10) || 1));
+  var doWarmup = byId('cfgWarmup').checked;
+  var configs = selectedConfigs();
+  if (!configs.length) { log('Select at least one config.', 'warn'); running = false; setRunning(false); return; }
+
+  log('Benchmark start — ' + configs.length + ' config(s) × ' + repeat + ' repeat(s)' + (doWarmup ? ' + warm-up' : '') +
+      '. Itinerary: ' + ITINERARY.map(function (v) { return v.name; }).join(' → '), 'info');
+
+  var acc = {};
+  try {
+    if (doWarmup && !aborted) {
+      log('Warm-up pass (discarded) — pre-paying DNS/TLS/JIT/WebGL and filling caches so the first config isn\'t penalised…', 'info');
+      for (var w = 0; w < configs.length && !aborted; w++) await runConfig(configs[w], { record: false, skipFps: true });
+    }
+    for (var rIdx = 0; rIdx < repeat && !aborted; rIdx++) {
+      for (var ci = 0; ci < configs.length && !aborted; ci++) {
+        var cfg = configs[ci];
+        log('Measuring ' + cfg.label + (repeat > 1 ? (' (repeat ' + (rIdx + 1) + '/' + repeat + ')') : '') + ' …', 'info');
+        var rec = await runConfig(cfg, { record: true });
+        (acc[cfg.id] = acc[cfg.id] || []).push(rec);
+        lastResults = aggregate(acc, configs);
+        renderResults(lastResults);
+      }
+    }
+  } catch (e) {
+    log('Benchmark error: ' + (e && e.message ? e.message : e), 'err');
+    if (window.console) console.error(e);
+  }
+
+  byId('roPhase').textContent = aborted ? 'stopped' : 'done';
+  log(aborted ? 'Benchmark stopped.' : 'Benchmark complete — maps left showing each engine\'s last view.', aborted ? 'warn' : 'ok');
+  running = false; setRunning(false);
+}
+
+function aggregate(acc, configs) {
+  var out = [];
+  for (var ci = 0; ci < configs.length; ci++) {
+    var cfg = configs[ci]; var recs = acc[cfg.id];
+    if (!recs || !recs.length) continue;
+    var avg = function (sel) { var v = recs.map(sel).filter(function (x) { return x != null && !isNaN(x); }); return v.length ? v.reduce(function (a, b) { return a + b; }, 0) / v.length : null; };
+    var stepMsAll = [], reqsTotal = [], durTotal = [], bytesTotal = [], bytesKnownAny = false;
+    recs.forEach(function (rec) {
+      stepMsAll = stepMsAll.concat(rec.steps.map(function (s) { return s.ms; }).filter(function (x) { return x != null; }));
+      reqsTotal.push(rec.steps.reduce(function (a, s) { return a + (s.reqs || 0); }, 0));
+      durTotal.push(rec.steps.reduce(function (a, s) { return a + (s.dur || 0); }, 0));
+      bytesTotal.push(rec.steps.reduce(function (a, s) { return a + (s.bytes || 0); }, 0));
+      if (rec.steps.some(function (s) { return s.bytesKnown; })) bytesKnownAny = true;
+    });
+    stepMsAll.sort(function (a, b) { return a - b; });
+    var p95 = stepMsAll.length ? stepMsAll[Math.max(0, Math.min(stepMsAll.length - 1, Math.ceil(stepMsAll.length * 0.95) - 1))] : null;
+    var avgArr = function (a) { return a.length ? a.reduce(function (x, y) { return x + y; }, 0) / a.length : null; };
+    // Estimated bytes (avg bytes/request × this run's request count) when the
+    // server hid real sizes and the probe succeeded.
+    var estBytesArr = recs.map(function (r) {
+      if (r.estBytesPerReq == null) return null;
+      return r.estBytesPerReq * r.steps.reduce(function (a, s) { return a + (s.reqs || 0); }, 0);
+    }).filter(function (x) { return x != null; });
+    var bytesVal = bytesKnownAny ? avgArr(bytesTotal) : (estBytesArr.length ? avgArr(estBytesArr) : null);
+    var lastCache = recs[recs.length - 1].cache;
+    out.push({
+      id: cfg.id, label: cfg.label, engine: cfg.engine, base: cfg.base, n: recs.length,
+      cold: avg(function (r) { return r.cold; }), coldTimedOut: recs.some(function (r) { return r.coldTimedOut; }),
+      jwtMs: avg(function (r) { return r.jwtMs; }),
+      stepAvg: (function () { var a = stepMsAll; return a.length ? a.reduce(function (x, y) { return x + y; }, 0) / a.length : null; })(),
+      stepP95: p95, reqs: avgArr(reqsTotal), dur: avgArr(durTotal),
+      bytes: bytesVal, bytesEstimated: !bytesKnownAny && estBytesArr.length > 0,
+      panFps: avg(function (r) { return r.pan ? r.pan.fps : null; }), zoomFps: avg(function (r) { return r.zoom ? r.zoom.fps : null; }),
+      cacheRatio: lastCache && (lastCache.hits + lastCache.misses) > 0 ? (lastCache.hits / (lastCache.hits + lastCache.misses) * 100) : null,
+      cacheBytes: lastCache ? lastCache.bytesEstimated : null
+    });
+  }
+  return out;
+}
+
+// ============================================================================
+// Rendering
+// ============================================================================
+var METRICS = [
+  { key: 'cold',    label: 'First-paint',      fmt: function (v) { return fmtMs(v); }, lowerBetter: true },
+  { key: 'jwtMs',   label: 'JWT login',        fmt: function (v) { return fmtMs(v); }, lowerBetter: true },
+  { key: 'stepAvg', label: 'Avg step → idle',  fmt: function (v) { return fmtMs(v); }, lowerBetter: true },
+  { key: 'stepP95', label: 'p95 step → idle',  fmt: function (v) { return fmtMs(v); }, lowerBetter: true },
+  { key: 'reqs',    label: 'Tile requests',    fmt: function (v) { return num(v, 0); }, lowerBetter: true },
+  { key: 'dur',     label: 'Σ request time',   fmt: function (v) { return fmtMs(v); }, lowerBetter: true },
+  { key: 'bytes',   label: 'Bytes (KiB)',      fmt: function (v) { return v == null ? 'n/a' : num(v / 1024, 1); }, lowerBetter: true },
+  { key: 'panFps',  label: 'Pan FPS',          fmt: function (v) { return num(v, 0); }, lowerBetter: false },
+  { key: 'zoomFps', label: 'Zoom FPS',         fmt: function (v) { return num(v, 1); }, lowerBetter: false },
+  { key: 'cacheRatio', label: 'SW cache hit %', fmt: function (v) { return v == null ? '—' : num(v, 0) + '%'; }, lowerBetter: false }
+];
+
+function shortLabel(label) { return label.replace('OpenLayers', 'OL').replace('Leaflet', 'LF').replace('MapLibre', 'ML').replace(' · ', '·'); }
+
+function renderResults(rows) {
+  if (!rows || !rows.length) return;
+  byId('btnCopyJson').disabled = false; byId('btnCsv').disabled = false;
+
+  var html = '<div style="overflow-x:auto;"><table class="bench-tbl"><thead><tr><th>Metric</th>';
+  rows.forEach(function (r) { html += '<th class="' + (r.engine === 'ml' ? 'col-ml' : '') + '">' + shortLabel(r.label) + '</th>'; });
+  html += '</tr></thead><tbody>';
+
+  METRICS.forEach(function (m) {
+    var vals = rows.map(function (r) { return r[m.key]; });
+    var present = vals.filter(function (v) { return v != null && !isNaN(v); });
+    if (!present.length) return;
+    var max = Math.max.apply(null, present);
+    var best = m.lowerBetter ? Math.min.apply(null, present) : Math.max.apply(null, present);
+    html += '<tr><td>' + m.label + '</td>';
+    rows.forEach(function (r) {
+      var v = r[m.key];
+      if (v == null || isNaN(v)) { html += '<td>—</td>'; return; }
+      var isWin = (Math.abs(v - best) < 1e-9) && present.length > 1;
+      var w = max > 0 ? Math.round((v / max) * 100) : 0;
+      var disp = m.fmt(v);
+      if (m.key === 'bytes' && r.bytesEstimated) disp = '~' + disp;   // sampled estimate (no TAO header)
+      if (m.key === 'cold' && r.coldTimedOut) disp += ' ⏱';            // value hit the timeout cap, not a real paint
+      html += '<td><div class="bench-cellv"><div class="bench-bar' + (isWin ? ' win' : '') + '"><span style="width:' + w + '%"></span></div>' +
+              '<span class="bench-val' + (isWin ? ' win' : '') + '">' + disp + '</span></div></td>';
+    });
+    html += '</tr>';
+  });
+  html += '</tbody></table></div>';
+  html += renderVerdict(rows);
+  html += '<div class="caveats"><b>Caveats.</b> All network figures come from the browser\'s Resource Timing API filtered by host — ' +
+    'WMS rows are <code>GetMap</code> PNG tiles from <code>' + WMS_HOST + '</code>; PMTiles rows are HTTP <b>range requests</b> into the ' +
+    '<code>.pmtiles</code> archive on <code>' + TILES_HOST + '</code> (the BeNomad Tiles backend). Raster (WMS) vs vector (PMTiles) differ in render cost — ' +
+    'low PMTiles zoom-FPS reflects real vector re-tessellation. With warm-up ON, all configs are measured at steady state (shared one-time costs pre-paid); ' +
+    'ML·PMTiles (cold) additionally clears the Service-Worker cache. Engine "done" signals differ (OL <code>rendercomplete</code>, Leaflet tile <code>load</code>, MapLibre <code>idle</code>); ' +
+    'a leading <code>~</code> on Bytes means it was estimated by re-fetching a few real tiles (the host hid sizes via a missing ' +
+    '<code>Timing-Allow-Origin</code> header — common for WMS — but allowed a CORS read); <code>n/a</code> means even that was blocked. ' +
+    'SW cache needs https/localhost; FPS is machine-relative.</div>';
+
+  byId('resultsBody').innerHTML = html;
+}
+
+function find(rows, id) { for (var i = 0; i < rows.length; i++) if (rows[i].id === id) return rows[i]; return null; }
+function ratio(r) {
+  if (r == null || !isFinite(r)) return '—';
+  if (r >= 1.05) return '<span class="lose">' + r.toFixed(2) + '× slower than</span>';
+  if (r <= 0.95) return '<span class="win">' + (1 / r).toFixed(2) + '× faster than</span>';
+  return 'about the same as';
+}
+function renderVerdict(rows) {
+  var w = find(rows, 'ml-wms'), pCold = find(rows, 'ml-pmt-c'), pWarm = find(rows, 'ml-pmt-w');
+  var p = pWarm || pCold, lines = [];
+  if (w && p) {
+    if (w.cold && p.cold) lines.push('<b>First-paint:</b> MapLibre·PMTiles is ' + ratio(p.cold / w.cold) + ' MapLibre·WMS' + (p.jwtMs ? ' (incl. ~' + fmtMs(p.jwtMs) + ' JWT login WMS doesn\'t pay)' : '') + '.');
+    if (w.stepAvg && p.stepAvg) lines.push('<b>Warm navigation:</b> PMTiles avg step-to-idle is ' + ratio(p.stepAvg / w.stepAvg) + ' WMS.');
+    if (w.panFps && p.panFps) lines.push('<b>Pan FPS:</b> PMTiles ' + (p.panFps >= w.panFps ? 'higher' : 'lower') + ' (' + num(p.panFps) + ' vs ' + num(w.panFps) + '); Zoom FPS ' + (p.zoomFps != null ? num(p.zoomFps, 1) : '—') + ' vs ' + (w.zoomFps != null ? num(w.zoomFps, 1) : '—') + ' (vector re-tessellation).');
+    if (pCold && pWarm && pCold.cold && pWarm.cold) lines.push('<b>SW cache payback:</b> warm first-paint ' + ratio(pWarm.cold / pCold.cold) + ' the cold (cache-cleared) run' + (pWarm.cacheRatio != null ? ' (hit ratio ' + num(pWarm.cacheRatio) + '%)' : '') + '.');
+  }
+  var ol = find(rows, 'ol-wms'), lf = find(rows, 'lf-wms');
+  if (w && (ol || lf)) {
+    var others = [ol, lf].filter(Boolean).filter(function (x) { return x.stepAvg; });
+    if (others.length && w.stepAvg) {
+      var bestOther = others.reduce(function (a, b) { return (a.stepAvg <= b.stepAvg) ? a : b; });
+      lines.push('<b>WMS across engines:</b> MapLibre·WMS step-to-idle is ' + ratio(w.stepAvg / bestOther.stepAvg) + ' the fastest WMS renderer (' + shortLabel(bestOther.label) + ').');
+    }
+  }
+  if (!lines.length) return '';
+  return '<div class="verdict"><h4>Verdict</h4>' + lines.join('<br>') + '</div>';
+}
+
+// ============================================================================
+// Export (scrubbed — never includes login / password / JWT)
+// ============================================================================
+function buildExport() {
+  return {
+    generatedAt: new Date().toISOString(), page: 'example-maplibre-wms-vs-pmtiles-benchmark',
+    wmsHost: WMS_HOST, tilesHost: TILES_HOST, userAgent: navigator.userAgent,
+    warmup: byId('cfgWarmup').checked, itinerary: ITINERARY.map(function (v) { return v.name; }),
+    results: (lastResults || []).map(function (r) {
+      return { id: r.id, label: r.label, engine: r.engine, base: r.base, repeats: r.n,
+        firstPaintMs: r.cold, jwtMs: r.jwtMs, avgStepMs: r.stepAvg, p95StepMs: r.stepP95,
+        tileRequests: r.reqs, sumRequestMs: r.dur, bytes: r.bytes,
+        panFps: r.panFps, zoomFps: r.zoomFps, swCacheHitPct: r.cacheRatio, swCacheBytes: r.cacheBytes };
+    })
+  };
+}
+function copyJson() {
+  var txt = JSON.stringify(buildExport(), null, 2);
+  if (navigator.clipboard) navigator.clipboard.writeText(txt).then(function () { log('Results JSON copied.', 'ok'); });
+  else log('Clipboard unavailable.', 'warn');
+}
+function downloadCsv() {
+  var rows = lastResults || [];
+  var lines = [['metric'].concat(rows.map(function (r) { return r.label; })).join(',')];
+  METRICS.forEach(function (m) {
+    var line = [m.label];
+    rows.forEach(function (r) { var v = r[m.key]; line.push(v == null || isNaN(v) ? '' : (m.key === 'bytes' ? (v / 1024).toFixed(1) : v.toFixed(2))); });
+    lines.push(line.join(','));
+  });
+  var a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([lines.join('\n')], { type: 'text/csv' }));
+  a.download = 'bemap-benchmark.csv'; a.click();
+  setTimeout(function () { URL.revokeObjectURL(a.href); }, 1000);
+  log('CSV downloaded.', 'ok');
+}
+
+// ============================================================================
+// Preview maps (also the benchmark targets) + ML toggle + view sync
+// ============================================================================
+var mlBase = 'pmtiles', syncing = false;
+
+function buildPreviews() {
+  buildCellMap(CONFIG.olwms);
+  buildCellMap(CONFIG.lfwms);
+  buildCellMap(mlBase === 'pmtiles' ? PREVIEW_MLPMT : CONFIG.mlwms);
+  log('Maps built (OL · WMS, Leaflet · WMS, MapLibre · ' + mlBase + '). Pan/zoom them, or run the benchmark.', 'ok');
+}
+
+function readView(engine, map) {
+  try {
+    if (engine === 'ol') { var v = map.native.getView(); var c = ol.proj.toLonLat(v.getCenter()); return { lon: c[0], lat: c[1], zoom: v.getZoom() }; }
+    var cc = map.native.getCenter(); return { lon: cc.lng, lat: cc.lat, zoom: map.native.getZoom() };
+  } catch (e) { return null; }
+}
+function applyView(engine, map, vw) {
+  try {
+    if (engine === 'ol') { var v = map.native.getView(); v.setCenter(ol.proj.fromLonLat([vw.lon, vw.lat])); v.setZoom(vw.zoom); }
+    else if (engine === 'ml') map.native.jumpTo({ center: [vw.lon, vw.lat], zoom: vw.zoom });
+    else map.native.setView([vw.lat, vw.lon], Math.round(vw.zoom), { animate: false });
+  } catch (e) {}
+}
+function pushView(srcCell) {
+  if (!byId('cfgSync').checked || syncing || running) return;
+  var src = cellMaps[srcCell], sc = cellConfig[srcCell];
+  if (!src || !sc) return;
+  var vw = readView(sc.engine, src); if (!vw) return;
+  syncing = true;
+  ['ol', 'lf', 'ml'].forEach(function (k) { if (k !== srcCell && cellMaps[k] && cellConfig[k]) applyView(cellConfig[k].engine, cellMaps[k], vw); });
+  syncing = false;
+}
+function wireSyncCell(cellKey, map) { try { map.native.on('moveend', function () { pushView(cellKey); }); } catch (e) {} }
+
+// ============================================================================
+// UI wiring
+// ============================================================================
+function setRunning(on) {
+  byId('btnRun').disabled = on; byId('btnStop').disabled = !on;
+  ['cfgOl', 'cfgLf', 'cfgMlW', 'cfgMlP', 'cfgCache', 'cfgWarmup', 'cfgRepeat', 'mlBaseSelect'].forEach(function (id) { var e = byId(id); if (e) e.disabled = on; });
+}
+
+byId('btnRun').addEventListener('click', function () { runBenchmark(); });
+byId('btnStop').addEventListener('click', function () { aborted = true; log('Stopping after current step …', 'warn'); });
+byId('btnReset').addEventListener('click', function () {
+  if (running) return;
+  lastResults = null;
+  byId('resultsBody').innerHTML = '<p style="font-size:12.5px;">Reset. Press <b>Run full benchmark</b> to measure again.</p>';
+  byId('btnCopyJson').disabled = true; byId('btnCsv').disabled = true;
+  ['roPhase', 'roConfig', 'roStep', 'roFps', 'roTiles', 'roIdle'].forEach(function (id) { byId(id).textContent = (id === 'roPhase' ? 'idle' : '—'); });
+  ['ol', 'lf', 'ml'].forEach(function (c) { setCellStat(c, 'idle'); setActiveCell(c, false); });
+});
+byId('btnCopyJson').addEventListener('click', copyJson);
+byId('btnCsv').addEventListener('click', downloadCsv);
+byId('mlBaseSelect').addEventListener('change', function () {
+  if (running) return;
+  mlBase = this.value;
+  log('Switching MapLibre map to ' + mlBase + ' …', 'info');
+  buildCellMap(mlBase === 'pmtiles' ? PREVIEW_MLPMT : CONFIG.mlwms);
+});
+
+// Keep maps correctly sized — Leaflet especially needs invalidateSize() once the
+// dashboard chrome (topbar/log) is laid out and on any window resize.
+window.addEventListener('resize', resizeAllCells);
+window.addEventListener('load', function () { setTimeout(resizeAllCells, 80); });
+
+// Boot — enlarge Resource Timing buffer so tile-heavy runs never silently overflow.
+try { performance.setResourceTimingBufferSize(20000); } catch (e) {}
+buildPreviews();
+requestAnimationFrame(resizeAllCells);   // re-measure once the first layout pass lands
+log('Ready. Each engine is timed inside its own map cell, one at a time. Serve over https/localhost so the PMTiles Service-Worker cache is active.', 'info');
+</script>
+</body>
+</html>

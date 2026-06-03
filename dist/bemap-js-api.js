@@ -15616,19 +15616,57 @@ bemap.LeafletMap.prototype.draggableMarker = function(marker, callback, options)
     marker.native.options.draggable = true;
   }
 
+  // The no-size (divIcon) icon path in addMarker renders the <img> with
+  // `pointer-events:none` inside a 0×0 wrapper — so there is nothing for the
+  // user to grab and the marker never actually drags (dragstart/dragend never
+  // fire). Re-enable pointer events on the icon image now that the marker is
+  // draggable, and show a move cursor. (The explicit width/height L.icon path
+  // is already grabbable, so this is a no-op there.)
+  var _iconEl = marker.native._icon;
+  if (_iconEl) {
+    _iconEl.style.cursor = 'pointer';
+    var _imgs = _iconEl.getElementsByTagName('img');
+    for (var _ii = 0; _ii < _imgs.length; _ii++) {
+      _imgs[_ii].style.pointerEvents = 'auto';
+      _imgs[_ii].style.cursor = 'pointer';
+    }
+  }
+
+  // Capture the container-pixel position where the drag started.
+  // Consumers (e.g. bfleet's gps-marker drop) gate their drag handling on
+  // the MapEvent's `startX`/`startY` and compare them against `x`/`y` —
+  // just like the OpenLayers backend's drag MapEvent. Without these pixel
+  // fields the drop is silently ignored and no recalculation runs.
+  var startPoint = null;
+  var startLatLng = null;
+  marker.native.on('dragstart', function () {
+    startLatLng = marker.native.getLatLng();
+    startPoint = _this.native.latLngToContainerPoint(startLatLng);
+  });
+
   marker.native.on('dragend', function (evt) {
     var ll = marker.native.getLatLng();
     // Keep the bemap.Coordinate on the marker in sync.
     if (marker.coordinate && typeof marker.coordinate.setLat === 'function') {
       marker.coordinate.setLon(ll.lng).setLat(ll.lat);
     }
+    var endPoint = _this.native.latLngToContainerPoint(ll);
+    var sPt = startPoint || endPoint;
+    var sLL = startLatLng || ll;
     var mapEvent = new bemap.MapEvent({
       native: evt,
       bemapObject: marker,
       coordinate: new bemap.Coordinate(ll.lng, ll.lat),
+      startCoordinate: new bemap.Coordinate(sLL.lng, sLL.lat),
+      x: endPoint.x,
+      y: endPoint.y,
+      startX: sPt.x,
+      startY: sPt.y,
       properties: options,
       map: _this
     });
+    startPoint = null;
+    startLatLng = null;
     if (typeof callback === 'function') callback(mapEvent);
   });
 
@@ -17697,6 +17735,18 @@ bemap.MapLibreMap.prototype.draggableMarker = function(marker, callback, options
     marker.callback.draggable = callback;
     var _this = this;
 
+    // Capture the container-pixel position where the drag started.
+    // Consumers (e.g. bfleet's gps-marker drop) gate their drag handling on
+    // the MapEvent's `startX`/`startY` and compare them against `x`/`y` —
+    // exactly like the OpenLayers backend's drag MapEvent. Without these
+    // pixel fields the drop is silently ignored and no recalculation runs.
+    var startPixel = null;
+    var startLngLat = null;
+    marker.native.on('dragstart', function() {
+      startLngLat = marker.native.getLngLat();
+      startPixel = _this.native.project([startLngLat.lng, startLngLat.lat]);
+    });
+
     marker.native.on('drag', function() {
       var ll = marker.native.getLngLat();
       marker.coordinate.setLon(ll.lng).setLat(ll.lat);
@@ -17706,12 +17756,22 @@ bemap.MapLibreMap.prototype.draggableMarker = function(marker, callback, options
       var ll = marker.native.getLngLat();
       marker.coordinate.setLon(ll.lng).setLat(ll.lat);
       if (callback) {
+        var endPixel = _this.native.project([ll.lng, ll.lat]);
+        var sPix = startPixel || endPixel;
+        var sLL = startLngLat || ll;
         callback(new bemap.MapEvent({
           bemapObject: marker,
           coordinate: new bemap.Coordinate(ll.lng, ll.lat),
+          startCoordinate: new bemap.Coordinate(sLL.lng, sLL.lat),
+          x: endPixel.x,
+          y: endPixel.y,
+          startX: sPix.x,
+          startY: sPix.y,
           map: _this
         }));
       }
+      startPixel = null;
+      startLngLat = null;
     });
   }
   return new bemap.Listener({ native: marker ? marker.native : null, bemapObject: marker, key: 'dragFeature' });
@@ -26809,6 +26869,14 @@ bemap.TraceRoute.prototype.cancel = function(requestId) {
  * is omitted or set to a truthy value. Power users who want a fully
  * customised setup can construct it explicitly.
  *
+ * **Position above a bottom overlay (CSS).** When the host app has a bar or
+ * panel over the bottom of the map (timeline, drawer, toolbar), set the CSS
+ * custom property `--bemap-attribution-bottom-offset` on the map container — or
+ * any ancestor — to lift the widget by that many pixels; no JavaScript required.
+ * It defaults to `0px` (other apps are unaffected), applies to the `bottom-*`
+ * positions only, and shifts both the ⓘ icon and its popover. Example:
+ * `#map { --bemap-attribution-bottom-offset: 70px; }`
+ *
  * @public
  * @constructor
  * @since 1.5.0
@@ -27236,15 +27304,15 @@ bemap.AttributionWidget._ensureBaseStyles = function() {
         '-moz-user-select:none;-ms-user-select:none;user-select:none;}',
         '.bemap-attribution-icon:hover{background:#fff;box-shadow:0 1px 6px rgba(0,0,0,0.3);}',
         '.bemap-attribution-icon svg{width:14px;height:14px;}',
-        '.bemap-attribution-bottom-right{bottom:8px;right:8px;}',
-        '.bemap-attribution-bottom-left{bottom:8px;left:8px;}',
+        '.bemap-attribution-bottom-right{bottom:calc(var(--bemap-attribution-bottom-offset, 0px) + 8px);right:8px;}',
+        '.bemap-attribution-bottom-left{bottom:calc(var(--bemap-attribution-bottom-offset, 0px) + 8px);left:8px;}',
         '.bemap-attribution-top-right{top:8px;right:8px;}',
         '.bemap-attribution-top-left{top:8px;left:8px;}',
         '.bemap-attribution-popover{position:absolute;background:#fff;border:1px solid #ccc;',
         'border-radius:4px;padding:8px 10px;font:12px/1.4 Arial,Helvetica,sans-serif;color:#333;',
         'box-shadow:0 2px 8px rgba(0,0,0,0.15);z-index:1001;max-width:280px;min-width:160px;}',
-        '.bemap-attribution-popover-bottom-right{bottom:44px;right:8px;}',
-        '.bemap-attribution-popover-bottom-left{bottom:44px;left:8px;}',
+        '.bemap-attribution-popover-bottom-right{bottom:calc(var(--bemap-attribution-bottom-offset, 0px) + 44px);right:8px;}',
+        '.bemap-attribution-popover-bottom-left{bottom:calc(var(--bemap-attribution-bottom-offset, 0px) + 44px);left:8px;}',
         '.bemap-attribution-popover-top-right{top:44px;right:8px;}',
         '.bemap-attribution-popover-top-left{top:44px;left:8px;}',
         '.bemap-attribution-line{padding:3px 0;}',

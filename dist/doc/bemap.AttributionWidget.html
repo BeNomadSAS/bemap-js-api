@@ -36,7 +36,15 @@
 Customers don't usually instantiate this directly; it is created
 automatically by each map constructor when `options.attribution`
 is omitted or set to a truthy value. Power users who want a fully
-customised setup can construct it explicitly.</div>
+customised setup can construct it explicitly.
+
+**Position above a bottom overlay (CSS).** When the host app has a bar or
+panel over the bottom of the map (timeline, drawer, toolbar), set the CSS
+custom property `--bemap-attribution-bottom-offset` on the map container — or
+any ancestor — to lift the widget by that many pixels; no JavaScript required.
+It defaults to `0px` (other apps are unaffected), applies to the `bottom-*`
+positions only, and shifts both the ⓘ icon and its popover. Example:
+`#map { --bemap-attribution-bottom-offset: 70px; }`</div>
         
     
 </header>
@@ -415,7 +423,7 @@ customised setup can construct it explicitly.</div>
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-attribution_bemap-attribution-widget.js.html">bemap-attribution/bemap-attribution-widget.js</a>, <a href="bemap-attribution_bemap-attribution-widget.js.html#line37">line 37</a>
+        <a href="bemap-attribution_bemap-attribution-widget.js.html">bemap-attribution/bemap-attribution-widget.js</a>, <a href="bemap-attribution_bemap-attribution-widget.js.html#line45">line 45</a>
     </li></ul></dd>
     
 
@@ -519,7 +527,7 @@ customised setup can construct it explicitly.</div>
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-attribution_bemap-attribution-widget.js.html">bemap-attribution/bemap-attribution-widget.js</a>, <a href="bemap-attribution_bemap-attribution-widget.js.html#line96">line 96</a>
+        <a href="bemap-attribution_bemap-attribution-widget.js.html">bemap-attribution/bemap-attribution-widget.js</a>, <a href="bemap-attribution_bemap-attribution-widget.js.html#line104">line 104</a>
     </li></ul></dd>
     
 
@@ -587,7 +595,7 @@ customised setup can construct it explicitly.</div>
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-attribution_bemap-attribution-widget.js.html">bemap-attribution/bemap-attribution-widget.js</a>, <a href="bemap-attribution_bemap-attribution-widget.js.html#line63">line 63</a>
+        <a href="bemap-attribution_bemap-attribution-widget.js.html">bemap-attribution/bemap-attribution-widget.js</a>, <a href="bemap-attribution_bemap-attribution-widget.js.html#line71">line 71</a>
     </li></ul></dd>
     
 
@@ -655,7 +663,7 @@ customised setup can construct it explicitly.</div>
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-attribution_bemap-attribution-widget.js.html">bemap-attribution/bemap-attribution-widget.js</a>, <a href="bemap-attribution_bemap-attribution-widget.js.html#line81">line 81</a>
+        <a href="bemap-attribution_bemap-attribution-widget.js.html">bemap-attribution/bemap-attribution-widget.js</a>, <a href="bemap-attribution_bemap-attribution-widget.js.html#line89">line 89</a>
     </li></ul></dd>
     
 
@@ -723,7 +731,7 @@ customised setup can construct it explicitly.</div>
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-attribution_bemap-attribution-widget.js.html">bemap-attribution/bemap-attribution-widget.js</a>, <a href="bemap-attribution_bemap-attribution-widget.js.html#line51">line 51</a>
+        <a href="bemap-attribution_bemap-attribution-widget.js.html">bemap-attribution/bemap-attribution-widget.js</a>, <a href="bemap-attribution_bemap-attribution-widget.js.html#line59">line 59</a>
     </li></ul></dd>
     
 
@@ -791,7 +799,7 @@ customised setup can construct it explicitly.</div>
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-attribution_bemap-attribution-widget.js.html">bemap-attribution/bemap-attribution-widget.js</a>, <a href="bemap-attribution_bemap-attribution-widget.js.html#line75">line 75</a>
+        <a href="bemap-attribution_bemap-attribution-widget.js.html">bemap-attribution/bemap-attribution-widget.js</a>, <a href="bemap-attribution_bemap-attribution-widget.js.html#line83">line 83</a>
     </li></ul></dd>
     
 
@@ -862,7 +870,7 @@ customised setup can construct it explicitly.</div>
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-attribution_bemap-attribution-widget.js.html">bemap-attribution/bemap-attribution-widget.js</a>, <a href="bemap-attribution_bemap-attribution-widget.js.html#line69">line 69</a>
+        <a href="bemap-attribution_bemap-attribution-widget.js.html">bemap-attribution/bemap-attribution-widget.js</a>, <a href="bemap-attribution_bemap-attribution-widget.js.html#line77">line 77</a>
     </li></ul></dd>
     
 
@@ -930,7 +938,7 @@ customised setup can construct it explicitly.</div>
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-attribution_bemap-attribution-widget.js.html">bemap-attribution/bemap-attribution-widget.js</a>, <a href="bemap-attribution_bemap-attribution-widget.js.html#line57">line 57</a>
+        <a href="bemap-attribution_bemap-attribution-widget.js.html">bemap-attribution/bemap-attribution-widget.js</a>, <a href="bemap-attribution_bemap-attribution-widget.js.html#line65">line 65</a>
     </li></ul></dd>
     
 
@@ -1003,7 +1011,7 @@ Opt-in via `new bemap.AttributionWidget(map, { keyboardToggle: true })`.
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-attribution_bemap-attribution-widget.js.html">bemap-attribution/bemap-attribution-widget.js</a>, <a href="bemap-attribution_bemap-attribution-widget.js.html#line89">line 89</a>
+        <a href="bemap-attribution_bemap-attribution-widget.js.html">bemap-attribution/bemap-attribution-widget.js</a>, <a href="bemap-attribution_bemap-attribution-widget.js.html#line97">line 97</a>
     </li></ul></dd>
     
 
@@ -1083,7 +1091,7 @@ Opt-in via `new bemap.AttributionWidget(map, { keyboardToggle: true })`.
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-attribution_bemap-attribution-widget.js.html">bemap-attribution/bemap-attribution-widget.js</a>, <a href="bemap-attribution_bemap-attribution-widget.js.html#line224">line 224</a>
+        <a href="bemap-attribution_bemap-attribution-widget.js.html">bemap-attribution/bemap-attribution-widget.js</a>, <a href="bemap-attribution_bemap-attribution-widget.js.html#line232">line 232</a>
     </li></ul></dd>
     
 
@@ -1189,7 +1197,7 @@ Opt-in via `new bemap.AttributionWidget(map, { keyboardToggle: true })`.
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-attribution_bemap-attribution-widget.js.html">bemap-attribution/bemap-attribution-widget.js</a>, <a href="bemap-attribution_bemap-attribution-widget.js.html#line244">line 244</a>
+        <a href="bemap-attribution_bemap-attribution-widget.js.html">bemap-attribution/bemap-attribution-widget.js</a>, <a href="bemap-attribution_bemap-attribution-widget.js.html#line252">line 252</a>
     </li></ul></dd>
     
 
@@ -1295,7 +1303,7 @@ Opt-in via `new bemap.AttributionWidget(map, { keyboardToggle: true })`.
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-attribution_bemap-attribution-widget.js.html">bemap-attribution/bemap-attribution-widget.js</a>, <a href="bemap-attribution_bemap-attribution-widget.js.html#line252">line 252</a>
+        <a href="bemap-attribution_bemap-attribution-widget.js.html">bemap-attribution/bemap-attribution-widget.js</a>, <a href="bemap-attribution_bemap-attribution-widget.js.html#line260">line 260</a>
     </li></ul></dd>
     
 
@@ -1405,7 +1413,7 @@ Opt-in via `new bemap.AttributionWidget(map, { keyboardToggle: true })`.
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-attribution_bemap-attribution-widget.js.html">bemap-attribution/bemap-attribution-widget.js</a>, <a href="bemap-attribution_bemap-attribution-widget.js.html#line170">line 170</a>
+        <a href="bemap-attribution_bemap-attribution-widget.js.html">bemap-attribution/bemap-attribution-widget.js</a>, <a href="bemap-attribution_bemap-attribution-widget.js.html#line178">line 178</a>
     </li></ul></dd>
     
 
@@ -1515,7 +1523,7 @@ Opt-in via `new bemap.AttributionWidget(map, { keyboardToggle: true })`.
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-attribution_bemap-attribution-widget.js.html">bemap-attribution/bemap-attribution-widget.js</a>, <a href="bemap-attribution_bemap-attribution-widget.js.html#line212">line 212</a>
+        <a href="bemap-attribution_bemap-attribution-widget.js.html">bemap-attribution/bemap-attribution-widget.js</a>, <a href="bemap-attribution_bemap-attribution-widget.js.html#line220">line 220</a>
     </li></ul></dd>
     
 
@@ -1674,7 +1682,7 @@ Opt-in via `new bemap.AttributionWidget(map, { keyboardToggle: true })`.
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-attribution_bemap-attribution-widget.js.html">bemap-attribution/bemap-attribution-widget.js</a>, <a href="bemap-attribution_bemap-attribution-widget.js.html#line201">line 201</a>
+        <a href="bemap-attribution_bemap-attribution-widget.js.html">bemap-attribution/bemap-attribution-widget.js</a>, <a href="bemap-attribution_bemap-attribution-widget.js.html#line209">line 209</a>
     </li></ul></dd>
     
 
@@ -1833,7 +1841,7 @@ Opt-in via `new bemap.AttributionWidget(map, { keyboardToggle: true })`.
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-attribution_bemap-attribution-widget.js.html">bemap-attribution/bemap-attribution-widget.js</a>, <a href="bemap-attribution_bemap-attribution-widget.js.html#line183">line 183</a>
+        <a href="bemap-attribution_bemap-attribution-widget.js.html">bemap-attribution/bemap-attribution-widget.js</a>, <a href="bemap-attribution_bemap-attribution-widget.js.html#line191">line 191</a>
     </li></ul></dd>
     
 
@@ -1943,7 +1951,7 @@ Opt-in via `new bemap.AttributionWidget(map, { keyboardToggle: true })`.
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-attribution_bemap-attribution-widget.js.html">bemap-attribution/bemap-attribution-widget.js</a>, <a href="bemap-attribution_bemap-attribution-widget.js.html#line156">line 156</a>
+        <a href="bemap-attribution_bemap-attribution-widget.js.html">bemap-attribution/bemap-attribution-widget.js</a>, <a href="bemap-attribution_bemap-attribution-widget.js.html#line164">line 164</a>
     </li></ul></dd>
     
 
@@ -2017,7 +2025,7 @@ Opt-in via `new bemap.AttributionWidget(map, { keyboardToggle: true })`.
 <br class="clear">
 
 <footer>
-    Documentation generated by <a href="https://github.com/jsdoc/jsdoc">JSDoc 3.6.3</a> on Tue Jun 02 2026 15:03:26 GMT+0200 (heure d’été d’Europe centrale)
+    Documentation generated by <a href="https://github.com/jsdoc/jsdoc">JSDoc 3.6.3</a> on Wed Jun 03 2026 14:26:41 GMT+0200 (heure d’été d’Europe centrale)
 </footer>
 
 <script> prettyPrint(); </script>

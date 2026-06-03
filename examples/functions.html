@@ -58,7 +58,9 @@
     .map-label.ml { background: #9b59b6; }
     /* overflow:hidden clips Leaflet's rotated .leaflet-container so the
        rotated bounding box doesn't bleed into adjacent map cells. */
-    .map-container { flex: 1; position: relative; overflow: hidden; }
+    /* The control bar sits directly under these short map cells, so lift the
+       attribution widget clear of the seam (uses the SDK's offset hook). */
+    .map-container { flex: 1; position: relative; overflow: hidden; --bemap-attribution-bottom-offset: 36px; }
     /* Light water-blue bleeds through while tiles paint. Same hue as the
        bundled style's water layer (#75CFF0) but pale, so the loading state
        blends with the first frame instead of the dark page bg. */

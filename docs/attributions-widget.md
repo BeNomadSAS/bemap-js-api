@@ -45,6 +45,28 @@ map._attributionWidget.show();
 map._attributionWidget.refresh();
 ```
 
+## Lift it above a bottom overlay (CSS)
+
+If your app puts a bar or panel over the bottom of the map (a timeline, a detail
+drawer, a toolbar), push the attribution up with the **`--bemap-attribution-bottom-offset`**
+CSS variable. Set it on the map container — or any ancestor — in **your own CSS**;
+no JavaScript needed:
+
+```css
+#map { --bemap-attribution-bottom-offset: 70px; }
+```
+
+The widget reads it with a `0px` default, so it only moves where you set it — every
+other app is unaffected. The offset lifts both the ⓘ icon and its popover by that
+amount, and applies to the `bottom-*` positions only (`top-*` positions ignore it).
+
+To follow a collapsible panel, set it conditionally — e.g. only while a bottom
+panel is open:
+
+```css
+body:has(#bottom-panel.open) #map { --bemap-attribution-bottom-offset: 70px; }
+```
+
 ## Disable
 
 Pass `attribution: false` to skip the widget altogether (you must then

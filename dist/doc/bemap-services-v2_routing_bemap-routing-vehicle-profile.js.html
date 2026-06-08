@@ -37,10 +37,12 @@
  *
  *   { transportMode, maxSpeeds[], routingVehicleFeature, routingEnergyVehicleFeature, routingSpeedPonderations }
  *
- * Sub-objects (`routingVehicleFeature`, `routingEnergyVehicleFeature`,
- * `routingSpeedPonderations`) are passed through as opaque JSON. The JS API
- * lets customers supply them as plain objects when they need the advanced
- * vehicle configuration — most demos only set `transportMode`.
+ * Sub-objects are passed through as plain JSON (no validation — unknown keys
+ * flow straight to the server). Their full field shape is documented by the
+ * typedefs at the bottom of this file: `bemap.RoutingMaxSpeed`,
+ * `bemap.RoutingVehicleFeature`, `bemap.RoutingEnergyVehicleFeature`,
+ * `bemap.RoutingSpeedPonderation` (and `bemap.RoutingChargeFeature`, used by
+ * `RoutingRequest.routingChargeFeature`).
  *
  * @since 1.5.0
  * @public
@@ -48,10 +50,13 @@
  * @param {Object} [options]
  * @param {String} [options.transportMode] One of `bemap.TransportMode.*` (CAR, TRUCK, ...).
  *                                         Server default is CAR (EMERGENCY for TraceRoute).
- * @param {Array.&lt;Object>} [options.maxSpeeds]                Each item: `{ maxSpeed: int (km/h), type: 'CAL'|'ETA'|'ALL' }`.
- * @param {Object} [options.routingVehicleFeature]            Physical / legal / toll characteristics — passthrough.
- * @param {Object} [options.routingEnergyVehicleFeature]      Energy / EV consumption configuration — passthrough.
- * @param {Object} [options.routingSpeedPonderations]         Speed coefficients per road attribute — passthrough.
+ * @param {Array.&lt;bemap.RoutingMaxSpeed>} [options.maxSpeeds]                        Per-class max speeds.
+ * @param {bemap.RoutingVehicleFeature} [options.routingVehicleFeature]              Physical / legal / toll characteristics.
+ * @param {bemap.RoutingEnergyVehicleFeature} [options.routingEnergyVehicleFeature]  Energy / EV consumption configuration.
+ * @param {bemap.RoutingSpeedPonderation} [options.routingSpeedPonderations]         Speed coefficients per road attribute.
+ * @param {Array.&lt;Number>} [options.routingEnergyVehicleConnectorTypeIds]            EV connector-type IDs the vehicle accepts.
+ * @param {Array.&lt;Object>} [options.routingEnergyVehicleRanges]                      EV range entries (per battery/charge state).
+ * @param {String} [options.chargingStationProviderName]                            Charging-station provider key (EV routing).
  */
 bemap.RoutingVehicleProfile = function(options) {
     var opts = options || {};
@@ -61,6 +66,9 @@ bemap.RoutingVehicleProfile = function(options) {
     this.routingVehicleFeature = opts.routingVehicleFeature || null;
     this.routingEnergyVehicleFeature = opts.routingEnergyVehicleFeature || null;
     this.routingSpeedPonderations = opts.routingSpeedPonderations || null;
+    this.routingEnergyVehicleConnectorTypeIds = Array.isArray(opts.routingEnergyVehicleConnectorTypeIds) ? opts.routingEnergyVehicleConnectorTypeIds.slice() : null;
+    this.routingEnergyVehicleRanges = Array.isArray(opts.routingEnergyVehicleRanges) ? opts.routingEnergyVehicleRanges.slice() : null;
+    this.chargingStationProviderName = opts.chargingStationProviderName || null;
 };
 
 bemap.RoutingVehicleProfile.prototype.setTransportMode = function(v) { this.transportMode = v; return this; };
@@ -71,6 +79,9 @@ bemap.RoutingVehicleProfile.prototype.setMaxSpeeds = function(v) {
 bemap.RoutingVehicleProfile.prototype.setRoutingVehicleFeature = function(v) { this.routingVehicleFeature = v; return this; };
 bemap.RoutingVehicleProfile.prototype.setRoutingEnergyVehicleFeature = function(v) { this.routingEnergyVehicleFeature = v; return this; };
 bemap.RoutingVehicleProfile.prototype.setRoutingSpeedPonderations = function(v) { this.routingSpeedPonderations = v; return this; };
+bemap.RoutingVehicleProfile.prototype.setRoutingEnergyVehicleConnectorTypeIds = function(a) { this.routingEnergyVehicleConnectorTypeIds = Array.isArray(a) ? a.slice() : null; return this; };
+bemap.RoutingVehicleProfile.prototype.setRoutingEnergyVehicleRanges = function(a) { this.routingEnergyVehicleRanges = Array.isArray(a) ? a.slice() : null; return this; };
+bemap.RoutingVehicleProfile.prototype.setChargingStationProviderName = function(s) { this.chargingStationProviderName = s || null; return this; };
 
 bemap.RoutingVehicleProfile.prototype.toJson = function() {
     var out = {};
@@ -79,8 +90,71 @@ bemap.RoutingVehicleProfile.prototype.toJson = function() {
     if (this.routingVehicleFeature) out.routingVehicleFeature = this.routingVehicleFeature;
     if (this.routingEnergyVehicleFeature) out.routingEnergyVehicleFeature = this.routingEnergyVehicleFeature;
     if (this.routingSpeedPonderations) out.routingSpeedPonderations = this.routingSpeedPonderations;
+    if (this.routingEnergyVehicleConnectorTypeIds &amp;&amp; this.routingEnergyVehicleConnectorTypeIds.length) out.routingEnergyVehicleConnectorTypeIds = this.routingEnergyVehicleConnectorTypeIds.slice();
+    if (this.routingEnergyVehicleRanges &amp;&amp; this.routingEnergyVehicleRanges.length) out.routingEnergyVehicleRanges = this.routingEnergyVehicleRanges.slice();
+    if (this.chargingStationProviderName) out.chargingStationProviderName = this.chargingStationProviderName;
     return out;
 };
+
+/**
+ * @typedef {Object} bemap.RoutingMaxSpeed  Per-class max-speed cap (item of `maxSpeeds`).
+ * @property {Number} maxSpeed  Max speed in km/h.
+ * @property {String} [type]    'ALL' | 'CAL' | 'ETA' (default 'ALL').
+ */
+
+/**
+ * @typedef {Object} bemap.RoutingVehicleFeature  Physical / legal / toll vehicle characteristics.
+ *   All fields optional; passed through to the server verbatim. Units/encoding per the BeNomad backend spec.
+ * @property {Number}  [height]                 Vehicle height.
+ * @property {Number}  [width]                  Vehicle width.
+ * @property {Number}  [length]                 Vehicle length.
+ * @property {Number}  [weight]                 Total weight.
+ * @property {Number}  [axleWeight]             Max weight per axle.
+ * @property {Array}   [hazardousMaterials]     ADR hazardous-material classes carried.
+ * @property {Number}  [nbTrailer]              Number of trailers.
+ * @property {String}  [tollTransportCategory]  Toll transport category.
+ * @property {Boolean} [caravan]                Towing a caravan.
+ * @property {Boolean} [hybrid]                 Hybrid vehicle.
+ * @property {Boolean} [disEquipped]            Disabled-equipped vehicle.
+ * @property {Boolean} [pollMin]                Low-emission / minimal-pollution vehicle.
+ * @property {Boolean} [hov]                    High-occupancy vehicle (carpool).
+ * @property {Boolean} [cial]                   Commercial vehicle.
+ * @property {Number}  [nbVehAxles]             Number of vehicle axles.
+ * @property {Number}  [nbTrailAxles]           Number of trailer axles.
+ * @property {Number}  [nbTires]                Number of tires.
+ * @property {Number}  [nbPassengers]           Number of passengers.
+ * @property {Number}  [vehHeight]              Vehicle-only height.
+ * @property {Number}  [trailHeight]            Trailer height.
+ * @property {Number}  [vehWeight]              Vehicle-only weight.
+ * @property {String}  [emissionClass]          Emission class (backend VehicleEmissionClss).
+ * @property {String}  [adrTunnelCategory]      ADR tunnel category (backend AdrTunnelCat, e.g. B..E).
+ * @property {Boolean} [onlyPhysical]           Apply only physical (not legal) restrictions.
+ */
+
+/**
+ * @typedef {Object} bemap.RoutingEnergyVehicleFeature  EV energy / consumption configuration. Passthrough.
+ * @property {Number} [maxAccel]            Max acceleration.
+ * @property {Number} [maxDecel]            Max deceleration.
+ * @property {Number} [maxChargePower]      Max charge power.
+ * @property {Number} [maxChargePowerAc3]   Max AC three-phase charge power.
+ * @property {Number} [maxChargePowerDc]    Max DC charge power.
+ */
+
+/**
+ * @typedef {Object} bemap.RoutingSpeedPonderation  Speed coefficient per road attribute. Passthrough.
+ * @property {Number} [level]                   Ponderation level / coefficient.
+ * @property {String} [routingRoadType]         Road type the coefficient applies to.
+ * @property {String} [routingPonderationType]  Ponderation type.
+ */
+
+/**
+ * @typedef {Object} bemap.RoutingChargeFeature  EV charge planning (used as `RoutingRequest.routingChargeFeature`). Passthrough.
+ * @property {Number}         [socAlert]                   State-of-charge alert threshold (%).
+ * @property {Number}         [socAtArrival]               Desired state-of-charge at arrival (%).
+ * @property {Boolean}        [reachChargePointAtArrival]  Plan to reach a charge point at arrival.
+ * @property {Array.&lt;Number>} [connectorTypeIdFilters]     Connector-type IDs to allow.
+ * @property {Array.&lt;String>} [providers]                  Charging-station provider keys.
+ */
 </code></pre>
         </article>
     </section>
@@ -97,7 +171,7 @@ bemap.RoutingVehicleProfile.prototype.toJson = function() {
 <br class="clear">
 
 <footer>
-    Documentation generated by <a href="https://github.com/jsdoc/jsdoc">JSDoc 3.6.3</a> on Thu Jun 04 2026 10:08:47 GMT+0200 (heure d’été d’Europe centrale)
+    Documentation generated by <a href="https://github.com/jsdoc/jsdoc">JSDoc 3.6.3</a> on Mon Jun 08 2026 09:25:00 GMT+0200 (heure d’été d’Europe centrale)
 </footer>
 
 <script> prettyPrint(); </script>

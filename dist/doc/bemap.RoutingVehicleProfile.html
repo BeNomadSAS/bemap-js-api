@@ -60,10 +60,12 @@ Wire shape mirrors the BeMap server contract (cross-checked against
 
   { transportMode, maxSpeeds[], routingVehicleFeature, routingEnergyVehicleFeature, routingSpeedPonderations }
 
-Sub-objects (`routingVehicleFeature`, `routingEnergyVehicleFeature`,
-`routingSpeedPonderations`) are passed through as opaque JSON. The JS API
-lets customers supply them as plain objects when they need the advanced
-vehicle configuration — most demos only set `transportMode`.
+Sub-objects are passed through as plain JSON (no validation — unknown keys
+flow straight to the server). Their full field shape is documented by the
+typedefs at the bottom of this file: `bemap.RoutingMaxSpeed`,
+`bemap.RoutingVehicleFeature`, `bemap.RoutingEnergyVehicleFeature`,
+`bemap.RoutingSpeedPonderation` (and `bemap.RoutingChargeFeature`, used by
+`RoutingRequest.routingChargeFeature`).
 </div>
 
 
@@ -195,6 +197,171 @@ vehicle configuration — most demos only set `transportMode`.
             <td class="type">
             
                 
+<span class="param-type">Array.&lt;<a href="global.html#bemap#.RoutingMaxSpeed">bemap.RoutingMaxSpeed</a>></span>
+
+
+            
+            </td>
+
+            
+                <td class="attributes">
+                
+                    &lt;optional><br>
+                
+
+                
+
+                
+                </td>
+            
+
+            
+
+            <td class="description last">Per-class max speeds.</td>
+        </tr>
+
+    
+
+        <tr>
+            
+                <td class="name"><code>routingVehicleFeature</code></td>
+            
+
+            <td class="type">
+            
+                
+<span class="param-type"><a href="global.html#bemap#.RoutingVehicleFeature">bemap.RoutingVehicleFeature</a></span>
+
+
+            
+            </td>
+
+            
+                <td class="attributes">
+                
+                    &lt;optional><br>
+                
+
+                
+
+                
+                </td>
+            
+
+            
+
+            <td class="description last">Physical / legal / toll characteristics.</td>
+        </tr>
+
+    
+
+        <tr>
+            
+                <td class="name"><code>routingEnergyVehicleFeature</code></td>
+            
+
+            <td class="type">
+            
+                
+<span class="param-type"><a href="global.html#bemap#.RoutingEnergyVehicleFeature">bemap.RoutingEnergyVehicleFeature</a></span>
+
+
+            
+            </td>
+
+            
+                <td class="attributes">
+                
+                    &lt;optional><br>
+                
+
+                
+
+                
+                </td>
+            
+
+            
+
+            <td class="description last">Energy / EV consumption configuration.</td>
+        </tr>
+
+    
+
+        <tr>
+            
+                <td class="name"><code>routingSpeedPonderations</code></td>
+            
+
+            <td class="type">
+            
+                
+<span class="param-type"><a href="global.html#bemap#.RoutingSpeedPonderation">bemap.RoutingSpeedPonderation</a></span>
+
+
+            
+            </td>
+
+            
+                <td class="attributes">
+                
+                    &lt;optional><br>
+                
+
+                
+
+                
+                </td>
+            
+
+            
+
+            <td class="description last">Speed coefficients per road attribute.</td>
+        </tr>
+
+    
+
+        <tr>
+            
+                <td class="name"><code>routingEnergyVehicleConnectorTypeIds</code></td>
+            
+
+            <td class="type">
+            
+                
+<span class="param-type">Array.&lt;Number></span>
+
+
+            
+            </td>
+
+            
+                <td class="attributes">
+                
+                    &lt;optional><br>
+                
+
+                
+
+                
+                </td>
+            
+
+            
+
+            <td class="description last">EV connector-type IDs the vehicle accepts.</td>
+        </tr>
+
+    
+
+        <tr>
+            
+                <td class="name"><code>routingEnergyVehicleRanges</code></td>
+            
+
+            <td class="type">
+            
+                
 <span class="param-type">Array.&lt;Object></span>
 
 
@@ -215,20 +382,20 @@ vehicle configuration — most demos only set `transportMode`.
 
             
 
-            <td class="description last">Each item: `{ maxSpeed: int (km/h), type: 'CAL'|'ETA'|'ALL' }`.</td>
+            <td class="description last">EV range entries (per battery/charge state).</td>
         </tr>
 
     
 
         <tr>
             
-                <td class="name"><code>routingVehicleFeature</code></td>
+                <td class="name"><code>chargingStationProviderName</code></td>
             
 
             <td class="type">
             
                 
-<span class="param-type">Object</span>
+<span class="param-type">String</span>
 
 
             
@@ -248,73 +415,7 @@ vehicle configuration — most demos only set `transportMode`.
 
             
 
-            <td class="description last">Physical / legal / toll characteristics — passthrough.</td>
-        </tr>
-
-    
-
-        <tr>
-            
-                <td class="name"><code>routingEnergyVehicleFeature</code></td>
-            
-
-            <td class="type">
-            
-                
-<span class="param-type">Object</span>
-
-
-            
-            </td>
-
-            
-                <td class="attributes">
-                
-                    &lt;optional><br>
-                
-
-                
-
-                
-                </td>
-            
-
-            
-
-            <td class="description last">Energy / EV consumption configuration — passthrough.</td>
-        </tr>
-
-    
-
-        <tr>
-            
-                <td class="name"><code>routingSpeedPonderations</code></td>
-            
-
-            <td class="type">
-            
-                
-<span class="param-type">Object</span>
-
-
-            
-            </td>
-
-            
-                <td class="attributes">
-                
-                    &lt;optional><br>
-                
-
-                
-
-                
-                </td>
-            
-
-            
-
-            <td class="description last">Speed coefficients per road attribute — passthrough.</td>
+            <td class="description last">Charging-station provider key (EV routing).</td>
         </tr>
 
     
@@ -365,7 +466,7 @@ vehicle configuration — most demos only set `transportMode`.
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-services-v2_routing_bemap-routing-vehicle-profile.js.html">bemap-services-v2/routing/bemap-routing-vehicle-profile.js</a>, <a href="bemap-services-v2_routing_bemap-routing-vehicle-profile.js.html#line28">line 28</a>
+        <a href="bemap-services-v2_routing_bemap-routing-vehicle-profile.js.html">bemap-services-v2/routing/bemap-routing-vehicle-profile.js</a>, <a href="bemap-services-v2_routing_bemap-routing-vehicle-profile.js.html#line33">line 33</a>
     </li></ul></dd>
     
 
@@ -433,7 +534,7 @@ vehicle configuration — most demos only set `transportMode`.
 <br class="clear">
 
 <footer>
-    Documentation generated by <a href="https://github.com/jsdoc/jsdoc">JSDoc 3.6.3</a> on Thu Jun 04 2026 10:08:49 GMT+0200 (heure d’été d’Europe centrale)
+    Documentation generated by <a href="https://github.com/jsdoc/jsdoc">JSDoc 3.6.3</a> on Mon Jun 08 2026 09:25:01 GMT+0200 (heure d’été d’Europe centrale)
 </footer>
 
 <script> prettyPrint(); </script>

@@ -21912,6 +21912,12 @@ bemap.ChargingStations.prototype.getConnectorTypes = function(options) {
  * @param {Boolean} [options.co2Emissions=false]
  *        Include saved CO2 estimation in the journey summary.
  * @param {Boolean} [options.debugStat=false]  Server-debug flag, leave false in prod.
+ * @param {String|Date|Number} [options.arrivalTime]  Arrive-by time (epoch ms / Date / ISO) — alternative to departureTime.
+ * @param {Number} [options.extraPayload]      Extra payload weight (kg) on top of `payload`.
+ * @param {Array.<Object>} [options.stepPointTimeSlots]  Per-step charge time-slot windows (forced charges take priority).
+ * @param {Boolean} [options.aroundEvse=false] Include charging stations around step points in the response.
+ * @param {Boolean} [options.ignoreStatus=false]  Ignore charging-station availability status.
+ * @param {String} [options.evtExtKey]         Extended route-timeline key (requires events:true).
  * @param {String} [options.geoserver]         Override the Context geoserver.
  */
 bemap.EvSmartRoutingRequest = function(options) {
@@ -21957,6 +21963,13 @@ bemap.EvSmartRoutingRequest = function(options) {
     this.allowMaxSpeedReco = !!opts.allowMaxSpeedReco;
     this.co2Emissions = !!opts.co2Emissions;
     this.debugStat = !!opts.debugStat;
+
+    this.arrivalTime = opts.arrivalTime || null;
+    this.extraPayload = (typeof opts.extraPayload === 'number') ? opts.extraPayload : null;
+    this.stepPointTimeSlots = Array.isArray(opts.stepPointTimeSlots) ? opts.stepPointTimeSlots.slice() : null;
+    this.aroundEvse = !!opts.aroundEvse;
+    this.ignoreStatus = !!opts.ignoreStatus;
+    this.evtExtKey = opts.evtExtKey || null;
 
     this.geoserver = opts.geoserver || null;
 };
@@ -22056,6 +22069,18 @@ bemap.EvSmartRoutingRequest.prototype.toJson = function() {
     if (this.allowMaxSpeedReco) body.allowMaxSpdReco = true;
     if (this.co2Emissions) body.co2emissions = true;
     if (this.debugStat) body.debugStat = true;
+
+    if (this.arrivalTime !== null && this.arrivalTime !== undefined) {
+        // Server declares arrivalTime as String (epoch-ms) — mirror departureTime handling.
+        if (this.arrivalTime instanceof Date) body.arrivalTime = String(this.arrivalTime.getTime());
+        else if (typeof this.arrivalTime === 'number') body.arrivalTime = String(this.arrivalTime);
+        else body.arrivalTime = this.arrivalTime;
+    }
+    if (this.extraPayload !== null) body.extraPayload = this.extraPayload;
+    if (this.stepPointTimeSlots && this.stepPointTimeSlots.length) body.stepPointTimeSlots = this.stepPointTimeSlots.slice();
+    if (this.aroundEvse) body.aroundEvse = true;
+    if (this.ignoreStatus) body.ignoreStatus = true;
+    if (this.evtExtKey) body.evtExtKey = this.evtExtKey;
 
     if (this.geoserver) body.geoserver = this.geoserver;
 
@@ -23652,7 +23677,8 @@ bemap.RoutingCriteria = {
  * @param {Object|String} [options.avoidUTurn]         RoutingDestinationStatus passthrough.
  * @param {Object|String} [options.useStartAngle]      RoutingDestinationStatus passthrough.
  * @param {Object|String} [options.useStopRoadSide]    RoutingDestinationStatus passthrough.
- * @param {Boolean} [options.keptByMinimalWp]          Keep waypoint in response when NO_MINIMAL_WAYPOINTS is not set.
+ * @param {Boolean} [options.keptByMinimalWp]          Keep waypoint in response when NO_MINIMAL_WAYPOINTS is not set. (Backend field `mandatory`; both accepted via alias.)
+ * @param {Number} [options.stopDuration]              Dwell/stop time at this waypoint, in seconds.
  * @param {Array.<Object>} [options.customData]        Custom key/value pairs.
  */
 bemap.RoutingDestination = function(options) {
@@ -23668,6 +23694,7 @@ bemap.RoutingDestination = function(options) {
     this.useStartAngle = opts.useStartAngle || null;
     this.useStopRoadSide = opts.useStopRoadSide || null;
     this.keptByMinimalWp = (typeof opts.keptByMinimalWp === 'boolean') ? opts.keptByMinimalWp : null;
+    this.stopDuration = (typeof opts.stopDuration === 'number') ? opts.stopDuration : null;
     this.customData = Array.isArray(opts.customData) ? opts.customData.slice() : null;
 };
 
@@ -23695,6 +23722,15 @@ bemap.RoutingDestination.prototype.setCoordinateSat = function(v) {
 };
 bemap.RoutingDestination.prototype.setRadius = function(v) { this.radius = v; return this; };
 bemap.RoutingDestination.prototype.setKeptByMinimalWp = function(v) { this.keptByMinimalWp = !!v; return this; };
+bemap.RoutingDestination.prototype.setStopDuration = function(v) { this.stopDuration = (typeof v === 'number') ? v : null; return this; };
+bemap.RoutingDestination.prototype.setIgnorePoint = function(v) { this.ignorePoint = (typeof v === 'boolean') ? v : null; return this; };
+bemap.RoutingDestination.prototype.setIgnoreTrafficDirections = function(v) { this.ignoreTrafficDirections = (typeof v === 'boolean') ? v : null; return this; };
+bemap.RoutingDestination.prototype.setIgnoreRoadBlocks = function(v) { this.ignoreRoadBlocks = (typeof v === 'boolean') ? v : null; return this; };
+bemap.RoutingDestination.prototype.setIgnoreRestrictions = function(v) { this.ignoreRestrictions = (typeof v === 'boolean') ? v : null; return this; };
+bemap.RoutingDestination.prototype.setAvoidUTurn = function(v) { this.avoidUTurn = v || null; return this; };
+bemap.RoutingDestination.prototype.setUseStartAngle = function(v) { this.useStartAngle = v || null; return this; };
+bemap.RoutingDestination.prototype.setUseStopRoadSide = function(v) { this.useStopRoadSide = v || null; return this; };
+bemap.RoutingDestination.prototype.setCustomData = function(a) { this.customData = Array.isArray(a) ? a.slice() : null; return this; };
 
 bemap.RoutingDestination.prototype.toJson = function() {
     var out = {};
@@ -23708,6 +23744,7 @@ bemap.RoutingDestination.prototype.toJson = function() {
     if (this.useStartAngle !== null) out.useStartAngle = this.useStartAngle;
     if (this.useStopRoadSide !== null) out.useStopRoadSide = this.useStopRoadSide;
     if (this.keptByMinimalWp !== null) out.keptByMinimalWp = this.keptByMinimalWp;
+    if (this.stopDuration !== null) out.stopDuration = this.stopDuration;
     if (this.customData && this.customData.length) out.customData = this.customData.slice();
     return out;
 };
@@ -23956,6 +23993,7 @@ bemap.RoutingOptions = {
     // --- Used-destinations / waypoint shaping ----------------------------
     USED_DESTINATIONS_OFF: 'USED_DESTINATIONS_OFF',
     WAYPOINTS: 'WAYPOINTS',
+    MINIMAL_WAYPOINTS: 'MINIMAL_WAYPOINTS',
     NO_MINIMAL_WAYPOINTS: 'NO_MINIMAL_WAYPOINTS',
     WAYPOINTS_POLYLINE: 'WAYPOINTS_POLYLINE',
 
@@ -23985,6 +24023,35 @@ bemap.RoutingOptions = {
 
     // --- Reverse geocoded postal address on waypoints --------------------
     REVGEO_POSTAL_ADDRESS: 'REVGEO_POSTAL_ADDRESS',
+    REVGEO_STRICT_DISABLE: 'REVGEO_STRICT_DISABLE',
+
+    // --- Trip optimisation (TSP-style waypoint reordering) ---------------
+    OPTIMIZED_TRIP: 'OPTIMIZED_TRIP',
+    OPTIMIZED_TRIP_CLOSE: 'OPTIMIZED_TRIP_CLOSE',
+    OPTIMIZED_TRIP_ROUND: 'OPTIMIZED_TRIP_ROUND',
+    OPTIMIZED_TRIP_UNDEFSTOP: 'OPTIMIZED_TRIP_UNDEFSTOP',
+    OPTIMIZED_ROUTE_FOR_CHARGING_STATION: 'OPTIMIZED_ROUTE_FOR_CHARGING_STATION',
+
+    // --- Isochrone direction --------------------------------------------
+    ISOCHRONE_FORWARD: 'ISOCHRONE_FORWARD',
+    ISOCHRONE_BACKWARD: 'ISOCHRONE_BACKWARD',
+
+    // --- Matrix variants -------------------------------------------------
+    MATRIX_COMPLEMENT: 'MATRIX_COMPLEMENT',
+    MATRIX_FOR_ROUND_OPTIM: 'MATRIX_FOR_ROUND_OPTIM',
+
+    // --- Map-matching avoidance (used by traceroute-style matching) ------
+    MAPMATCH_AVOID_BRIDGE: 'MAPMATCH_AVOID_BRIDGE',
+    MAPMATCH_AVOID_TUNNEL: 'MAPMATCH_AVOID_TUNNEL',
+
+    // --- Traffic ---------------------------------------------------------
+    TRAFFIC: 'TRAFFIC',
+    TRAFFIC_PATTERNS: 'TRAFFIC_PATTERNS',
+    TRAFFIC_PREDICTIVE: 'TRAFFIC_PREDICTIVE',
+
+    // --- Start/stop info & result ordering -------------------------------
+    STARTSTOPINFO_WITHVIA: 'STARTSTOPINFO_WITHVIA',
+    SORTBY_USED_ORDER: 'SORTBY_USED_ORDER',
 
     // --- Event-driven response stream (per-edge metadata) ----------------
     EVENT: 'EVENT',
@@ -24043,6 +24110,7 @@ bemap.RoutingOptions = {
  * @param {Array.<String>} [options.avoidCountryCodes]  ISO-3166 Alpha-3 codes.
  * @param {Number} [options.xyRadius]                   Maximum snap radius around input points.
  * @param {Date|Number|String} [options.departureTime]  Epoch ms / Date / ISO local datetime.
+ * @param {Date|Number|String} [options.arrivalTime]    Arrive-by time (epoch ms / Date / ISO). Alternative to departureTime.
  * @param {Number} [options.isoChroneLimit]             Required for MODE_ISOCHRONE.
  * @param {Number} [options.corridorRadius]
  * @param {Array.<Object>} [options.fenceShapes]
@@ -24068,6 +24136,7 @@ bemap.RoutingRequest = function(options) {
     this.avoidCountryCodes = Array.isArray(opts.avoidCountryCodes) ? opts.avoidCountryCodes.slice() : null;
     this.xyRadius = (typeof opts.xyRadius === 'number') ? opts.xyRadius : null;
     this.departureTime = opts.departureTime || null;
+    this.arrivalTime = opts.arrivalTime || null;
     this.isoChroneLimit = (typeof opts.isoChroneLimit === 'number') ? opts.isoChroneLimit : null;
     this.corridorRadius = (typeof opts.corridorRadius === 'number') ? opts.corridorRadius : null;
     this.fenceShapes = Array.isArray(opts.fenceShapes) ? opts.fenceShapes.slice() : null;
@@ -24102,6 +24171,17 @@ bemap.RoutingRequest.prototype.setDepartureTime = function(d) { this.departureTi
 bemap.RoutingRequest.prototype.setIsoChroneLimit = function(n) { this.isoChroneLimit = n; return this; };
 bemap.RoutingRequest.prototype.setGeoserver = function(g) { this.geoserver = g; return this; };
 bemap.RoutingRequest.prototype.setRequestId = function(id) { this.requestId = id; return this; };
+bemap.RoutingRequest.prototype.setArrivalTime = function(d) { this.arrivalTime = d; return this; };
+bemap.RoutingRequest.prototype.setPreferredRoads = function(a) { this.preferredRoads = Array.isArray(a) ? a.slice() : null; return this; };
+bemap.RoutingRequest.prototype.setRoutingRoadBlocks = function(a) { this.routingRoadBlocks = Array.isArray(a) ? a.slice() : null; return this; };
+bemap.RoutingRequest.prototype.setAvoidCountryCodes = function(a) { this.avoidCountryCodes = Array.isArray(a) ? a.slice() : null; return this; };
+bemap.RoutingRequest.prototype.setXyRadius = function(n) { this.xyRadius = (typeof n === 'number') ? n : null; return this; };
+bemap.RoutingRequest.prototype.setCorridorRadius = function(n) { this.corridorRadius = (typeof n === 'number') ? n : null; return this; };
+bemap.RoutingRequest.prototype.setFenceShapes = function(a) { this.fenceShapes = Array.isArray(a) ? a.slice() : null; return this; };
+bemap.RoutingRequest.prototype.setRoutingChargeFeature = function(o) { this.routingChargeFeature = o || null; return this; };
+bemap.RoutingRequest.prototype.setMatrixStartCount = function(n) { this.matrixStartCount = (typeof n === 'number') ? n : null; return this; };
+bemap.RoutingRequest.prototype.setCustomData = function(a) { this.customData = Array.isArray(a) ? a.slice() : null; return this; };
+bemap.RoutingRequest.prototype.setSwitchIndex = function(n) { this.switchIndex = (typeof n === 'number') ? n : null; return this; };
 
 /** @private */
 bemap.RoutingRequest._asEpochOrIso = function(v) {
@@ -24154,6 +24234,8 @@ bemap.RoutingRequest.prototype.toJson = function() {
     if (this.xyRadius !== null) body.xyRadius = this.xyRadius;
     var dep = bemap.RoutingRequest._asEpochOrIso(this.departureTime);
     if (dep !== null) body.departureTime = dep;
+    var arr = bemap.RoutingRequest._asEpochOrIso(this.arrivalTime);
+    if (arr !== null) body.arrivalTime = arr;
     if (this.isoChroneLimit !== null) body.isoChroneLimit = this.isoChroneLimit;
     if (this.corridorRadius !== null) body.corridorRadius = this.corridorRadius;
     if (this.fenceShapes && this.fenceShapes.length) body.fenceShapes = this.fenceShapes.slice();
@@ -24663,10 +24745,12 @@ bemap.RoutingV2.prototype.cancel = function(requestId) {
  *
  *   { transportMode, maxSpeeds[], routingVehicleFeature, routingEnergyVehicleFeature, routingSpeedPonderations }
  *
- * Sub-objects (`routingVehicleFeature`, `routingEnergyVehicleFeature`,
- * `routingSpeedPonderations`) are passed through as opaque JSON. The JS API
- * lets customers supply them as plain objects when they need the advanced
- * vehicle configuration — most demos only set `transportMode`.
+ * Sub-objects are passed through as plain JSON (no validation — unknown keys
+ * flow straight to the server). Their full field shape is documented by the
+ * typedefs at the bottom of this file: `bemap.RoutingMaxSpeed`,
+ * `bemap.RoutingVehicleFeature`, `bemap.RoutingEnergyVehicleFeature`,
+ * `bemap.RoutingSpeedPonderation` (and `bemap.RoutingChargeFeature`, used by
+ * `RoutingRequest.routingChargeFeature`).
  *
  * @since 1.5.0
  * @public
@@ -24674,10 +24758,13 @@ bemap.RoutingV2.prototype.cancel = function(requestId) {
  * @param {Object} [options]
  * @param {String} [options.transportMode] One of `bemap.TransportMode.*` (CAR, TRUCK, ...).
  *                                         Server default is CAR (EMERGENCY for TraceRoute).
- * @param {Array.<Object>} [options.maxSpeeds]                Each item: `{ maxSpeed: int (km/h), type: 'CAL'|'ETA'|'ALL' }`.
- * @param {Object} [options.routingVehicleFeature]            Physical / legal / toll characteristics — passthrough.
- * @param {Object} [options.routingEnergyVehicleFeature]      Energy / EV consumption configuration — passthrough.
- * @param {Object} [options.routingSpeedPonderations]         Speed coefficients per road attribute — passthrough.
+ * @param {Array.<bemap.RoutingMaxSpeed>} [options.maxSpeeds]                        Per-class max speeds.
+ * @param {bemap.RoutingVehicleFeature} [options.routingVehicleFeature]              Physical / legal / toll characteristics.
+ * @param {bemap.RoutingEnergyVehicleFeature} [options.routingEnergyVehicleFeature]  Energy / EV consumption configuration.
+ * @param {bemap.RoutingSpeedPonderation} [options.routingSpeedPonderations]         Speed coefficients per road attribute.
+ * @param {Array.<Number>} [options.routingEnergyVehicleConnectorTypeIds]            EV connector-type IDs the vehicle accepts.
+ * @param {Array.<Object>} [options.routingEnergyVehicleRanges]                      EV range entries (per battery/charge state).
+ * @param {String} [options.chargingStationProviderName]                            Charging-station provider key (EV routing).
  */
 bemap.RoutingVehicleProfile = function(options) {
     var opts = options || {};
@@ -24687,6 +24774,9 @@ bemap.RoutingVehicleProfile = function(options) {
     this.routingVehicleFeature = opts.routingVehicleFeature || null;
     this.routingEnergyVehicleFeature = opts.routingEnergyVehicleFeature || null;
     this.routingSpeedPonderations = opts.routingSpeedPonderations || null;
+    this.routingEnergyVehicleConnectorTypeIds = Array.isArray(opts.routingEnergyVehicleConnectorTypeIds) ? opts.routingEnergyVehicleConnectorTypeIds.slice() : null;
+    this.routingEnergyVehicleRanges = Array.isArray(opts.routingEnergyVehicleRanges) ? opts.routingEnergyVehicleRanges.slice() : null;
+    this.chargingStationProviderName = opts.chargingStationProviderName || null;
 };
 
 bemap.RoutingVehicleProfile.prototype.setTransportMode = function(v) { this.transportMode = v; return this; };
@@ -24697,6 +24787,9 @@ bemap.RoutingVehicleProfile.prototype.setMaxSpeeds = function(v) {
 bemap.RoutingVehicleProfile.prototype.setRoutingVehicleFeature = function(v) { this.routingVehicleFeature = v; return this; };
 bemap.RoutingVehicleProfile.prototype.setRoutingEnergyVehicleFeature = function(v) { this.routingEnergyVehicleFeature = v; return this; };
 bemap.RoutingVehicleProfile.prototype.setRoutingSpeedPonderations = function(v) { this.routingSpeedPonderations = v; return this; };
+bemap.RoutingVehicleProfile.prototype.setRoutingEnergyVehicleConnectorTypeIds = function(a) { this.routingEnergyVehicleConnectorTypeIds = Array.isArray(a) ? a.slice() : null; return this; };
+bemap.RoutingVehicleProfile.prototype.setRoutingEnergyVehicleRanges = function(a) { this.routingEnergyVehicleRanges = Array.isArray(a) ? a.slice() : null; return this; };
+bemap.RoutingVehicleProfile.prototype.setChargingStationProviderName = function(s) { this.chargingStationProviderName = s || null; return this; };
 
 bemap.RoutingVehicleProfile.prototype.toJson = function() {
     var out = {};
@@ -24705,8 +24798,71 @@ bemap.RoutingVehicleProfile.prototype.toJson = function() {
     if (this.routingVehicleFeature) out.routingVehicleFeature = this.routingVehicleFeature;
     if (this.routingEnergyVehicleFeature) out.routingEnergyVehicleFeature = this.routingEnergyVehicleFeature;
     if (this.routingSpeedPonderations) out.routingSpeedPonderations = this.routingSpeedPonderations;
+    if (this.routingEnergyVehicleConnectorTypeIds && this.routingEnergyVehicleConnectorTypeIds.length) out.routingEnergyVehicleConnectorTypeIds = this.routingEnergyVehicleConnectorTypeIds.slice();
+    if (this.routingEnergyVehicleRanges && this.routingEnergyVehicleRanges.length) out.routingEnergyVehicleRanges = this.routingEnergyVehicleRanges.slice();
+    if (this.chargingStationProviderName) out.chargingStationProviderName = this.chargingStationProviderName;
     return out;
 };
+
+/**
+ * @typedef {Object} bemap.RoutingMaxSpeed  Per-class max-speed cap (item of `maxSpeeds`).
+ * @property {Number} maxSpeed  Max speed in km/h.
+ * @property {String} [type]    'ALL' | 'CAL' | 'ETA' (default 'ALL').
+ */
+
+/**
+ * @typedef {Object} bemap.RoutingVehicleFeature  Physical / legal / toll vehicle characteristics.
+ *   All fields optional; passed through to the server verbatim. Units/encoding per the BeNomad backend spec.
+ * @property {Number}  [height]                 Vehicle height.
+ * @property {Number}  [width]                  Vehicle width.
+ * @property {Number}  [length]                 Vehicle length.
+ * @property {Number}  [weight]                 Total weight.
+ * @property {Number}  [axleWeight]             Max weight per axle.
+ * @property {Array}   [hazardousMaterials]     ADR hazardous-material classes carried.
+ * @property {Number}  [nbTrailer]              Number of trailers.
+ * @property {String}  [tollTransportCategory]  Toll transport category.
+ * @property {Boolean} [caravan]                Towing a caravan.
+ * @property {Boolean} [hybrid]                 Hybrid vehicle.
+ * @property {Boolean} [disEquipped]            Disabled-equipped vehicle.
+ * @property {Boolean} [pollMin]                Low-emission / minimal-pollution vehicle.
+ * @property {Boolean} [hov]                    High-occupancy vehicle (carpool).
+ * @property {Boolean} [cial]                   Commercial vehicle.
+ * @property {Number}  [nbVehAxles]             Number of vehicle axles.
+ * @property {Number}  [nbTrailAxles]           Number of trailer axles.
+ * @property {Number}  [nbTires]                Number of tires.
+ * @property {Number}  [nbPassengers]           Number of passengers.
+ * @property {Number}  [vehHeight]              Vehicle-only height.
+ * @property {Number}  [trailHeight]            Trailer height.
+ * @property {Number}  [vehWeight]              Vehicle-only weight.
+ * @property {String}  [emissionClass]          Emission class (backend VehicleEmissionClss).
+ * @property {String}  [adrTunnelCategory]      ADR tunnel category (backend AdrTunnelCat, e.g. B..E).
+ * @property {Boolean} [onlyPhysical]           Apply only physical (not legal) restrictions.
+ */
+
+/**
+ * @typedef {Object} bemap.RoutingEnergyVehicleFeature  EV energy / consumption configuration. Passthrough.
+ * @property {Number} [maxAccel]            Max acceleration.
+ * @property {Number} [maxDecel]            Max deceleration.
+ * @property {Number} [maxChargePower]      Max charge power.
+ * @property {Number} [maxChargePowerAc3]   Max AC three-phase charge power.
+ * @property {Number} [maxChargePowerDc]    Max DC charge power.
+ */
+
+/**
+ * @typedef {Object} bemap.RoutingSpeedPonderation  Speed coefficient per road attribute. Passthrough.
+ * @property {Number} [level]                   Ponderation level / coefficient.
+ * @property {String} [routingRoadType]         Road type the coefficient applies to.
+ * @property {String} [routingPonderationType]  Ponderation type.
+ */
+
+/**
+ * @typedef {Object} bemap.RoutingChargeFeature  EV charge planning (used as `RoutingRequest.routingChargeFeature`). Passthrough.
+ * @property {Number}         [socAlert]                   State-of-charge alert threshold (%).
+ * @property {Number}         [socAtArrival]               Desired state-of-charge at arrival (%).
+ * @property {Boolean}        [reachChargePointAtArrival]  Plan to reach a charge point at arrival.
+ * @property {Array.<Number>} [connectorTypeIdFilters]     Connector-type IDs to allow.
+ * @property {Array.<String>} [providers]                  Charging-station provider keys.
+ */
 
 /**
  * BeNomad BeMap JavaScript API - RoutingWaypoint
@@ -25192,6 +25348,12 @@ bemap.AutocompleteGeocodingRequest.prototype.setAddressDetails = function(v) { t
 bemap.AutocompleteGeocodingRequest.prototype.setEnableHighlights = function(v) { this.enableHighlights = !!v; return this; };
 bemap.AutocompleteGeocodingRequest.prototype.setEnableCategories = function(v) { this.enableCategories = !!v; return this; };
 bemap.AutocompleteGeocodingRequest.prototype.setGeoserver = function(g) { this.geoserver = g; return this; };
+bemap.AutocompleteGeocodingRequest.prototype.setEnableLocationId = function(v) { this.enableLocationId = !!v; return this; };
+bemap.AutocompleteGeocodingRequest.prototype.setEnableEntrances = function(v) { this.enableEntrances = !!v; return this; };
+bemap.AutocompleteGeocodingRequest.prototype.setEnableFoodTypes = function(v) { this.enableFoodTypes = !!v; return this; };
+bemap.AutocompleteGeocodingRequest.prototype.setEnableChains = function(v) { this.enableChains = !!v; return this; };
+bemap.AutocompleteGeocodingRequest.prototype.setEnableReferences = function(v) { this.enableReferences = !!v; return this; };
+bemap.AutocompleteGeocodingRequest.prototype.setSwitchIndex = function(v) { this.switchIndex = (typeof v === 'number') ? v : null; return this; };
 
 bemap.AutocompleteGeocodingRequest.prototype.toJson = function() {
     var body = {};
@@ -25204,7 +25366,8 @@ bemap.AutocompleteGeocodingRequest.prototype.toJson = function() {
         };
     }
     if (this.boundingBox) {
-        body.boundingBox = {
+        // Wire key is lowercase `boundingbox` (server @JsonProperty), NOT boundingBox.
+        body.boundingbox = {
             minLon: this.boundingBox.minLon,
             minLat: this.boundingBox.minLat,
             maxLon: this.boundingBox.maxLon,
@@ -25214,13 +25377,15 @@ bemap.AutocompleteGeocodingRequest.prototype.toJson = function() {
     if (this.radius !== null) body.radius = this.radius;
     if (this.countryCode) body.countryCode = this.countryCode;
     if (this.addressDetails !== null) body.addressDetails = this.addressDetails;
-    if (this.enableLocationId !== null) body.enableLocationId = this.enableLocationId;
-    if (this.enableEntrances !== null) body.enableEntrances = this.enableEntrances;
-    if (this.enableHighlights !== null) body.enableHighlights = this.enableHighlights;
-    if (this.enableCategories !== null) body.enableCategories = this.enableCategories;
-    if (this.enableFoodTypes !== null) body.enableFoodTypes = this.enableFoodTypes;
-    if (this.enableChains !== null) body.enableChains = this.enableChains;
-    if (this.enableReferences !== null) body.enableReferences = this.enableReferences;
+    // The server expects the short `en*` wire keys (@JsonProperty, no aliases) —
+    // emitting the long enableXxx names silently drops these flags.
+    if (this.enableLocationId !== null) body.enLocId = this.enableLocationId;
+    if (this.enableEntrances !== null) body.enEntrances = this.enableEntrances;
+    if (this.enableHighlights !== null) body.enHighlights = this.enableHighlights;
+    if (this.enableCategories !== null) body.enCategories = this.enableCategories;
+    if (this.enableFoodTypes !== null) body.enFoodTypes = this.enableFoodTypes;
+    if (this.enableChains !== null) body.enChains = this.enableChains;
+    if (this.enableReferences !== null) body.enReferences = this.enableReferences;
     if (this.geoserver) body.geoserver = this.geoserver;
     if (this.switchIndex !== null) body.switchIndex = this.switchIndex;
     return body;
@@ -25836,7 +26001,9 @@ bemap.GeocodingSearchType = {
     /** Prefix match on the entire pattern. */
     STRICT_BEGINNING: 'STRICT_BEGINNING',
     /** Prefix match on each word of the pattern. */
-    WORD_BEGINNING: 'WORD_BEGINNING'
+    WORD_BEGINNING: 'WORD_BEGINNING',
+    /** Search by numeric key/id — retrieve an item by its key (server GeocodingSrchType.KEY_SEARCH). */
+    KEY_SEARCH: 'KEY_SEARCH'
 };
 
 /**
@@ -26641,6 +26808,7 @@ bemap.traceRouteQuality._haversineM = function(a, b) {
  *   Trace samples in chronological order. Mixed-input types are auto-promoted.
  * @param {bemap.RoutingVehicleProfile} [options.routingVehicleProfile]
  *   Required by the server. Defaults to a generic CAR profile when omitted.
+ * @param {Array.<String>} [options.routingCriterias]   Subset of `bemap.RoutingCriteria.*` (e.g. AVOID_TOLLS). Supported server-side for traceroute.
  * @param {Array.<String>} [options.options]            Subset of `bemap.TraceRouteOptions.*`.
  * @param {Date|Number|String} [options.departureTime]  Epoch ms / Date / ISO local datetime.
  * @param {Boolean} [options.adjustEta]                 Adjust ETA from GPS timestamps.
@@ -26659,6 +26827,7 @@ bemap.TraceRouteRequest = function(options) {
     var opts = options || {};
     this.destinations = Array.isArray(opts.destinations) ? opts.destinations.slice() : [];
     this.routingVehicleProfile = opts.routingVehicleProfile || null;
+    this.routingCriterias = Array.isArray(opts.routingCriterias) ? opts.routingCriterias.slice() : null;
     this.options = Array.isArray(opts.options) ? opts.options.slice() : null;
     this.departureTime = opts.departureTime || null;
     this.adjustEta = (typeof opts.adjustEta === 'boolean') ? opts.adjustEta : null;
@@ -26690,6 +26859,14 @@ bemap.TraceRouteRequest.prototype.setDepartureTime = function(d) { this.departur
 bemap.TraceRouteRequest.prototype.setAdjustEta = function(b) { this.adjustEta = !!b; return this; };
 bemap.TraceRouteRequest.prototype.setAllowOffRoad = function(b) { this.allowOffRoad = !!b; return this; };
 bemap.TraceRouteRequest.prototype.setRequestId = function(id) { this.requestId = id; return this; };
+bemap.TraceRouteRequest.prototype.setRoutingCriterias = function(c) { this.routingCriterias = Array.isArray(c) ? c.slice() : null; return this; };
+bemap.TraceRouteRequest.prototype.setCorridorRadius = function(n) { this.corridorRadius = (typeof n === 'number') ? n : null; return this; };
+bemap.TraceRouteRequest.prototype.setFenceShapes = function(a) { this.fenceShapes = Array.isArray(a) ? a.slice() : null; return this; };
+bemap.TraceRouteRequest.prototype.setCustomData = function(a) { this.customData = Array.isArray(a) ? a.slice() : null; return this; };
+bemap.TraceRouteRequest.prototype.setPreferredRoads = function(a) { this.preferredRoads = Array.isArray(a) ? a.slice() : null; return this; };
+bemap.TraceRouteRequest.prototype.setRoutingRoadBlocks = function(a) { this.routingRoadBlocks = Array.isArray(a) ? a.slice() : null; return this; };
+bemap.TraceRouteRequest.prototype.setGeoserver = function(g) { this.geoserver = g || null; return this; };
+bemap.TraceRouteRequest.prototype.setSwitchIndex = function(n) { this.switchIndex = (typeof n === 'number') ? n : null; return this; };
 
 /** @private */
 bemap.TraceRouteRequest._serialisePoint = function(p) {
@@ -26730,6 +26907,7 @@ bemap.TraceRouteRequest.prototype.toJson = function() {
 
     // Optional
     if (this.options && this.options.length) body.options = this.options.slice();
+    if (this.routingCriterias && this.routingCriterias.length) body.routingCriterias = this.routingCriterias.slice();
     var dep = bemap.TraceRouteRequest._asEpochOrIso(this.departureTime);
     if (dep !== null) body.departureTime = dep;
     if (this.adjustEta !== null) body.adjustEta = this.adjustEta;

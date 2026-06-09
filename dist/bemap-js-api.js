@@ -5471,14 +5471,13 @@ bemap.MapLibreMap = function(context, target, options) {
           '[bemap] BeNomad Tiles: Service Worker not supported here — tile caching is OFF.\n' +
           '   Cause: page is served over plain HTTP (Service Workers require HTTPS, or localhost/127.0.0.1).\n' +
           '   Effect: every tile hits the network. First-load UX will feel slower than with caching.\n' +
-          '   Fix:   serve over HTTPS in production. See docs/sw-tile-caching.md.'
+          '   Fix:   serve over HTTPS in production.'
         );
       } else {
         var _bc = this._browserCache;
         _bc.register().then(function (reg) {
-          if (reg) {
-            console.info('[bemap] BeNomad Tiles: browser cache active (Service Worker registered at ' + _bc.swPath + ')');
-          } else {
+          // Success is silent; misplacement warnings come from BrowserCache.register.
+          if (!reg) {
             var attempts = (typeof _bc.getRegistrationAttempts === 'function') ? _bc.getRegistrationAttempts() : [];
             var bundleInfo = (typeof bemap.BrowserCache._findBemapScriptInfo === 'function')
               ? bemap.BrowserCache._findBemapScriptInfo() : null;
@@ -5503,16 +5502,14 @@ bemap.MapLibreMap = function(context, target, options) {
               '     ' + origin + '/bemap-sw-tiles.js                (site root — preferred)\n' +
               (pageDir !== '/' ? '     ' + origin + pageDir + 'bemap-sw-tiles.js   (app sub-root, next to your page)\n' : '') +
               '   …or pass an explicit path:\n' +
-              "     new bemap.MapLibreMap(ctx, target, { serviceWorkerPath: '/path/to/bemap-sw-tiles.js', ... })\n" +
-              '   See docs/sw-tile-caching.md.'
+              "     new bemap.MapLibreMap(ctx, target, { serviceWorkerPath: 'bemap-sw-tiles.js', ... })"
             );
           }
         }).catch(function (err) {
           console.warn(
             '[bemap] BeNomad Tiles: Service Worker registration failed — tile caching is OFF.\n' +
             '   Error: ' + (err && err.message ? err.message : err) + '\n' +
-            '   Fix:   verify bemap-sw-tiles.js is reachable (see ' + _bc.swPath + ').\n' +
-            '   See docs/sw-tile-caching.md.'
+            '   Fix:   verify bemap-sw-tiles.js is reachable (see ' + _bc.swPath + ').'
           );
         });
       }
@@ -18561,8 +18558,7 @@ bemap.TilesAuth.prototype.login = function (login, password) {
           '[bemap.TilesAuth] No credentials on the Context — BeNomad Tiles\n' +
           '   requests will all 401 because no /api/login POST can be sent.\n' +
           '   Set `login` and `password` on your `new bemap.Context({...})`,\n' +
-          '   OR remove `tilesHost` to fall back to WMS.\n' +
-          '   See docs/browser-cache.md for the auth flow.'
+          '   OR remove `tilesHost` to fall back to WMS.'
         );
       }
     }
@@ -19419,6 +19415,39 @@ bemap.BrowserCache.prototype._candidatePaths = function () {
   return paths;
 };
 
+/**
+ * Unregister any previously-installed bemap tile-cache Service Worker on this
+ * origin and delete its Cache Storage. Called automatically when browserCache
+ * is OFF (the default) so a stale / mis-scoped worker can't keep controlling
+ * the page and serving cached range data (which can corrupt PMTiles rendering
+ * and stop the map loading). Safe no-op when none exist.
+ * @public
+ * @since 2.0.0
+ */
+bemap.BrowserCache.unregisterStale = function () {
+  try {
+    if (typeof navigator !== 'undefined' && navigator.serviceWorker &&
+        typeof navigator.serviceWorker.getRegistrations === 'function') {
+      navigator.serviceWorker.getRegistrations().then(function (regs) {
+        regs.forEach(function (r) {
+          var w = r.active || r.waiting || r.installing;
+          var url = (w && w.scriptURL) || '';
+          if (url.indexOf('bemap-sw-tiles') !== -1) {
+            r.unregister().then(function () {
+              console.info('[bemap-cache] removed stale Service Worker: ' + url);
+            });
+          }
+        });
+      }).catch(function () {});
+    }
+    if (typeof caches !== 'undefined' && typeof caches.keys === 'function') {
+      caches.keys().then(function (keys) {
+        keys.forEach(function (k) { if (k.indexOf('bemap-tiles-') === 0) caches.delete(k); });
+      }).catch(function () {});
+    }
+  } catch (e) { /* ignore */ }
+};
+
 bemap.BrowserCache.prototype.register = function () {
   if (!this.isSupported()) {
     console.warn('bemap.BrowserCache: Service Worker not supported (or page served over plain HTTP)');
@@ -19441,8 +19470,35 @@ bemap.BrowserCache.prototype.register = function () {
       .then(function (reg) {
         self.swPath = path;
         self._registration = reg;
+        // WARNING #1 — the worker's scope does not COVER this page, so it can
+        // never control the app. Correct for root AND sub-path hosting: a
+        // sub-path scope (e.g. /app/) legitimately controls /app/* and must NOT
+        // warn — only a scope that doesn't contain the page path is wrong.
+        try {
+          var scopePath = new URL(reg.scope).pathname;
+          var pagePath = (typeof location !== 'undefined') ? location.pathname : '/';
+          if (pagePath.indexOf(scopePath) !== 0) {
+            console.warn(
+              '[bemap] BeNomad Tiles: Service Worker scope "' + reg.scope + '" does not cover this page (' +
+              pagePath + ') — it cannot control the app, so tile caching is OFF. The worker must be served from\n' +
+              '   the folder your app is served from (next to index.html); a relative serviceWorkerPath ("bemap-sw-tiles.js") does this.'
+            );
+          }
+        } catch (e) { /* ignore */ }
         self._installMessageHandler();
         self._postMessage({ type: 'INIT', tilesHost: self.tilesHost, enabled: self._enabled });
+        // WARNING #2 — registered but still not controlling after activation
+        // (file 404s where it was registered, or a stale worker lingers).
+        if (typeof setTimeout === 'function') {
+          setTimeout(function () {
+            if (!(navigator.serviceWorker && navigator.serviceWorker.controller)) {
+              console.warn(
+                '[bemap] BeNomad Tiles: Service Worker registered but is NOT controlling this page — tile caching is OFF.\n' +
+                '   Ensure bemap-sw-tiles.js is served from the folder your app is served from (next to index.html).'
+              );
+            }
+          }, 3000);
+        }
         return reg;
       })
       .catch(function (err) {

@@ -588,6 +588,101 @@ in `/`). Used both for SW path discovery and for diagnostic warnings.
     
 
     
+    <h4 class="name" id=".unregisterStale"><span class="type-signature">(static) </span>unregisterStale<span class="signature">()</span><span class="type-signature"></span></h4>
+    
+
+    
+
+
+
+<div class="description">
+    Unregister any previously-installed bemap tile-cache Service Worker on this
+origin and delete its Cache Storage. Called automatically when browserCache
+is OFF (the default) so a stale / mis-scoped worker can't keep controlling
+the page and serving cached range data (which can corrupt PMTiles rendering
+and stop the map loading). Safe no-op when none exist.
+</div>
+
+
+
+
+
+
+
+
+
+
+
+
+
+<dl class="details">
+
+    
+
+    
+    <dt class="tag-since">Since:</dt>
+    <dd class="tag-since"><ul class="dummy"><li>2.0.0</li></ul></dd>
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+    <dt class="tag-source">Source:</dt>
+    <dd class="tag-source"><ul class="dummy"><li>
+        <a href="bemap-maplibre_bemap-browser-cache.js.html">bemap-maplibre/bemap-browser-cache.js</a>, <a href="bemap-maplibre_bemap-browser-cache.js.html#line153">line 153</a>
+    </li></ul></dd>
+    
+
+    
+
+    
+
+    
+</dl>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+        
+            
+
+    
+
+    
     <h4 class="name" id="_candidatePaths"><span class="type-signature"></span>_candidatePaths<span class="signature">()</span><span class="type-signature"></span></h4>
     
 
@@ -736,7 +831,7 @@ caller explicitly passed `opts.serviceWorkerPath` we honour that exactly
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-maplibre_bemap-browser-cache.js.html">bemap-maplibre/bemap-browser-cache.js</a>, <a href="bemap-maplibre_bemap-browser-cache.js.html#line344">line 344</a>
+        <a href="bemap-maplibre_bemap-browser-cache.js.html">bemap-maplibre/bemap-browser-cache.js</a>, <a href="bemap-maplibre_bemap-browser-cache.js.html#line404">line 404</a>
     </li></ul></dd>
     
 
@@ -843,7 +938,7 @@ caller explicitly passed `opts.serviceWorkerPath` we honour that exactly
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-maplibre_bemap-browser-cache.js.html">bemap-maplibre/bemap-browser-cache.js</a>, <a href="bemap-maplibre_bemap-browser-cache.js.html#line360">line 360</a>
+        <a href="bemap-maplibre_bemap-browser-cache.js.html">bemap-maplibre/bemap-browser-cache.js</a>, <a href="bemap-maplibre_bemap-browser-cache.js.html#line420">line 420</a>
     </li></ul></dd>
     
 
@@ -927,7 +1022,7 @@ caller explicitly passed `opts.serviceWorkerPath` we honour that exactly
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-maplibre_bemap-browser-cache.js.html">bemap-maplibre/bemap-browser-cache.js</a>, <a href="bemap-maplibre_bemap-browser-cache.js.html#line279">line 279</a>
+        <a href="bemap-maplibre_bemap-browser-cache.js.html">bemap-maplibre/bemap-browser-cache.js</a>, <a href="bemap-maplibre_bemap-browser-cache.js.html#line339">line 339</a>
     </li></ul></dd>
     
 
@@ -1011,7 +1106,7 @@ caller explicitly passed `opts.serviceWorkerPath` we honour that exactly
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-maplibre_bemap-browser-cache.js.html">bemap-maplibre/bemap-browser-cache.js</a>, <a href="bemap-maplibre_bemap-browser-cache.js.html#line270">line 270</a>
+        <a href="bemap-maplibre_bemap-browser-cache.js.html">bemap-maplibre/bemap-browser-cache.js</a>, <a href="bemap-maplibre_bemap-browser-cache.js.html#line330">line 330</a>
     </li></ul></dd>
     
 
@@ -1101,7 +1196,7 @@ surface a useful warning when nothing worked.
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-maplibre_bemap-browser-cache.js.html">bemap-maplibre/bemap-browser-cache.js</a>, <a href="bemap-maplibre_bemap-browser-cache.js.html#line186">line 186</a>
+        <a href="bemap-maplibre_bemap-browser-cache.js.html">bemap-maplibre/bemap-browser-cache.js</a>, <a href="bemap-maplibre_bemap-browser-cache.js.html#line246">line 246</a>
     </li></ul></dd>
     
 
@@ -1209,7 +1304,7 @@ cached snapshot synchronously.
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-maplibre_bemap-browser-cache.js.html">bemap-maplibre/bemap-browser-cache.js</a>, <a href="bemap-maplibre_bemap-browser-cache.js.html#line297">line 297</a>
+        <a href="bemap-maplibre_bemap-browser-cache.js.html">bemap-maplibre/bemap-browser-cache.js</a>, <a href="bemap-maplibre_bemap-browser-cache.js.html#line357">line 357</a>
     </li></ul></dd>
     
 
@@ -1311,7 +1406,7 @@ cached snapshot synchronously.
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-maplibre_bemap-browser-cache.js.html">bemap-maplibre/bemap-browser-cache.js</a>, <a href="bemap-maplibre_bemap-browser-cache.js.html#line288">line 288</a>
+        <a href="bemap-maplibre_bemap-browser-cache.js.html">bemap-maplibre/bemap-browser-cache.js</a>, <a href="bemap-maplibre_bemap-browser-cache.js.html#line348">line 348</a>
     </li></ul></dd>
     
 
@@ -1505,7 +1600,7 @@ cached snapshot synchronously.
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-maplibre_bemap-browser-cache.js.html">bemap-maplibre/bemap-browser-cache.js</a>, <a href="bemap-maplibre_bemap-browser-cache.js.html#line306">line 306</a>
+        <a href="bemap-maplibre_bemap-browser-cache.js.html">bemap-maplibre/bemap-browser-cache.js</a>, <a href="bemap-maplibre_bemap-browser-cache.js.html#line366">line 366</a>
     </li></ul></dd>
     
 
@@ -1575,7 +1670,7 @@ cached snapshot synchronously.
 <br class="clear">
 
 <footer>
-    Documentation generated by <a href="https://github.com/jsdoc/jsdoc">JSDoc 3.6.3</a> on Tue Jun 09 2026 15:01:43 GMT+0200 (heure d’été d’Europe centrale)
+    Documentation generated by <a href="https://github.com/jsdoc/jsdoc">JSDoc 3.6.3</a> on Tue Jun 09 2026 18:17:43 GMT+0200 (heure d’été d’Europe centrale)
 </footer>
 
 <script> prettyPrint(); </script>

@@ -60,7 +60,7 @@
             <h4>Tips</h4>
             <p style="font-size:11px;color:var(--bn-text-dark-muted);margin:0;line-height:1.5">
               The bundled style ships at <code>bemap.defaultStyle</code>. Any URL inside the style
-              that begins with <code>https://mptiles-api.benomad.net</code> automatically gets the
+              that begins with <code>https://mptiles-api-beta.benomad.net</code> automatically gets the
               <code>X-Session-Token</code> header — no manual fetch wiring required.
             </p>
           </section>
@@ -76,13 +76,13 @@ var ctx = new bemap.Context({
   secure:    bemapMainCtx.protocol === 'https',
   login:     bemapMainCtx.login,
   password:  bemapMainCtx.password,
-  tilesHost: 'mptiles-api.benomad.net'
+  tilesHost: 'mptiles-api-beta.benomad.net'
 });
 
 // Each preset is a real, runnable MapLibre Style spec. The PMTiles source
 // URL is the same in every preset; only the colors differ — proving that
 // "your own style" is a flat JSON edit.
-var TILE_URL = 'pmtiles://https://mptiles-api.benomad.net/OSM_250901_WORLD.pmtiles';
+var TILE_URL = 'pmtiles://https://mptiles-api-beta.benomad.net/OSM_250901_WORLD.pmtiles';
 
 function styleSkeleton(layers) {
   return {

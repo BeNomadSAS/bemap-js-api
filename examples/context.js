@@ -77,13 +77,35 @@
     );
   }
 
+  // ── BeMap environments ────────────────────────────────────────────────
+  // Each BeMap env has its OWN API host AND tiles host — they must stay
+  // paired. Defining them together here means selecting an env sets both at
+  // once, so the WMS/services host can never drift from the PMTiles host.
+  //
+  // The dashboard examples run against BETA. To point them at preprod/prod,
+  // set `window.bemapEnv = 'preprod'` (or 'prod') BEFORE this script runs —
+  // e.g. in the gitignored examples/context.local.js, next to your creds.
+  // (The shipped LIBRARY default, RuntimeConfig.DEFAULTS.tilesHost, is PROD —
+  // examples override it to beta here; real apps build their own Context.)
+  var ENVIRONMENTS = {
+    beta:    { label: 'Beta',    host: 'bemap-beta.benomad.com',    tilesHost: 'mptiles-api-beta.benomad.net' },
+    preprod: { label: 'Preprod', host: 'bemap-preprod.benomad.com', tilesHost: 'mptiles-api-preprod.benomad.net' },
+    prod:    { label: 'Prod',    host: 'bemap.benomad.com',         tilesHost: 'mptiles-api.benomad.net' }
+  };
+  var ENV = ENVIRONMENTS[window.bemapEnv] || ENVIRONMENTS.beta;
+  window.bemapEnvironments = ENVIRONMENTS;   // exposed for a future env switcher
+  window.bemapActiveEnv    = ENV;
+
+  // Pair the tiles host with the chosen env BEFORE bind so the Context is
+  // built consistent in one shot (tilesHost is a RuntimeConfig field, so it
+  // travels via state, not via the bind() Context-native fields).
+  bemap.RuntimeConfig.set({ tilesHost: ENV.tilesHost });
+
   window.bemapMainCtx = bemap.RuntimeConfig.bind({
     login:      creds.login,
     password:   creds.password,
     secure:     true,
-    host:       'bemap-beta.benomad.com',
-    //host:     'bgisdev.int.benomad.com',
-    //host:     '127.0.0.1:8080/evseRoutingProxy/v1.0',
+    host:       ENV.host,
     authInPost: false
   });
   // RuntimeConfig-owned fields (geoserver, chargingStationProvider,

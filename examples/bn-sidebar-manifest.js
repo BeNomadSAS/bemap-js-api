@@ -54,7 +54,8 @@ var bnSidebarManifest = [
       { label: 'Migration WMS → Tiles (live)',       href: '#nav-example-migration-side-by-side.html', chips: [{label:'LF',kind:'lf'},{label:'ML',kind:'ml'},{label:'NEW',kind:'accent'}] },
       { label: 'Function Showcase (3 engines)',      href: '#nav-functions.html' },
       { label: '3-engine benchmark (WMS vs PMTiles)',href: '#nav-example-maplibre-wms-vs-pmtiles-benchmark.html', chips: [{label:'OL',kind:'ol'},{label:'LF',kind:'lf'},{label:'ML',kind:'ml'},{label:'PERF',kind:'accent'}] },
-      { label: 'Container resize & refresh()',       href: '#nav-example-container-resize.html', chips: [{label:'OL',kind:'ol'},{label:'LF',kind:'lf'},{label:'ML',kind:'ml'},{label:'NEW',kind:'accent'}] }
+      { label: 'Container resize & refresh()',       href: '#nav-example-container-resize.html', chips: [{label:'OL',kind:'ol'},{label:'LF',kind:'lf'},{label:'ML',kind:'ml'},{label:'NEW',kind:'accent'}] },
+      { label: 'Tiles & Map Discovery',              href: '#nav-services-v2/tiles-discovery.html', chips: [{label:'ML',kind:'ml'},{label:'NEW',kind:'accent'}] }
     ]
   },
 

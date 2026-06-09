@@ -142,11 +142,18 @@ bemap.MapLibreMap = function(context, target, options) {
     this._pendingTilesUrl = tilesUrl;
   } else if (this._hasTilesConfig &amp;&amp; typeof bemap.defaultStyle !== 'undefined' &amp;&amp; typeof bemap.TilesStyle !== 'undefined') {
     // BeNomad Tiles default — clone the frozen default style then resolve
-    // placeholders against the configured ctx/tilesFile. When the
-    // customer set tilesHost but not tilesFile, fall back to the public
-    // demo tileset so the map renders zero-config.
+    // placeholders against the configured ctx/tilesFile. Precedence is
+    // opts.tilesFile -> ctx.tilesFile -> ctx.geoserver -> 'default', so a
+    // Context with `geoserver: 'osm'` (and no explicit tilesFile) loads the
+    // 'osm' tiles instead of the server default.
     style = JSON.parse(JSON.stringify(bemap.defaultStyle));
-    var _tilesFile = opts.tilesFile || context.tilesFile || 'OSM_250901_WORLD.pmtiles';
+    // Fonts: prefer ctx.glyphsUrl, else the fonts bundled in dist/fonts/
+    // (auto-detected from the bundle location), else the style's own glyphs
+    // (the public demo server) as the ultimate fallback.
+    var _glyphs = context.glyphsUrl
+      || (bemap.TilesStyle.bundledGlyphsUrl &amp;&amp; bemap.TilesStyle.bundledGlyphsUrl());
+    if (_glyphs) style.glyphs = _glyphs;
+    var _tilesFile = context.resolveTilesFile(opts.tilesFile);
     bemap.TilesStyle.resolvePlaceholders(style, context, _tilesFile);
     if (typeof bemap.TilesStyle.hardenSymbolCollisions === 'function') {
       bemap.TilesStyle.hardenSymbolCollisions(style);
@@ -614,7 +621,7 @@ bemap.MapLibreMap.prototype._setupTilesAuth = function(tilesUrl, token, headerNa
   // prototype (where reassigning `arguments[1]` did not actually change
   // the outgoing call on some engines). Host comparison uses `new URL`
   // host parsing — substring matching would leak the token to attacker
-  // URLs like `https://evil.com/?h=mptiles-api.benomad.net`.
+  // URLs like `https://evil.com/?h=mptiles-api-beta.benomad.net`.
   var _origFetch = window.fetch;
   window.fetch = function (input, init) {
     var url = (typeof input === 'string' ? input : (input &amp;&amp; input.url)) || '';
@@ -1079,7 +1086,7 @@ bemap.MapLibreMap._tokenMap = {};
  *
  * Usage:
  *   map.loadBeMapTiles();  // uses defaults + context credentials
- *   map.loadBeMapTiles({ url: 'https://mptiles-api.benomad.net', tilesFile: 'Europe.pmtiles', style: 'style_liberty.json' });
+ *   map.loadBeMapTiles({ url: 'https://mptiles-api-beta.benomad.net', tilesFile: 'Europe.pmtiles', style: 'style_liberty.json' });
  *   map.loadBeMapTiles({ token: 'existing-jwt' });  // skip login
  *
  * @deprecated Since 2.0.0 — prefer `ctx.tilesHost` on the Context, which
@@ -1088,7 +1095,7 @@ bemap.MapLibreMap._tokenMap = {};
  * @public
  * @param {Object} options
  * @param {String} options.url Tiles API base URL — REQUIRED unless `ctx.tilesHost` is set.
- * @param {String} options.tilesFile PMTiles file (default: 'OSM_250901_WORLD.pmtiles').
+ * @param {String} options.tilesFile PMTiles map alias or tileset name (default: 'default' — the Worker chooses).
  * @param {String} options.style Style name (default: 'openfreemap_graylevel.json').
  * @param {String} options.token JWT token — if provided, skips login.
  * @param {String} options.login Override context login.
@@ -1112,9 +1119,13 @@ bemap.MapLibreMap.prototype.loadBeMapTiles = function(options) {
     if (typeof opts.onError === 'function') opts.onError(msg);
     return this;
   }
-  // Public OSM tileset is the safe default — the HERE-licensed tilesets
-  // are gated server-side and would 403 for accounts without ACL.
-  var tilesFile = opts.tilesFile || 'OSM_250901_WORLD.pmtiles';
+  // Precedence opts.tilesFile -> ctx.tilesFile -> ctx.geoserver -> 'default';
+  // with no explicit map and no geoserver the Worker picks the tileset
+  // server-side (via _config/maps.json). HERE-licensed tilesets are gated
+  // server-side and would 403 for accounts without ACL.
+  var tilesFile = (this.ctx &amp;&amp; typeof this.ctx.resolveTilesFile === 'function')
+    ? this.ctx.resolveTilesFile(opts.tilesFile)
+    : (opts.tilesFile || 'default');
   var styleName = opts.style || 'openfreemap_graylevel.json';
 
   if (typeof pmtiles === 'undefined') {
@@ -1632,6 +1643,66 @@ bemap.MapLibreMap.prototype.refresh = function(options) {
   return this;
 };
 
+/**
+ * Fetch the Worker's map config — `GET /api/maps` — resolving with
+ * `{ default, aliases, tilesets }` so an app can build a map-picker. Requires
+ * `ctx.tilesHost`; the session token is attached automatically by the TilesAuth
+ * fetch interceptor (it waits for login to complete first).
+ * @public
+ * @since 2.0.0
+ * @return {Promise&lt;Object>}
+ */
+bemap.MapLibreMap.prototype.fetchAvailableMaps = function() {
+  return this._fetchTilesApi(this.ctx &amp;&amp; this.ctx.getTilesMapsUrl &amp;&amp; this.ctx.getTilesMapsUrl(), 'fetchAvailableMaps');
+};
+
+/**
+ * Fetch the Worker's allow-listed styles — `GET /api/styles` — resolving with
+ * `{ styles: [...] }`. See {@link bemap.MapLibreMap#fetchAvailableMaps}.
+ * @public
+ * @since 2.0.0
+ * @return {Promise&lt;Object>}
+ */
+bemap.MapLibreMap.prototype.fetchAvailableStyles = function() {
+  return this._fetchTilesApi(this.ctx &amp;&amp; this.ctx.getTilesStylesUrl &amp;&amp; this.ctx.getTilesStylesUrl(), 'fetchAvailableStyles');
+};
+
+/**
+ * Fetch the filename the `default` alias currently resolves to —
+ * `GET /api/default` — resolving with `{ default: '&lt;file>'|null }`.
+ * @public
+ * @since 2.0.0
+ * @return {Promise&lt;Object>}
+ */
+bemap.MapLibreMap.prototype.fetchDefaultMap = function() {
+  return this._fetchTilesApi(this.ctx &amp;&amp; this.ctx.getTilesDefaultUrl &amp;&amp; this.ctx.getTilesDefaultUrl(), 'fetchDefaultMap');
+};
+
+/**
+ * Shared authenticated GET against a Worker `/api/*` discovery endpoint.
+ * @private
+ */
+bemap.MapLibreMap.prototype._fetchTilesApi = function(url, label) {
+  if (!url) {
+    return Promise.reject(new Error('bemap.MapLibreMap.' + label + ': no tilesHost configured on the Context.'));
+  }
+  if (typeof fetch !== 'function') {
+    return Promise.reject(new Error('bemap.MapLibreMap.' + label + ': fetch is not available in this environment.'));
+  }
+  // Wait for the JWT so the first call after construction isn't unauthenticated;
+  // the fetch interceptor injects X-Session-Token on the request itself.
+  var auth = this._tilesAuth;
+  var ready = (auth &amp;&amp; typeof auth.whenTokenReady === 'function') ? auth.whenTokenReady() : Promise.resolve();
+  return ready.then(function() {
+    return fetch(url, { credentials: 'include' });
+  }).then(function(resp) {
+    if (!resp.ok) {
+      throw new Error('bemap.MapLibreMap.' + label + ': HTTP ' + resp.status + ' from ' + url);
+    }
+    return resp.json();
+  });
+};
+
 bemap.MapLibreMap.prototype.getCenter = function() {
   var c = this.native.getCenter();
   return new bemap.Coordinate(c.lng, c.lat);
@@ -1857,13 +1928,13 @@ bemap.MapLibreMap.prototype.addRasterLayer = function(layer) {
 bemap.MapLibreMap.prototype.setStyle = function (urlOrObject, options) {
   var self = this;
   var opts = options || {};
-  // Same fallback chain as the constructor — without this the
-  // TILES_SOURCE placeholder stays as a literal string when the
-  // customer calls `map.setStyle(obj)` without an explicit tilesFile
-  // and `ctx.tilesFile` is unset.
-  var tilesFile = opts.tilesFile
-    || (this.ctx &amp;&amp; this.ctx.tilesFile)
-    || 'OSM_250901_WORLD.pmtiles';
+  // Same precedence as the constructor (opts.tilesFile -> ctx.tilesFile ->
+  // ctx.geoserver -> 'default') — without this the TILES_SOURCE placeholder
+  // stays a literal string when the customer calls `map.setStyle(obj)` without
+  // an explicit tilesFile.
+  var tilesFile = (this.ctx &amp;&amp; typeof this.ctx.resolveTilesFile === 'function')
+    ? this.ctx.resolveTilesFile(opts.tilesFile)
+    : (opts.tilesFile || 'default');
   // Inline style object → apply immediately and return `this` for chaining
   // (matches the v1 contract and the cross-engine `.setStyle(...).move(...)`
   // pattern customer apps rely on).
@@ -2134,7 +2205,7 @@ bemap.MapLibreMap.prototype.remove = function () {
 <br class="clear">
 
 <footer>
-    Documentation generated by <a href="https://github.com/jsdoc/jsdoc">JSDoc 3.6.3</a> on Mon Jun 08 2026 15:14:33 GMT+0200 (heure d’été d’Europe centrale)
+    Documentation generated by <a href="https://github.com/jsdoc/jsdoc">JSDoc 3.6.3</a> on Tue Jun 09 2026 15:01:43 GMT+0200 (heure d’été d’Europe centrale)
 </footer>
 
 <script> prettyPrint(); </script>

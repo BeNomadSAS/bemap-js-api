@@ -57,8 +57,9 @@ After:
 var ctx = new bemap.Context({
   host: 'bemap.benomad.com', secure: true,
   login: 'l', password: 'p',
-  tilesHost: 'mptiles-api.benomad.net',     // NEW
-  tilesFile: 'OSM_250901_WORLD.pmtiles'     // NEW (optional, default applies)
+  tilesHost: 'mptiles-api.benomad.net',     // NEW — pair with host's env (prod here)
+  // tilesFile optional: omit for the server-resolved 'default' (or ctx.geoserver)
+  tilesFile: 'OSM_250901_WORLD.pmtiles'     // NEW — or pin an exact tileset
 });
 var map = new bemap.MapLibreMap(ctx, 'map');  // class change
 map.defaultLayers();                          // unchanged

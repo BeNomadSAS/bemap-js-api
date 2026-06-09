@@ -18,7 +18,10 @@ var ctx = new bemap.Context({
     "authInPost": false,
     "geoserver":  'default',
     // BeNomad Tiles v2.0 — MapLibreMap reads this and switches to the
-    // bundled BeNomad default style.
+    // bundled BeNomad default style. Pair tilesHost with the API host per env:
+    //   prod:    bemap.benomad.com         + mptiles-api.benomad.net
+    //   preprod: bemap-preprod.benomad.com + mptiles-api-preprod.benomad.net
+    //   beta:    bemap-beta.benomad.com    + mptiles-api-beta.benomad.net
     "tilesHost":  'mptiles-api.benomad.net'
 });
 
@@ -61,7 +64,25 @@ var map = new bemap.MapLibreMap(bemapMainCtx, 'map-default').move(2.3412, 48.856
 | `minZoom` | number | 0 | Minimum zoom level |
 | `maxZoom` | number | 22 | Maximum zoom level |
 | `maxBounds` | array | — | Restrict panning `[[sw_lng, sw_lat], [ne_lng, ne_lat]]` |
-| `tilesFile` | string | `OSM_250901_WORLD.pmtiles` | PMTiles file to load (per-instance override) |
+| `tilesFile` | string | `'default'` (server-resolved) | PMTiles map to load (per-instance override). See precedence below. |
+
+### Which map (tilesFile) is loaded
+
+Resolved as `opts.tilesFile → ctx.tilesFile → ctx.geoserver → 'default'`
+([`Context.resolveTilesFile()`](docs/services-v2/SERVICES.md)). Map names are
+bare (the `.pmtiles` suffix is optional); the Worker resolves aliases and the
+`'default'` map server-side. Because `ctx.tilesFile` defaults to the `'default'`
+sentinel, a Context with `geoserver: 'osm'` (and no explicit `tilesFile`) loads
+the **`osm`** tiles — the geoserver doubles as the tiles alias.
+
+### Fonts (glyphs)
+
+Labels render from `Noto Sans Regular/Bold` shipped in `dist/fonts/`. The
+default style auto-points `glyphs` at the bundle's own location (detected from
+the script URL) — zero config, as long as `dist/fonts/` is served next to
+`bemap-js-api.js`. Override the font host with
+`new bemap.Context({ glyphsUrl: 'https://my-host/fonts/{fontstack}/{range}.pbf' })`.
+See [Style customisation → Fonts](docs/style-customisation.md).
 
 ---
 
@@ -88,7 +109,7 @@ See [Style customisation](docs/style-customisation.md) for the full guide on wri
 
 ## 3. Switch tilesets (internal customers)
 
-The public demo is served from `OSM_250901_WORLD.pmtiles`. Internal customers with an ACL-gated subscription can load other tilesets:
+By default the map loads the server-resolved `'default'` map (or `ctx.geoserver`, e.g. `'osm'`). Internal customers with an ACL-gated subscription can pin other tilesets:
 
 ```
 {"bemap":{"language":"javascript"}}

@@ -356,7 +356,7 @@ bemap.Context = function (options) {
   this.chargingStationProvider = opts.chargingStationProvider || null;
 
   /**
-   * BeNomad Tiles Worker host, e.g. `'mptiles-api.benomad.net'`. When set,
+   * BeNomad Tiles Worker host, e.g. `'mptiles-api-beta.benomad.net'`. When set,
    * `bemap.MapLibreMap` will route its background through PMTiles instead of
    * WMS. Leaflet and OpenLayers ignore this field and keep WMS unchanged.
    * @public
@@ -382,12 +382,28 @@ bemap.Context = function (options) {
   this.tilesPath = opts.tilesPath || '';
 
   /**
-   * PMTiles archive file served by the Worker, e.g. `'OSM_250901_WORLD.pmtiles'`.
+   * PMTiles map served by the Worker — a bare name (the `.pmtiles` suffix is
+   * optional): an alias (`'osm'`, `'here'`) or an exact tileset
+   * (`'OSM_250901_WORLD'`). Defaults to `'default'`, which the Worker resolves
+   * to the configured default map server-side (via `_config/maps.json`), so the
+   * client never pins a map version. Aliases are case-insensitive.
+   * @public
+   * @since 2.0.0
+   * @type {string}
+   */
+  this.tilesFile = opts.tilesFile || 'default';
+
+  /**
+   * Optional override for the MapLibre glyphs (font) URL template, e.g.
+   * `'https://my-host/fonts/{fontstack}/{range}.pbf'`. When set it wins over
+   * the bundled-fonts auto-detection and the style's own `glyphs`. Leave unset
+   * to use the fonts shipped in `dist/fonts/` (auto-detected from the bundle
+   * location) with the public demo server as the ultimate fallback.
    * @public
    * @since 2.0.0
    * @type {string|null}
    */
-  this.tilesFile = opts.tilesFile || null;
+  this.glyphsUrl = opts.glyphsUrl || null;
 
   /**
    * Where the JWT lives between page loads: `'session'` (default), `'local'`,
@@ -412,7 +428,7 @@ bemap.Context.prototype.hasTilesConfig = function () {
 
 /**
  * Return the base URL of the BeNomad Tiles Worker, e.g.
- * `'https://mptiles-api.benomad.net'`.
+ * `'https://mptiles-api-beta.benomad.net'`.
  * @public
  * @since 2.0.0
  * @return {string|null}
@@ -456,6 +472,42 @@ bemap.Context.prototype.getTilesLogoutUrl = function () {
 };
 
 /**
+ * URL of the Worker map-config discovery endpoint (`/api/maps`) — returns the
+ * default map, aliases, and the allow-listed tileset filenames for this env.
+ * @public
+ * @since 2.0.0
+ * @return {string|null}
+ */
+bemap.Context.prototype.getTilesMapsUrl = function () {
+  var base = this.getTilesBaseUrl();
+  return base ? base + '/api/maps' : null;
+};
+
+/**
+ * URL of the Worker style-list endpoint (`/api/styles`) — returns the
+ * allow-listed style files for this env.
+ * @public
+ * @since 2.0.0
+ * @return {string|null}
+ */
+bemap.Context.prototype.getTilesStylesUrl = function () {
+  var base = this.getTilesBaseUrl();
+  return base ? base + '/api/styles' : null;
+};
+
+/**
+ * URL of the Worker default-map endpoint (`/api/default`) — returns the
+ * filename the `default` alias currently resolves to (or `null` server-side).
+ * @public
+ * @since 2.0.0
+ * @return {string|null}
+ */
+bemap.Context.prototype.getTilesDefaultUrl = function () {
+  var base = this.getTilesBaseUrl();
+  return base ? base + '/api/default' : null;
+};
+
+/**
  * Build the URL of a PMTiles archive (or `{z}/{x}/{y}.pbf` directory) served
  * by the Worker. Resolves to `https://{tilesHost}{tilesPath}/{file}`.
  * @public
@@ -466,9 +518,36 @@ bemap.Context.prototype.getTilesLogoutUrl = function () {
 bemap.Context.prototype.getTilesFileUrl = function (file) {
   var base = this.getTilesBaseUrl();
   if (!base) return null;
-  var f = file || this.tilesFile;
-  if (!f) return null;
+  // An explicit `file` is honoured as-is; otherwise apply the full precedence
+  // (ctx.tilesFile -> geoserver -> 'default'). The Worker resolves bare names
+  // and the 'default' alias server-side (via _config/maps.json), so the client
+  // never pins a map version. Map names are bare (no `.pmtiles`).
+  var f = file || this.resolveTilesFile();
   return base + '/' + f.replace(/^\//, '');
+};
+
+/**
+ * Decide which tiles map (PMTiles alias / tileset) MapLibre should load.
+ * Precedence, highest first:
+ *   1. an explicit per-call tile parameter (`explicit`, e.g. `opts.tilesFile`)
+ *   2. an explicit `ctx.tilesFile` (any value other than the 'default' sentinel)
+ *   3. `ctx.geoserver`, when set — so `geoserver: 'osm'` loads the 'osm' tiles
+ *   4. the literal 'default' — the Worker resolves it server-side
+ *
+ * The string `'default'` is treated as "not explicitly chosen", so a configured
+ * `geoserver` outranks the implicit default that `ctx.tilesFile` carries when
+ * the caller never set a tiles map.
+ *
+ * @public
+ * @since 2.0.0
+ * @param {String} [explicit] A per-call tilesFile that outranks the ctx values.
+ * @return {String}
+ */
+bemap.Context.prototype.resolveTilesFile = function (explicit) {
+  if (explicit &amp;&amp; explicit !== 'default') return explicit;
+  if (this.tilesFile &amp;&amp; this.tilesFile !== 'default') return this.tilesFile;
+  if (this.geoserver) return this.geoserver;
+  return 'default';
 };
 
 /**
@@ -551,7 +630,7 @@ bemap.Context.prototype.post = function (options) {
 <br class="clear">
 
 <footer>
-    Documentation generated by <a href="https://github.com/jsdoc/jsdoc">JSDoc 3.6.3</a> on Mon Jun 08 2026 15:14:33 GMT+0200 (heure d’été d’Europe centrale)
+    Documentation generated by <a href="https://github.com/jsdoc/jsdoc">JSDoc 3.6.3</a> on Tue Jun 09 2026 15:01:42 GMT+0200 (heure d’été d’Europe centrale)
 </footer>
 
 <script> prettyPrint(); </script>

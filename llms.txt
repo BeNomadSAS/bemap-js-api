@@ -61,7 +61,7 @@ uniform API. Same code, three engines.
     var ctx = new bemap.Context({
       host: 'bemap.benomad.com', secure: true,
       login: 'your-login', password: 'your-password',
-      tilesHost: 'mptiles-api.benomad.net'
+      tilesHost: 'mptiles-api-beta.benomad.net'
     });
     var map = new bemap.MapLibreMap(ctx, 'map');
     map.move(2.35, 48.85, 12);
@@ -80,7 +80,8 @@ uniform API. Same code, three engines.
 
 ### Classes
 
-- `bemap.Context({ host, secure, login, password, authInPost, geoserver?, tilesHost?, tilesFile?, tilesStyle? })`
+- `bemap.Context({ host, secure, login, password, authInPost, geoserver?, tilesHost?, tilesFile?, tilesStyle?, glyphsUrl? })`
+  - `tilesHost` must be paired with `host` per env (beta/preprod/prod). MapLibre map = which PMTiles map: `tilesFile → geoserver → 'default'` (server-resolved); `glyphsUrl` overrides the font host (default: fonts bundled in `dist/fonts/`, auto-detected).
 - `bemap.LeafletMap(ctx, target, options?)` — Leaflet engine
 - `bemap.Ol3Map(ctx, target, options?)` / `bemap.OlMap` — OpenLayers v10 engine
 - `bemap.MapLibreMap(ctx, target, options?)` — MapLibre v5 engine (BeNomad Tiles)
@@ -183,7 +184,7 @@ classes (`bemap.Geocoder`, `bemap.Autocomplete`, …) for retrocompat.
   on the bemap wrapper now. Use the wrapper.
 - **Patching `window.fetch` to inject tokens** — v2 uses MapLibre's
   `transformRequest`. Never recommend the fetch patch.
-- **Hardcoding `mptiles-api.benomad.net` in customer code** — that's the
+- **Hardcoding `mptiles-api-beta.benomad.net` in customer code** — that's the
   default. Customer code should rely on `ctx.tilesHost` (let
   RuntimeConfig handle it) or pass their own host explicitly.
 - **Manual `serviceWorker.register('/bemap-sw-tiles.js')`** — the library

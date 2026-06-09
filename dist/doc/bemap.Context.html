@@ -268,6 +268,84 @@
 
         
             
+<h4 class="name" id="glyphsUrl"><span class="type-signature"></span>glyphsUrl<span class="type-signature"> :string|null</span></h4>
+
+
+
+
+<div class="description">
+    Optional override for the MapLibre glyphs (font) URL template, e.g.`'https://my-host/fonts/{fontstack}/{range}.pbf'`. When set it wins overthe bundled-fonts auto-detection and the style's own `glyphs`. Leave unsetto use the fonts shipped in `dist/fonts/` (auto-detected from the bundlelocation) with the public demo server as the ultimate fallback.
+</div>
+
+
+
+    <h5>Type:</h5>
+    <ul>
+        <li>
+            
+<span class="param-type">string</span>
+|
+
+<span class="param-type">null</span>
+
+
+        </li>
+    </ul>
+
+
+
+
+
+<dl class="details">
+
+    
+
+    
+    <dt class="tag-since">Since:</dt>
+    <dd class="tag-since"><ul class="dummy"><li>2.0.0</li></ul></dd>
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+    <dt class="tag-source">Source:</dt>
+    <dd class="tag-source"><ul class="dummy"><li>
+        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line378">line 378</a>
+    </li></ul></dd>
+    
+
+    
+
+    
+
+    
+</dl>
+
+
+
+
+
+
+        
+            
 <h4 class="name" id="host"><span class="type-signature">(protected) </span>host<span class="type-signature"> :string</span></h4>
 
 
@@ -628,13 +706,13 @@
 
         
             
-<h4 class="name" id="tilesFile"><span class="type-signature"></span>tilesFile<span class="type-signature"> :string|null</span></h4>
+<h4 class="name" id="tilesFile"><span class="type-signature"></span>tilesFile<span class="type-signature"> :string</span></h4>
 
 
 
 
 <div class="description">
-    PMTiles archive file served by the Worker, e.g. `'OSM_250901_WORLD.pmtiles'`.
+    PMTiles map served by the Worker — a bare name (the `.pmtiles` suffix isoptional): an alias (`'osm'`, `'here'`) or an exact tileset(`'OSM_250901_WORLD'`). Defaults to `'default'`, which the Worker resolvesto the configured default map server-side (via `_config/maps.json`), so theclient never pins a map version. Aliases are case-insensitive.
 </div>
 
 
@@ -644,9 +722,6 @@
         <li>
             
 <span class="param-type">string</span>
-|
-
-<span class="param-type">null</span>
 
 
         </li>
@@ -688,7 +763,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line362">line 362</a>
+        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line366">line 366</a>
     </li></ul></dd>
     
 
@@ -712,7 +787,7 @@
 
 
 <div class="description">
-    BeNomad Tiles Worker host, e.g. `'mptiles-api.benomad.net'`. When set,`bemap.MapLibreMap` will route its background through PMTiles instead ofWMS. Leaflet and OpenLayers ignore this field and keep WMS unchanged.
+    BeNomad Tiles Worker host, e.g. `'mptiles-api-beta.benomad.net'`. When set,`bemap.MapLibreMap` will route its background through PMTiles instead ofWMS. Leaflet and OpenLayers ignore this field and keep WMS unchanged.
 </div>
 
 
@@ -991,7 +1066,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line371">line 371</a>
+        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line387">line 387</a>
     </li></ul></dd>
     
 
@@ -1071,7 +1146,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line472">line 472</a>
+        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line551">line 551</a>
     </li></ul></dd>
     
 
@@ -1181,7 +1256,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line461">line 461</a>
+        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line540">line 540</a>
     </li></ul></dd>
     
 
@@ -1294,7 +1369,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line453">line 453</a>
+        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line532">line 532</a>
     </li></ul></dd>
     
 
@@ -1403,7 +1478,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line498">line 498</a>
+        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line577">line 577</a>
     </li></ul></dd>
     
 
@@ -1469,7 +1544,7 @@
 
 
 <div class="description">
-    Return the base URL of the BeNomad Tiles Worker, e.g.`'https://mptiles-api.benomad.net'`.
+    Return the base URL of the BeNomad Tiles Worker, e.g.`'https://mptiles-api-beta.benomad.net'`.
 </div>
 
 
@@ -1516,7 +1591,119 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line392">line 392</a>
+        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line408">line 408</a>
+    </li></ul></dd>
+    
+
+    
+
+    
+
+    
+</dl>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<h5>Returns:</h5>
+
+        
+
+
+<dl>
+    <dt>
+        Type
+    </dt>
+    <dd>
+        
+<span class="param-type">string</span>
+|
+
+<span class="param-type">null</span>
+
+
+    </dd>
+</dl>
+
+    
+
+
+
+
+
+        
+            
+
+    
+
+    
+    <h4 class="name" id="getTilesDefaultUrl"><span class="type-signature"></span>getTilesDefaultUrl<span class="signature">()</span><span class="type-signature"> &rarr; {string|null}</span></h4>
+    
+
+    
+
+
+
+<div class="description">
+    URL of the Worker default-map endpoint (`/api/default`) — returns thefilename the `default` alias currently resolves to (or `null` server-side).
+</div>
+
+
+
+
+
+
+
+
+
+
+
+
+
+<dl class="details">
+
+    
+
+    
+    <dt class="tag-since">Since:</dt>
+    <dd class="tag-since"><ul class="dummy"><li>2.0.0</li></ul></dd>
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+    <dt class="tag-source">Source:</dt>
+    <dd class="tag-source"><ul class="dummy"><li>
+        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line477">line 477</a>
     </li></ul></dd>
     
 
@@ -1689,7 +1876,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line438">line 438</a>
+        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line490">line 490</a>
     </li></ul></dd>
     
 
@@ -1801,7 +1988,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line403">line 403</a>
+        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line419">line 419</a>
     </li></ul></dd>
     
 
@@ -1913,7 +2100,119 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line425">line 425</a>
+        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line441">line 441</a>
+    </li></ul></dd>
+    
+
+    
+
+    
+
+    
+</dl>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<h5>Returns:</h5>
+
+        
+
+
+<dl>
+    <dt>
+        Type
+    </dt>
+    <dd>
+        
+<span class="param-type">string</span>
+|
+
+<span class="param-type">null</span>
+
+
+    </dd>
+</dl>
+
+    
+
+
+
+
+
+        
+            
+
+    
+
+    
+    <h4 class="name" id="getTilesMapsUrl"><span class="type-signature"></span>getTilesMapsUrl<span class="signature">()</span><span class="type-signature"> &rarr; {string|null}</span></h4>
+    
+
+    
+
+
+
+<div class="description">
+    URL of the Worker map-config discovery endpoint (`/api/maps`) — returns thedefault map, aliases, and the allow-listed tileset filenames for this env.
+</div>
+
+
+
+
+
+
+
+
+
+
+
+
+
+<dl class="details">
+
+    
+
+    
+    <dt class="tag-since">Since:</dt>
+    <dd class="tag-since"><ul class="dummy"><li>2.0.0</li></ul></dd>
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+    <dt class="tag-source">Source:</dt>
+    <dd class="tag-source"><ul class="dummy"><li>
+        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line453">line 453</a>
     </li></ul></dd>
     
 
@@ -2025,7 +2324,119 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line414">line 414</a>
+        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line430">line 430</a>
+    </li></ul></dd>
+    
+
+    
+
+    
+
+    
+</dl>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<h5>Returns:</h5>
+
+        
+
+
+<dl>
+    <dt>
+        Type
+    </dt>
+    <dd>
+        
+<span class="param-type">string</span>
+|
+
+<span class="param-type">null</span>
+
+
+    </dd>
+</dl>
+
+    
+
+
+
+
+
+        
+            
+
+    
+
+    
+    <h4 class="name" id="getTilesStylesUrl"><span class="type-signature"></span>getTilesStylesUrl<span class="signature">()</span><span class="type-signature"> &rarr; {string|null}</span></h4>
+    
+
+    
+
+
+
+<div class="description">
+    URL of the Worker style-list endpoint (`/api/styles`) — returns theallow-listed style files for this env.
+</div>
+
+
+
+
+
+
+
+
+
+
+
+
+
+<dl class="details">
+
+    
+
+    
+    <dt class="tag-since">Since:</dt>
+    <dd class="tag-since"><ul class="dummy"><li>2.0.0</li></ul></dd>
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+    <dt class="tag-source">Source:</dt>
+    <dd class="tag-source"><ul class="dummy"><li>
+        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line465">line 465</a>
     </li></ul></dd>
     
 
@@ -2137,7 +2548,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line381">line 381</a>
+        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line397">line 397</a>
     </li></ul></dd>
     
 
@@ -2243,7 +2654,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line490">line 490</a>
+        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line569">line 569</a>
     </li></ul></dd>
     
 
@@ -2402,7 +2813,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line506">line 506</a>
+        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line585">line 585</a>
     </li></ul></dd>
     
 
@@ -2427,6 +2838,176 @@
 
 
 
+
+
+
+
+
+        
+            
+
+    
+
+    
+    <h4 class="name" id="resolveTilesFile"><span class="type-signature"></span>resolveTilesFile<span class="signature">(explicit<span class="signature-attributes">opt</span>)</span><span class="type-signature"> &rarr; {String}</span></h4>
+    
+
+    
+
+
+
+<div class="description">
+    Decide which tiles map (PMTiles alias / tileset) MapLibre should load.Precedence, highest first:  1. an explicit per-call tile parameter (`explicit`, e.g. `opts.tilesFile`)  2. an explicit `ctx.tilesFile` (any value other than the 'default' sentinel)  3. `ctx.geoserver`, when set — so `geoserver: 'osm'` loads the 'osm' tiles  4. the literal 'default' — the Worker resolves it server-sideThe string `'default'` is treated as "not explicitly chosen", so a configured`geoserver` outranks the implicit default that `ctx.tilesFile` carries whenthe caller never set a tiles map.
+</div>
+
+
+
+
+
+
+
+
+
+    <h5>Parameters:</h5>
+    
+
+<table class="params">
+    <thead>
+    <tr>
+        
+        <th>Name</th>
+        
+
+        <th>Type</th>
+
+        
+        <th>Attributes</th>
+        
+
+        
+
+        <th class="last">Description</th>
+    </tr>
+    </thead>
+
+    <tbody>
+    
+
+        <tr>
+            
+                <td class="name"><code>explicit</code></td>
+            
+
+            <td class="type">
+            
+                
+<span class="param-type">String</span>
+
+
+            
+            </td>
+
+            
+                <td class="attributes">
+                
+                    &lt;optional><br>
+                
+
+                
+
+                
+                </td>
+            
+
+            
+
+            <td class="description last">A per-call tilesFile that outranks the ctx values.</td>
+        </tr>
+
+    
+    </tbody>
+</table>
+
+
+
+
+
+
+<dl class="details">
+
+    
+
+    
+    <dt class="tag-since">Since:</dt>
+    <dd class="tag-since"><ul class="dummy"><li>2.0.0</li></ul></dd>
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+    <dt class="tag-source">Source:</dt>
+    <dd class="tag-source"><ul class="dummy"><li>
+        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line518">line 518</a>
+    </li></ul></dd>
+    
+
+    
+
+    
+
+    
+</dl>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<h5>Returns:</h5>
+
+        
+
+
+<dl>
+    <dt>
+        Type
+    </dt>
+    <dd>
+        
+<span class="param-type">String</span>
+
+
+    </dd>
+</dl>
+
+    
 
 
 
@@ -2490,7 +3071,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line482">line 482</a>
+        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line561">line 561</a>
     </li></ul></dd>
     
 
@@ -2542,7 +3123,7 @@
 <br class="clear">
 
 <footer>
-    Documentation generated by <a href="https://github.com/jsdoc/jsdoc">JSDoc 3.6.3</a> on Mon Jun 08 2026 15:14:34 GMT+0200 (heure d’été d’Europe centrale)
+    Documentation generated by <a href="https://github.com/jsdoc/jsdoc">JSDoc 3.6.3</a> on Tue Jun 09 2026 15:01:43 GMT+0200 (heure d’été d’Europe centrale)
 </footer>
 
 <script> prettyPrint(); </script>

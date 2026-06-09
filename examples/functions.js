@@ -1527,7 +1527,7 @@ FUNCS['setStyle'] = function() {
   // BeNomad PMTiles vector source. The overlay catalogue inside
   // MapLibreMap.setStyle replays any markers/polylines/popups that were
   // on the map before the swap, so user data survives a style change.
-  var TILE_URL = 'pmtiles://https://mptiles-api.benomad.net/OSM_250901_WORLD.pmtiles';
+  var TILE_URL = 'pmtiles://https://mptiles-api-beta.benomad.net/OSM_250901_WORLD.pmtiles';
   function skeleton(layers) {
     return {
       version: 8,

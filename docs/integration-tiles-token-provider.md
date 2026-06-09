@@ -1,7 +1,7 @@
 # BeNomad Tiles — backend token provider integration
 
 This guide shows how to integrate **BeNomad Tiles** (PMTiles via
-`mptiles-api.benomad.net`) into your application **without ever shipping
+`mptiles-api-beta.benomad.net`) into your application **without ever shipping
 your BeNomad credentials to the browser**.
 
 The library supports two auth modes — pick the one that matches your
@@ -44,7 +44,7 @@ backend is out of the loop, so you pay no bandwidth and add no latency.
 
 The endpoint is a **pure HTTP passthrough**: receive a POST from your
 authenticated frontend, attach `Authorization: Basic base64(login:password)`,
-forward it to `https://mptiles-api.benomad.net/api/login`, return the JSON
+forward it to `https://mptiles-api-beta.benomad.net/api/login`, return the JSON
 response as-is.
 
 No BeNomad SDK to install. No state. Just one HTTP call.
@@ -65,7 +65,7 @@ app.post('/tilesproxy/login', async (req, res) => {
     process.env.BENOMAD_TILES_LOGIN + ':' + process.env.BENOMAD_TILES_PASSWORD
   ).toString('base64');
 
-  const r = await fetch('https://mptiles-api.benomad.net/api/login', {
+  const r = await fetch('https://mptiles-api-beta.benomad.net/api/login', {
     method: 'POST',
     headers: { Authorization: 'Basic ' + basic }
   });
@@ -86,7 +86,7 @@ PWD = os.environ['BENOMAD_TILES_PASSWORD']
 @app.post('/tilesproxy/login')
 def login(user = Depends(your_auth_dependency)):
     r = requests.post(
-        'https://mptiles-api.benomad.net/api/login',
+        'https://mptiles-api-beta.benomad.net/api/login',
         auth=(LOGIN, PWD),
         timeout=10
     )
@@ -103,7 +103,7 @@ from flask import abort, jsonify
 @require_login  # your existing decorator
 def tiles_login():
     r = requests.post(
-        'https://mptiles-api.benomad.net/api/login',
+        'https://mptiles-api-beta.benomad.net/api/login',
         auth=(os.environ['BENOMAD_TILES_LOGIN'],
               os.environ['BENOMAD_TILES_PASSWORD']),
         timeout=10
@@ -119,7 +119,7 @@ def tiles_login():
 session_start();
 if (!isset($_SESSION['user'])) { http_response_code(401); exit; }
 
-$ch = curl_init('https://mptiles-api.benomad.net/api/login');
+$ch = curl_init('https://mptiles-api-beta.benomad.net/api/login');
 curl_setopt_array($ch, [
   CURLOPT_POST => true,
   CURLOPT_USERPWD => getenv('BENOMAD_TILES_LOGIN') . ':' . getenv('BENOMAD_TILES_PASSWORD'),
@@ -145,7 +145,7 @@ public class TilesProxyController {
     @Value("${benomad.tiles.login}")    private String login;
     @Value("${benomad.tiles.password}") private String password;
 
-    private static final String UPSTREAM = "https://mptiles-api.benomad.net/api/login";
+    private static final String UPSTREAM = "https://mptiles-api-beta.benomad.net/api/login";
     private final RestTemplate rt = new RestTemplate();
 
     @PostMapping("/login")
@@ -171,7 +171,7 @@ public class TilesProxyController : ControllerBase {
     public async Task<IActionResult> Login() {
         var creds = Environment.GetEnvironmentVariable("BENOMAD_TILES_LOGIN")
                   + ":" + Environment.GetEnvironmentVariable("BENOMAD_TILES_PASSWORD");
-        var req = new HttpRequestMessage(HttpMethod.Post, "https://mptiles-api.benomad.net/api/login");
+        var req = new HttpRequestMessage(HttpMethod.Post, "https://mptiles-api-beta.benomad.net/api/login");
         req.Headers.Authorization = new AuthenticationHeaderValue(
             "Basic", Convert.ToBase64String(Encoding.UTF8.GetBytes(creds)));
         var r = await http.SendAsync(req);
@@ -189,7 +189,7 @@ public class TilesProxyController : ControllerBase {
 ```go
 func tilesLogin(w http.ResponseWriter, r *http.Request) {
     // require your usual session/auth here
-    req, _ := http.NewRequest("POST", "https://mptiles-api.benomad.net/api/login", nil)
+    req, _ := http.NewRequest("POST", "https://mptiles-api-beta.benomad.net/api/login", nil)
     req.SetBasicAuth(os.Getenv("BENOMAD_TILES_LOGIN"), os.Getenv("BENOMAD_TILES_PASSWORD"))
     resp, err := http.DefaultClient.Do(req)
     if err != nil { http.Error(w, err.Error(), 502); return }
@@ -206,7 +206,7 @@ func tilesLogin(w http.ResponseWriter, r *http.Request) {
 
 ```js
 new bemap.Context({
-  tilesHost: 'mptiles-api.benomad.net',
+  tilesHost: 'mptiles-api-beta.benomad.net',
   tilesTokenProvider: function () {
     return fetch('/tilesproxy/login', {
       method: 'POST',
@@ -251,7 +251,7 @@ let cached = null; // { token, exp }
 async function getCachedToken() {
   const nowSec = Date.now() / 1000;
   if (cached && cached.exp - nowSec > 60) return cached;
-  const r = await fetch('https://mptiles-api.benomad.net/api/login', {
+  const r = await fetch('https://mptiles-api-beta.benomad.net/api/login', {
     method: 'POST',
     headers: { Authorization: 'Basic ' + Buffer.from(LOGIN + ':' + PWD).toString('base64') }
   });
@@ -279,7 +279,7 @@ module-level variable (single instance) or Redis (multi-instance).
 | --- | --- |
 | `POST /tilesproxy/login` returns 401 from your endpoint | Your app's auth gate rejected the request — check session/cookie/CORS |
 | `POST /tilesproxy/login` returns 502 | Upstream rejected your credentials — check the env vars match what BeNomad gave you |
-| Network panel shows `POST mptiles-api.benomad.net/api/login` from the browser | `tilesTokenProvider` is not configured — the lib fell back to direct mode. Verify the Context option is set and the provider is a function, not a string |
+| Network panel shows `POST mptiles-api-beta.benomad.net/api/login` from the browser | `tilesTokenProvider` is not configured — the lib fell back to direct mode. Verify the Context option is set and the provider is a function, not a string |
 | `GET …/world.pmtiles` returns 401 | The token reached the browser but isn't being attached. Open DevTools → check the `X-Session-Token` header on tile requests. If missing, file an issue. |
 | Frontend throws "tilesTokenProvider returned no token" | Your endpoint returned 200 but the JSON shape is wrong — must be `{ token: '<JWT>' }` (or `{ jwt }` / `{ accessToken }`) |
 | 60 min after page load, tiles fail | Token renewal failed. Check `map.on('error', …)` for the cause; usually a transient network error during the proactive refresh — reload the page to recover |
@@ -288,7 +288,7 @@ module-level variable (single instance) or Redis (multi-instance).
 
 ## Reference
 
-- BeNomad Tiles login endpoint: `POST https://mptiles-api.benomad.net/api/login` (HTTP Basic Auth → returns `{ token: '<JWT, 1h exp>' }`)
+- BeNomad Tiles login endpoint: `POST https://mptiles-api-beta.benomad.net/api/login` (HTTP Basic Auth → returns `{ token: '<JWT, 1h exp>' }`)
 - Library auth module: [src/bemap-maplibre/bemap-tiles-auth.js](../src/bemap-maplibre/bemap-tiles-auth.js)
 - Direct-mode walkthrough: [docs/migration-wms-to-tiles.md](migration-wms-to-tiles.md)
 - Service Worker cache: [docs/browser-cache.md](browser-cache.md)

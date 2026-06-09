@@ -602,7 +602,7 @@ accurate before any runtime toggle.
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html">bemap-maplibre/bemap-maplibre-v5/bemap-map-maplibre.js</a>, <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html#line416">line 416</a>
+        <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html">bemap-maplibre/bemap-maplibre-v5/bemap-map-maplibre.js</a>, <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html#line423">line 423</a>
     </li></ul></dd>
     
 
@@ -1394,7 +1394,7 @@ the hint; dev console gets a one-time `console.info`.
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html">bemap-maplibre/bemap-maplibre-v5/bemap-map-maplibre.js</a>, <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html#line567">line 567</a>
+        <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html">bemap-maplibre/bemap-maplibre-v5/bemap-map-maplibre.js</a>, <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html#line574">line 574</a>
     </li></ul></dd>
     
 
@@ -1658,7 +1658,7 @@ the hint; dev console gets a one-time `console.info`.
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html">bemap-maplibre/bemap-maplibre-v5/bemap-map-maplibre.js</a>, <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html#line478">line 478</a>
+        <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html">bemap-maplibre/bemap-maplibre-v5/bemap-map-maplibre.js</a>, <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html#line485">line 485</a>
     </li></ul></dd>
     
 
@@ -5509,7 +5509,7 @@ the registry is cleared at the end regardless.
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html">bemap-maplibre/bemap-maplibre-v5/bemap-map-maplibre.js</a>, <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html#line616">line 616</a>
+        <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html">bemap-maplibre/bemap-maplibre-v5/bemap-map-maplibre.js</a>, <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html#line623">line 623</a>
     </li></ul></dd>
     
 
@@ -7242,6 +7242,333 @@ Manual implementation using GeoJSON sources + mouse events.
     
 
     
+    <h4 class="name" id="fetchAvailableMaps"><span class="type-signature"></span>fetchAvailableMaps<span class="signature">()</span><span class="type-signature"> &rarr; {Promise.&lt;Object>}</span></h4>
+    
+
+    
+
+
+
+<div class="description">
+    Fetch the Worker's map config — `GET /api/maps` — resolving with`{ default, aliases, tilesets }` so an app can build a map-picker. Requires`ctx.tilesHost`; the session token is attached automatically by the TilesAuthfetch interceptor (it waits for login to complete first).
+</div>
+
+
+
+
+
+
+
+
+
+
+
+
+
+<dl class="details">
+
+    
+
+    
+    <dt class="tag-since">Since:</dt>
+    <dd class="tag-since"><ul class="dummy"><li>2.0.0</li></ul></dd>
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+    <dt class="tag-source">Source:</dt>
+    <dd class="tag-source"><ul class="dummy"><li>
+        <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html">bemap-maplibre/bemap-maplibre-v5/bemap-map-maplibre.js</a>, <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html#line1627">line 1627</a>
+    </li></ul></dd>
+    
+
+    
+
+    
+
+    
+</dl>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<h5>Returns:</h5>
+
+        
+
+
+<dl>
+    <dt>
+        Type
+    </dt>
+    <dd>
+        
+<span class="param-type">Promise.&lt;Object></span>
+
+
+    </dd>
+</dl>
+
+    
+
+
+
+
+
+        
+            
+
+    
+
+    
+    <h4 class="name" id="fetchAvailableStyles"><span class="type-signature"></span>fetchAvailableStyles<span class="signature">()</span><span class="type-signature"> &rarr; {Promise.&lt;Object>}</span></h4>
+    
+
+    
+
+
+
+<div class="description">
+    Fetch the Worker's allow-listed styles — `GET /api/styles` — resolving with`{ styles: [...] }`. See <a href="bemap.MapLibreMap.html#fetchAvailableMaps">bemap.MapLibreMap#fetchAvailableMaps</a>.
+</div>
+
+
+
+
+
+
+
+
+
+
+
+
+
+<dl class="details">
+
+    
+
+    
+    <dt class="tag-since">Since:</dt>
+    <dd class="tag-since"><ul class="dummy"><li>2.0.0</li></ul></dd>
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+    <dt class="tag-source">Source:</dt>
+    <dd class="tag-source"><ul class="dummy"><li>
+        <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html">bemap-maplibre/bemap-maplibre-v5/bemap-map-maplibre.js</a>, <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html#line1638">line 1638</a>
+    </li></ul></dd>
+    
+
+    
+
+    
+
+    
+</dl>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<h5>Returns:</h5>
+
+        
+
+
+<dl>
+    <dt>
+        Type
+    </dt>
+    <dd>
+        
+<span class="param-type">Promise.&lt;Object></span>
+
+
+    </dd>
+</dl>
+
+    
+
+
+
+
+
+        
+            
+
+    
+
+    
+    <h4 class="name" id="fetchDefaultMap"><span class="type-signature"></span>fetchDefaultMap<span class="signature">()</span><span class="type-signature"> &rarr; {Promise.&lt;Object>}</span></h4>
+    
+
+    
+
+
+
+<div class="description">
+    Fetch the filename the `default` alias currently resolves to —`GET /api/default` — resolving with `{ default: '<file>'|null }`.
+</div>
+
+
+
+
+
+
+
+
+
+
+
+
+
+<dl class="details">
+
+    
+
+    
+    <dt class="tag-since">Since:</dt>
+    <dd class="tag-since"><ul class="dummy"><li>2.0.0</li></ul></dd>
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+    <dt class="tag-source">Source:</dt>
+    <dd class="tag-source"><ul class="dummy"><li>
+        <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html">bemap-maplibre/bemap-maplibre-v5/bemap-map-maplibre.js</a>, <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html#line1649">line 1649</a>
+    </li></ul></dd>
+    
+
+    
+
+    
+
+    
+</dl>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<h5>Returns:</h5>
+
+        
+
+
+<dl>
+    <dt>
+        Type
+    </dt>
+    <dd>
+        
+<span class="param-type">Promise.&lt;Object></span>
+
+
+    </dd>
+</dl>
+
+    
+
+
+
+
+
+        
+            
+
+    
+
+    
     <h4 class="name" id="flyTo"><span class="type-signature"></span>flyTo<span class="signature">(lon, lat, zoom, options)</span><span class="type-signature"></span></h4>
     
 
@@ -7961,7 +8288,7 @@ update; subscribe via `onEffectChange` for live notification.
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html">bemap-maplibre/bemap-maplibre-v5/bemap-map-maplibre.js</a>, <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html#line406">line 406</a>
+        <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html">bemap-maplibre/bemap-maplibre-v5/bemap-map-maplibre.js</a>, <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html#line413">line 413</a>
     </li></ul></dd>
     
 
@@ -8446,7 +8773,7 @@ update; subscribe via `onEffectChange` for live notification.
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html">bemap-maplibre/bemap-maplibre-v5/bemap-map-maplibre.js</a>, <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html#line1901">line 1901</a>
+        <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html">bemap-maplibre/bemap-maplibre-v5/bemap-map-maplibre.js</a>, <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html#line1972">line 1972</a>
     </li></ul></dd>
     
 
@@ -9040,7 +9367,7 @@ update; subscribe via `onEffectChange` for live notification.
 
 
 <div class="description">
-    Load BeMap PMTiles vector tiles. Auto-authenticates using bemap.Context credentials.Usage:  map.loadBeMapTiles();  // uses defaults + context credentials  map.loadBeMapTiles({ url: 'https://mptiles-api.benomad.net', tilesFile: 'Europe.pmtiles', style: 'style_liberty.json' });  map.loadBeMapTiles({ token: 'existing-jwt' });  // skip login
+    Load BeMap PMTiles vector tiles. Auto-authenticates using bemap.Context credentials.Usage:  map.loadBeMapTiles();  // uses defaults + context credentials  map.loadBeMapTiles({ url: 'https://mptiles-api-beta.benomad.net', tilesFile: 'Europe.pmtiles', style: 'style_liberty.json' });  map.loadBeMapTiles({ token: 'existing-jwt' });  // skip login
 </div>
 
 
@@ -9157,7 +9484,7 @@ update; subscribe via `onEffectChange` for live notification.
 
             
 
-            <td class="description last">PMTiles file (default: 'OSM_250901_WORLD.pmtiles').</td>
+            <td class="description last">PMTiles map alias or tileset name (default: 'default' — the Worker chooses).</td>
         </tr>
 
     
@@ -9345,7 +9672,7 @@ update; subscribe via `onEffectChange` for live notification.
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html">bemap-maplibre/bemap-maplibre-v5/bemap-map-maplibre.js</a>, <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html#line1072">line 1072</a>
+        <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html">bemap-maplibre/bemap-maplibre-v5/bemap-map-maplibre.js</a>, <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html#line1079">line 1079</a>
     </li></ul></dd>
     
 
@@ -9527,7 +9854,7 @@ update; subscribe via `onEffectChange` for live notification.
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html">bemap-maplibre/bemap-maplibre-v5/bemap-map-maplibre.js</a>, <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html#line953">line 953</a>
+        <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html">bemap-maplibre/bemap-maplibre-v5/bemap-map-maplibre.js</a>, <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html#line960">line 960</a>
     </li></ul></dd>
     
 
@@ -13852,7 +14179,7 @@ false`). The dashboard's active-effects bar consumes this.
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html">bemap-maplibre/bemap-maplibre-v5/bemap-map-maplibre.js</a>, <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html#line1586">line 1586</a>
+        <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html">bemap-maplibre/bemap-maplibre-v5/bemap-map-maplibre.js</a>, <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html#line1597">line 1597</a>
     </li></ul></dd>
     
 
@@ -14599,7 +14926,7 @@ false`). The dashboard's active-effects bar consumes this.
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html">bemap-maplibre/bemap-maplibre-v5/bemap-map-maplibre.js</a>, <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html#line396">line 396</a>
+        <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html">bemap-maplibre/bemap-maplibre-v5/bemap-map-maplibre.js</a>, <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html#line403">line 403</a>
     </li></ul></dd>
     
 
@@ -15369,7 +15696,7 @@ false`). The dashboard's active-effects bar consumes this.
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html">bemap-maplibre/bemap-maplibre-v5/bemap-map-maplibre.js</a>, <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html#line1829">line 1829</a>
+        <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html">bemap-maplibre/bemap-maplibre-v5/bemap-map-maplibre.js</a>, <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html#line1900">line 1900</a>
     </li></ul></dd>
     
 
@@ -16800,7 +17127,7 @@ the map container so the engine-specific selectors all hit at once.
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html">bemap-maplibre/bemap-maplibre-v5/bemap-map-maplibre.js</a>, <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html#line1303">line 1303</a>
+        <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html">bemap-maplibre/bemap-maplibre-v5/bemap-map-maplibre.js</a>, <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html#line1314">line 1314</a>
     </li></ul></dd>
     
 
@@ -17061,7 +17388,7 @@ the map container so the engine-specific selectors all hit at once.
 <br class="clear">
 
 <footer>
-    Documentation generated by <a href="https://github.com/jsdoc/jsdoc">JSDoc 3.6.3</a> on Mon Jun 08 2026 15:14:34 GMT+0200 (heure d’été d’Europe centrale)
+    Documentation generated by <a href="https://github.com/jsdoc/jsdoc">JSDoc 3.6.3</a> on Tue Jun 09 2026 15:01:44 GMT+0200 (heure d’été d’Europe centrale)
 </footer>
 
 <script> prettyPrint(); </script>

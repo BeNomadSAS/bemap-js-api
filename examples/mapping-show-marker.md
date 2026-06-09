@@ -26,7 +26,7 @@ var ctx = new bemap.Context({
     "authInPost": false,
     "geoserver":  'default',
     // BeNomad Tiles v2.0 — MapLibre uses it, Leaflet / OL ignore it.
-    "tilesHost":  'mptiles-api.benomad.net'
+    "tilesHost":  'mptiles-api-beta.benomad.net'
 });
 ```
 

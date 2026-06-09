@@ -41,7 +41,7 @@ consumers don't pay for a SW they don't need.
 var ctx = new bemap.Context({
   host: 'bemap.benomad.com', secure: true,
   login: '...', password: '...',
-  tilesHost: 'mptiles-api.benomad.net'   // <-- this is the switch
+  tilesHost: 'mptiles-api-beta.benomad.net'   // <-- this is the switch
 });
 new bemap.MapLibreMap(ctx, 'map');       // SW registers automatically
 ```

@@ -70,7 +70,7 @@ whatever your bundler serves). Pick only the engine files you actually use.
     host: 'bemap.benomad.com', secure: true,
     login: 'your-bemap-login',
     password: 'your-bemap-password',
-    tilesHost: 'mptiles-api.benomad.net'
+    tilesHost: 'mptiles-api-beta.benomad.net'
   });
   var map = new bemap.MapLibreMap(ctx, 'map');
   map.move(2.35, 48.85, 12);

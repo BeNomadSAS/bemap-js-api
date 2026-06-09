@@ -168,11 +168,13 @@ Avoidance: `AVOID_FERRIES`, `AVOID_MOTORWAYS`, `AVOID_TOLLS`,
 
 ## `bemap.RoutingOptions` (enum, server-canonical)
 
-Categorised below for readability. All values are valid server-side; any
-other string will trigger a 400 with the canonical accepted list.
+Categorised below for readability. The `options` array is sent to the server
+**verbatim** (no client-side whitelist), so any backend option works as a plain
+string even before it has a named constant; an unknown value triggers a 400
+with the canonical accepted list.
 
 **Used-destinations / waypoints**
-`USED_DESTINATIONS_OFF`, `WAYPOINTS`, `NO_MINIMAL_WAYPOINTS`, `WAYPOINTS_POLYLINE`
+`USED_DESTINATIONS_OFF`, `WAYPOINTS`, `MINIMAL_WAYPOINTS`, `NO_MINIMAL_WAYPOINTS`, `WAYPOINTS_POLYLINE`
 
 **Route sheet**
 `ROUTESHEET`, `ROUTESHEET_VERBOSE_LOW`, `ROUTESHEET_VERBOSE_MEDIUM`,
@@ -187,7 +189,21 @@ other string will trigger a 400 with the canonical accepted list.
 `ENERGY_CONSUMPTION`, `TOLL_COST`, `TAX_COST`, `ECO_TAX`
 
 **Reverse geocoding at waypoints**
-`REVGEO_POSTAL_ADDRESS`
+`REVGEO_POSTAL_ADDRESS`, `REVGEO_STRICT_DISABLE`
+
+**Trip optimisation (TSP-style waypoint reordering)**
+`OPTIMIZED_TRIP`, `OPTIMIZED_TRIP_CLOSE`, `OPTIMIZED_TRIP_ROUND`,
+`OPTIMIZED_TRIP_UNDEFSTOP`, `OPTIMIZED_ROUTE_FOR_CHARGING_STATION`
+
+**Isochrone / matrix / map-matching**
+`ISOCHRONE_FORWARD`, `ISOCHRONE_BACKWARD`, `MATRIX_COMPLEMENT`,
+`MATRIX_FOR_ROUND_OPTIM`, `MAPMATCH_AVOID_BRIDGE`, `MAPMATCH_AVOID_TUNNEL`
+
+**Traffic**
+`TRAFFIC`, `TRAFFIC_PATTERNS`, `TRAFFIC_PREDICTIVE`
+
+**Start/stop info & result ordering**
+`STARTSTOPINFO_WITHVIA`, `SORTBY_USED_ORDER`
 
 **Event stream (per-edge metadata)**
 `EVENT`, `EVT_DUPLICATE_FILTER`, `EVT_ENTRY_VALUE_AS_OBJECT`,
@@ -242,6 +258,7 @@ share the same request shape:
 | --- | --- | --- | --- |
 | `destinations` **R** | Array of `TraceRouteDestination` / `CoordinateSat` / `Coordinate` / `{lon,lat,time,...}` | `[]` | Chronological GPS samples. Auto-promoted. |
 | `routingVehicleProfile` **R** | `bemap.RoutingVehicleProfile` | `{ transportMode: 'CAR' }` (auto-injected) | Required server-side. |
+| `routingCriterias` | Array of `bemap.RoutingCriteria.*` | `null` | Avoid/optimise (e.g. `AVOID_TOLLS`) — supported server-side for traceroute. |
 | `options` | Array of `bemap.TraceRouteOptions.*` | `null` | |
 | `departureTime` | Date / epoch ms / ISO string | `null` | |
 | `adjustEta` | Boolean | `null` | Use GPS timestamps to recompute ETA. |
@@ -639,6 +656,12 @@ must be in the user's EV brand catalogue (fetch via `getBrands()` /
 | `allowMaxSpeedReco` | Boolean | `allowMaxSpdReco` | `false` | Recommend max speed. |
 | `co2Emissions` | Boolean | `co2emissions` | `false` | Include saved CO2. |
 | `debugStat` | Boolean | `debugStat` | `false` | Server-debug only. |
+| `arrivalTime` | Date / Number / String | `arrivalTime` | `null` | Arrive-by time (epoch ms / ISO / Date) — alternative to `departureTime`. |
+| `extraPayload` | Number (kg) | `extraPayload` | `null` | Extra payload on top of `payload`. |
+| `stepPointTimeSlots` | Array | `stepPointTimeSlots` | `null` | Per-step charge time-slot windows. |
+| `aroundEvse` | Boolean | `aroundEvse` | `false` | Include charging stations around step points in the response. |
+| `ignoreStatus` | Boolean | `ignoreStatus` | `false` | Ignore charging-station availability status. |
+| `evtExtKey` | String | `evtExtKey` | `null` | Extended route-timeline key (requires `events: true`). |
 | `geoserver` | String | `geoserver` | `ctx.getGeoserver()` | Override. |
 
 ## Response — `bemap.EvSmartRoutingResponse`
@@ -896,6 +919,67 @@ body), `getMessage()`.
 | [examples/services-v2/](../../examples/services-v2/) | 10 runnable demos (one per service). |
 
 ---
+
+# Map tiles — the `default` map & discovery
+
+When `Context.tilesHost` is set, `bemap.MapLibreMap` renders the BeNomad Tiles
+(PMTiles) base. Which map it uses is decided by `Context.tilesFile`:
+
+| `tilesFile` | Tile URL | Worker serves |
+| --- | --- | --- |
+| unset → `'default'` (the default) | `<host>/default` | the configured default map (server picks) |
+| `'osm'` / `'here'` | `<host>/osm` · `<host>/here` | that **alias** (case-insensitive) |
+| `'OSM_250901_WORLD.pmtiles'` | `<host>/OSM_250901_WORLD.pmtiles` | that exact tileset |
+
+Map names are **bare** — the `.pmtiles` suffix is optional; the Worker appends
+it and resolves aliases via its `_config/maps.json`. Pinning a specific file is
+discouraged for the common case: keep `tilesFile` at `'default'` (or an alias
+like `'osm'`) so a new map version rolls out without a client change.
+
+**Precedence.** The map name is resolved as
+`opts.tilesFile → ctx.tilesFile → ctx.geoserver → 'default'`
+(`Context.resolveTilesFile()`). Because `ctx.tilesFile` defaults to the
+`'default'` sentinel, a Context with `geoserver: 'osm'` and **no** explicit
+`tilesFile` loads the **`osm`** tiles — the geoserver doubles as the tiles
+alias. An explicit `tilesFile` (per-call or on the Context) always wins.
+
+```js
+var ctx = new bemap.Context({ tilesHost: 'mptiles-api-beta.benomad.net', login: 'u', password: 'p' });
+// ctx.tilesFile === 'default'  → server chooses the map
+ctx.tilesFile = 'here';        // or pin the HERE alias
+var map = new bemap.MapLibreMap(ctx, 'map');
+```
+
+## Discovery — what's available on this env
+
+The Worker exposes read-only config endpoints. The Context builds the URLs and
+`bemap.MapLibreMap` fetches them with the session token attached automatically:
+
+| Context URL | Map method | Endpoint | Resolves with |
+| --- | --- | --- | --- |
+| `getTilesMapsUrl()` | `fetchAvailableMaps()` | `GET /api/maps` | `{ default, aliases, tilesets }` |
+| `getTilesStylesUrl()` | `fetchAvailableStyles()` | `GET /api/styles` | `{ styles: [...] }` |
+| `getTilesDefaultUrl()` | `fetchDefaultMap()` | `GET /api/default` | `{ default: '<file>'\|null }` |
+
+```js
+var map = new bemap.MapLibreMap(ctx, 'map');
+map.fetchAvailableMaps().then(function (cfg) {
+    // cfg.aliases -> { osm, here, default }, cfg.tilesets -> full filenames
+    Object.keys(cfg.aliases).forEach(addToMapPicker);
+});
+```
+
+The fetch helpers wait for login to complete and reject with a clear error if
+`tilesHost` isn't configured. See the **Tiles & Map Discovery** example
+(`examples/services-v2/tiles-discovery.html`).
+
+## Fonts (glyphs)
+
+The default MapLibre style loads `Noto Sans Regular`/`Bold` from `dist/fonts/`,
+auto-detected from the bundle location — no setup beyond serving `dist/fonts/`
+next to `bemap-js-api.js`. Override with
+`new bemap.Context({ glyphsUrl: '…/{fontstack}/{range}.pbf' })`. Full details in
+`docs/style-customisation.md` → **Fonts (glyphs)**.
 
 # What this API never does (by design)
 

@@ -23,7 +23,7 @@ var ctx = new bemap.Context({
     // BeNomad Tiles v2.0 — when MapLibreMap sees tilesHost on the Context
     // it uses the bundled BeNomad default style and injects the JWT on
     // every tile request. Leaflet / OL ignore tilesHost and stay on WMS.
-    "tilesHost":  'mptiles-api.benomad.net'
+    "tilesHost":  'mptiles-api-beta.benomad.net'
 });
 ```
 
@@ -85,7 +85,7 @@ var map = new bemap.MapLibreMap(bemapMainCtx, 'map1', {
 
 The library:
 
-- POSTs the Context credentials to `https://mptiles-api.benomad.net/api/login` and caches the JWT.
+- POSTs the Context credentials to `https://mptiles-api-beta.benomad.net/api/login` and caches the JWT.
 - Injects the `X-Session-Token` header on every tile request via `transformRequest`.
 - Renews the token 5 minutes before expiry, and on every `401` the next request gets a fresh token transparently.
 - Loads the bundled gray-level style (`bemap.defaultStyle`) with bilingual place labels.

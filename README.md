@@ -17,19 +17,23 @@
 
 ## ▶️ Try it in 10 seconds
 
-> **Windows:** double-click **`start.bat`** &nbsp;·&nbsp; **macOS / Linux:** run **`./start.sh`**
+**1. Get the code** — [**Download ZIP**](https://github.com/BeNomadSAS/bemap-js-api/archive/refs/heads/main.zip) and unzip it, or `git clone https://github.com/BeNomadSAS/bemap-js-api.git`.
 
-Your browser opens the **live demo dashboard** — no build, no config. *(Needs [Node.js](https://nodejs.org). No Node? Run `python -m http.server 8080` and open <http://localhost:8080/examples/>.)*
+**2. Start it** — **Windows:** double-click **`start.bat`** &nbsp;·&nbsp; **macOS / Linux:** run **`./start.sh`**
 
-> ⚠️ **Don't** double-click `index.html` — browsers block maps & docs on `file://`. Always go through a local server (the launchers above do exactly that).
+Your browser opens the **live demo dashboard** — no build, no config. *(Needs [Node.js](https://nodejs.org). No Node? Run `python -m http.server 8080` from the unzipped folder, then open <http://localhost:8080/examples/>.)*
 
-Inside the dashboard → click **Credentials** (top-right), pick your **Environment**, enter your **BeMap login**, and explore every feature with **live, copy-paste-ready** code.
+> ⚠️ **Don't** double-click `index.html` — browsers block maps & docs on `file://`. The launcher runs a local server for you.
+
+Then in the dashboard → click **Credentials** (top-right), pick your **Environment**, enter your **BeMap login**, and explore every feature with **live, copy-paste-ready** code.
 
 ---
 
 ## 🚀 Use it in your app — 2 steps
 
-**1 · Load an engine + the BeMap bundle**
+**1 · Copy the `dist/` files into your project, then load an engine + the BeMap bundle**
+
+Copy the **`dist/`** folder from this package into your app (e.g. `public/`, `static/`, `assets/`), then reference the files — adjust the paths to wherever you put them:
 
 ```html
 <link rel="stylesheet" href="dist/leaflet.css">
@@ -37,7 +41,7 @@ Inside the dashboard → click **Credentials** (top-right), pick your **Environm
 <script src="dist/leaflet.js"></script>
 <script src="dist/bemap-js-api.min.js"></script>
 ```
-> Swap `leaflet` for `ol` (OpenLayers), or `maplibre-gl` + `pmtiles` (MapLibre + vector tiles).
+> Swap `leaflet` for `ol` (OpenLayers), or `maplibre-gl` + `pmtiles` (MapLibre + vector tiles). You only need the engine files you actually use.
 
 **2 · Context → map → marker**
 

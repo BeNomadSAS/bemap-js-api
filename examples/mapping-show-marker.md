@@ -36,7 +36,7 @@ var ctx = new bemap.Context({
 
 ## MapLibre (BeNomad Tiles)
 
-The library reads `tilesHost` from the Context and loads the bundled BeNomad gray-level style — no inline style block needed.
+The library reads `tilesHost` from the Context and loads the live BeNomad charte from the Worker after login (tiny font-free fallback first) — no inline style block needed.
 
 ```
 {"bemap":{"language":"javascript","mapid":"map-ml","run":true}}

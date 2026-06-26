@@ -17,8 +17,9 @@ var ctx = new bemap.Context({
     "host":       'bemap.benomad.com',
     "authInPost": false,
     "geoserver":  'default',
-    // BeNomad Tiles v2.0 — MapLibreMap reads this and switches to the
-    // bundled BeNomad default style. Pair tilesHost with the API host per env:
+    // BeNomad Tiles v2.0 — MapLibreMap reads this, paints a tiny fallback,
+    // then loads the live BeNomad charte from the Worker after login. Pair
+    // tilesHost with the API host per env:
     //   prod:    bemap.benomad.com         + mptiles-api.benomad.net
     //   preprod: bemap-preprod.benomad.com + mptiles-api-preprod.benomad.net
     //   beta:    bemap-beta.benomad.com    + mptiles-api-beta.benomad.net
@@ -43,8 +44,8 @@ What happens behind the scenes:
 - The Context credentials are POSTed to `https://mptiles-api.benomad.net/api/login` and the resulting JWT is cached.
 - A `transformRequest` callback injects `X-Session-Token` on every PMTiles range request.
 - The token is renewed 5 minutes before expiry; on any `401` the next request transparently gets a fresh token.
-- The bundled gray-level style (`bemap.defaultStyle`) is loaded with bilingual place labels (browser-language + local name).
-- `dist/bemap-sw-tiles.js` is registered as a Service Worker at the page root — **you must copy that file to your site root once**. See [Browser cache](docs/browser-cache.md) for the one-step setup, verification, and the diagnostic console logs the library emits when the SW is unreachable.
+- A tiny font-free fallback paints instantly; then the **live default style loads from the Worker after login** (full charte with bilingual place labels + Worker fonts). Update the charte server-side and every app picks it up with no redeploy.
+- `dist/bemap-sw-tiles.js` is registered as a Service Worker at the page root — **you must copy that file to your site root once**. See [Browser cache](#page-../docs/browser-cache.md) for the one-step setup, verification, and the diagnostic console logs the library emits when the SW is unreachable.
 
 > Never commit production credentials. The runnable demos on this site use the dashboard-loaded `bemapMainCtx` from `examples/context.js`.
 
@@ -57,7 +58,7 @@ var map = new bemap.MapLibreMap(bemapMainCtx, 'map-default').move(2.3412, 48.856
 
 | Constructor option | Type | Default | Description |
 |--------------------|------|---------|-------------|
-| `style` | object/string | bundled `bemap.defaultStyle` | Override the bundled BeNomad style |
+| `style` | object/string | server default (tiny fallback first) | Pin a style name / URL / object; omit (or `'default'`) to load the Worker's default after login |
 | `pitch` | number | 0 | Camera tilt (0–85) |
 | `bearing` | number | 0 | Map rotation in degrees |
 | `zoom` | number | 2 | Initial zoom level |
@@ -69,7 +70,7 @@ var map = new bemap.MapLibreMap(bemapMainCtx, 'map-default').move(2.3412, 48.856
 ### Which map (tilesFile) is loaded
 
 Resolved as `opts.tilesFile → ctx.tilesFile → ctx.geoserver → 'default'`
-([`Context.resolveTilesFile()`](docs/services-v2/SERVICES.md)). Map names are
+([`Context.resolveTilesFile()`](#page-../docs/services-v2/SERVICES.md)). Map names are
 bare (the `.pmtiles` suffix is optional); the Worker resolves aliases and the
 `'default'` map server-side. Because `ctx.tilesFile` defaults to the `'default'`
 sentinel, a Context with `geoserver: 'osm'` (and no explicit `tilesFile`) loads
@@ -77,18 +78,18 @@ the **`osm`** tiles — the geoserver doubles as the tiles alias.
 
 ### Fonts (glyphs)
 
-Labels render from `Noto Sans Regular/Bold` shipped in `dist/fonts/`. The
-default style auto-points `glyphs` at the bundle's own location (detected from
-the script URL) — zero config, as long as `dist/fonts/` is served next to
-`bemap-js-api.js`. Override the font host with
+The library bundles **no fonts** — ship just `bemap-js-api.js` (+ css), no
+`dist/fonts/` folder. The tiny fallback requests no font; the server style
+brings its own glyphs from the Worker (a root-relative `/fonts/...` is
+absolutised to `<tilesHost>/fonts/...`). Override the font host with
 `new bemap.Context({ glyphsUrl: 'https://my-host/fonts/{fontstack}/{range}.pbf' })`.
-See [Style customisation → Fonts](docs/style-customisation.md).
+See [Style customisation → Fonts](#page-../docs/style-customisation.md).
 
 ---
 
 ## 2. Override the default style
 
-The library ships with the BeNomad gray-level style. If you have your own MapLibre Style JSON (corporate charte, dark mode, day/night theming, …), pass it in `opts.style`. The library still injects `X-Session-Token` automatically for any URL that points at `ctx.tilesHost`.
+The default style is the live BeNomad charte loaded from the Worker after login (with a tiny font-free fallback as the instant first paint). If you have your own MapLibre Style JSON (corporate charte, dark mode, day/night theming, …), pass it in `opts.style`. The library still injects `X-Session-Token` automatically for any URL that points at `ctx.tilesHost`.
 
 ```
 {"bemap":{"language":"javascript"}}
@@ -103,7 +104,7 @@ var map = new bemap.MapLibreMap(ctx, 'map1', {
 }).move(2.3412, 48.85693, 12);
 ```
 
-See [Style customisation](docs/style-customisation.md) for the full guide on writing your own style.
+See [Style customisation](#page-../docs/style-customisation.md) for the full guide on writing your own style.
 
 ---
 
@@ -193,7 +194,7 @@ map.setLight({
 | `setTerrain(opts)` / `removeTerrain()` | 3D relief |
 | `setSky(opts)` / `setLight(opts)` | Atmosphere / lighting |
 
-A live showcase of every method is at [Function Showcase](functions.html).
+A live showcase of every method is at [Function Showcase](#nav-functions.html).
 
 ---
 
@@ -270,7 +271,7 @@ map.on('cache:stats', function(stats) {
 });
 ```
 
-See [Browser cache](docs/browser-cache.md) for the full configuration matrix.
+See [Browser cache](#page-../docs/browser-cache.md) for the full configuration matrix.
 
 ---
 
@@ -287,7 +288,7 @@ var map = new bemap.LeafletMap(ctx, 'map').defaultLayers();
 var map = new bemap.MapLibreMap(ctx, 'map');  // tilesHost on the Context does the rest
 ```
 
-A side-by-side migration walk-through lives at [docs/migration-wms-to-tiles.md](docs/migration-wms-to-tiles.md).
+A side-by-side migration walk-through lives at [Migration WMS → Tiles](#page-../docs/migration-wms-to-tiles.md).
 
 ---
 

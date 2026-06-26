@@ -59,8 +59,9 @@
           <section class="bn-panel__section">
             <h4>Tips</h4>
             <p style="font-size:11px;color:var(--bn-text-dark-muted);margin:0;line-height:1.5">
-              The bundled style ships at <code>bemap.defaultStyle</code>. Any URL inside the style
-              that begins with <code>https://mptiles-api-beta.benomad.net</code> automatically gets the
+              The library bundles only a tiny font-free fallback (<code>bemap.fallbackStyle</code>); the
+              real charte loads from the Worker after login. Any URL inside a style that begins with
+              <code>https://mptiles-api-beta.benomad.net</code> automatically gets the
               <code>X-Session-Token</code> header — no manual fetch wiring required.
             </p>
           </section>
@@ -147,7 +148,7 @@ function instantiate(initialStyle) {
 
 function applyPreset(name) {
   var preset = (name === 'bundled') ? null : PRESETS[name];
-  textarea.value = preset ? JSON.stringify(preset, null, 2) : '// Bundled BeNomad gray-level style (bemap.defaultStyle) — no override.\n// Click "Apply style" to inject the edits above.';
+  textarea.value = preset ? JSON.stringify(preset, null, 2) : '// Tiny font-free fallback (bemap.fallbackStyle) — the real charte loads from the Worker.\n// Click "Apply style" to inject the edits above.';
   if (map) {
     if (preset) {
       try {
@@ -156,12 +157,12 @@ function applyPreset(name) {
       } catch (e) {
         bn.log('setStyle() failed: ' + e.message, 'err');
       }
-    } else if (bemap.defaultStyle) {
+    } else if (bemap.fallbackStyle) {
       try {
-        map.setStyle(bemap.defaultStyle);
-        bn.log('Reverted to bundled BeNomad style.', 'info');
+        map.setStyle(bemap.fallbackStyle);
+        bn.log('Reverted to the tiny fallback style (the real charte is the server default).', 'info');
       } catch (e) {
-        bn.log('setStyle(bundled) failed: ' + e.message, 'err');
+        bn.log('setStyle(fallback) failed: ' + e.message, 'err');
       }
     }
   } else {

@@ -6,8 +6,9 @@
  *   Calling `addLayer(BemapLayer)` AFTER `defaultLayers()` would stack a
  *   second opaque WMS tile layer on top — the shortcut above avoids that.
  *
- * • MapLibre: load the bundled BeNomad gray-level vector style (so the
- *   PMTiles source URL + JWT injection are handled by the library), then
+ * • MapLibre: let the library load the default BeNomad vector style (tiny
+ *   fallback then the live charte from the Worker — PMTiles source URL + JWT
+ *   injection handled for you), then
  *   walk the style's layers and override `paint` values with dark-blue
  *   colours. This sidesteps the `_hasCustomStyle` branch which silently
  *   drops `addLayer(BemapLayer)` calls.
@@ -88,7 +89,7 @@ onLoaded = function() {
   } catch (e) { postLog('Leaflet', 'err', e.message); }
 
   /* ============================================================
-   * MapLibre — bundled BeNomad style + dark-blue paint overrides
+   * MapLibre — BeNomad Tiles vector charte + dark-blue paint overrides
    * ============================================================ */
   var mlMap;
   try {
@@ -105,7 +106,7 @@ onLoaded = function() {
       mlMap.addLayer(new bemap.VectorLayer({ name: overlayNames[i] }));
     }
 
-    // Wait for the bundled style to fully load, then re-paint with dark blue.
+    // Wait for the style to fully load, then re-paint with dark blue.
     function applyDarkBluePaint() {
       var native = mlMap.native;
       if (!native || !native.isStyleLoaded()) {
@@ -176,7 +177,7 @@ onLoaded = function() {
     "// OpenLayers + Leaflet — WMS server-side rendering\n" +
     "var olMap = new bemap.Ol3Map(ctx, 'map-ol').defaultLayers({ styles: 'darkblue' }).move(-50, 43.6, 3);\n" +
     "var lfMap = new bemap.LeafletMap(ctx, 'map-lf').defaultLayers({ styles: 'darkblue' }).move(-50, 43.6, 3);\n\n" +
-    "// MapLibre — bundled BeNomad vector style + dark-blue paint overrides\n" +
+    "// MapLibre — BeNomad Tiles vector charte + dark-blue paint overrides\n" +
     "var mlMap = new bemap.MapLibreMap(ctx, 'map-ml').move(-50, 43.6, 3);\n" +
     "mlMap.native.once('load', function () {\n" +
     "  var style = mlMap.native.getStyle();\n" +

@@ -3,6 +3,10 @@
 This guide is for **consumers** integrating BeMap into their web application.
 For developing the library itself, see the "Building from source" section at the bottom.
 
+> 🏃 **Just want to see it run first?** Double-click **`start.bat`** (Windows) or **`./start.sh`**
+> (macOS / Linux), then open <http://localhost:8080/examples/>. Running & publishing in full:
+> **[DEPLOY.md](DEPLOY.md)**.
+
 ---
 
 ## 1. Get the package

@@ -129,7 +129,7 @@ widgets.forEach(function (w) {
   if (!w) return;
   w.setCustomLines(initialLines);
   // OL widget gets the open-source notices link for completeness.
-  if (w === widgets[0]) { w.noticesUrl = '../OPEN_SOURCE_NOTICES.txt'; w.refresh(); }
+  if (w === widgets[0]) { w.noticesUrl = '../OPEN_SOURCE_NOTICES.md'; w.refresh(); }
 });
 
 document.getElementById('engOl').textContent = widgets[0] ? widgets[0].getEngine() : 'unavailable';

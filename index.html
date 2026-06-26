@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<!--
+  GitHub-publish landing page. The `github` grunt task copies this to the
+  publish root as `index.html`, so the GitHub Pages root URL opens the BeMap
+  dashboard (examples/index.html) directly instead of the README. Source repo
+  keeps no root index.html; this file exists only to seed the publish root.
+-->
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>BeMap JS API · 2026</title>
+  <link rel="icon" type="image/png" sizes="152x152" href="examples/favicon.png" />
+  <!-- Instant redirect to the dashboard for browsers that honour meta-refresh. -->
+  <meta http-equiv="refresh" content="0; url=examples/index.html" />
+  <style>
+    html, body { margin: 0; height: 100%; background: #0d1117; color: #e6edf3;
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
+    .wrap { height: 100%; display: flex; flex-direction: column; align-items: center;
+      justify-content: center; gap: 14px; text-align: center; padding: 24px; }
+    .brand { font-size: 28px; font-weight: 700; letter-spacing: .3px; }
+    .brand small { display: block; font-weight: 400; opacity: .7; font-size: 14px; margin-top: 4px; }
+    a.go { color: #58a6ff; text-decoration: none; font-size: 15px; }
+    a.go:hover { text-decoration: underline; }
+    .spin { width: 26px; height: 26px; border: 3px solid rgba(255,255,255,.2);
+      border-top-color: #58a6ff; border-radius: 50%; animation: s 0.8s linear infinite; }
+    @keyframes s { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="brand">BeMap<small>JS API · 2026</small></div>
+    <div class="spin" aria-hidden="true"></div>
+    <p>Opening the dashboard… <a class="go" href="examples/index.html">continue →</a></p>
+  </div>
+  <script>
+    // Belt-and-braces: redirect via JS too (replace() so Back doesn't loop here).
+    location.replace('examples/index.html');
+  </script>
+</body>
+</html>

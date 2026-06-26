@@ -975,11 +975,11 @@ The fetch helpers wait for login to complete and reject with a clear error if
 
 ## Fonts (glyphs)
 
-The default MapLibre style loads `Noto Sans Regular`/`Bold` from `dist/fonts/`,
-auto-detected from the bundle location — no setup beyond serving `dist/fonts/`
-next to `bemap-js-api.js`. Override with
-`new bemap.Context({ glyphsUrl: '…/{fontstack}/{range}.pbf' })`. Full details in
-`docs/style-customisation.md` → **Fonts (glyphs)**.
+The library bundles **no fonts** — ship just `bemap-js-api.js` (+ css). The tiny
+fallback style requests none, and server styles fetch their own glyphs from the
+Worker (a root-relative `/fonts/...` is absolutised to `<tilesHost>/fonts/...`).
+Override with `new bemap.Context({ glyphsUrl: '…/{fontstack}/{range}.pbf' })`.
+Full details in `docs/style-customisation.md` → **Fonts (glyphs)**.
 
 # What this API never does (by design)
 

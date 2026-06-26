@@ -1,30 +1,51 @@
 # Style customisation — BeNomad Tiles
 
-`bemap.MapLibreMap` accepts a customer-supplied style in three shapes.
-All three flow through `bemap.TilesStyle.fetch()` →
-`resolvePlaceholders()` → `hardenSymbolCollisions()` before being handed
-to MapLibre.
+`bemap.MapLibreMap` takes the style in four shapes. All flow through
+`bemap.TilesStyle.fetch()` → `resolvePlaceholders()` →
+`hardenSymbolCollisions()` before MapLibre renders them.
 
-## 1. The bundled default
+| `style` option | Behaviour |
+| --- | --- |
+| *omitted* or `'default'` | **tiny fallback → live server default.** Paints the tiny font-free `bemap.fallbackStyle` instantly, then — once login completes — fetches the Worker's default style (`/api/default-style` → `/styles/<name>`) and swaps it in. No first-paint cost; the charte stays current with **no library rebuild**. |
+| `'<name>'` (bare, e.g. `'style_liberty'`) | tiny fallback, then loads that named style from `<tilesHost>/styles/<name>`. Names come from `map.fetchAvailableStyles()`. |
+| `'<url>'` | fetches that URL (the `X-Session-Token` is injected for `ctx.tilesHost` URLs). |
+| `{ …json… }` | uses the inline object directly. |
 
-Omit `style` and let the library use `bemap.defaultStyle`:
+## 1. The default — server-loaded after login
 
 ```js
-var map = new bemap.MapLibreMap(ctx, 'map');
+var map = new bemap.MapLibreMap(ctx, 'map');   // (equivalently: { style: 'default' })
 ```
 
-The shipped default is the BeNomad **charte 2026** gray-level style — a single
-PMTiles vector source rendering water, land-use, roads, boundaries, buildings
-and bilingual place labels.
+The map paints a **tiny fallback** immediately (land/water/roads, no labels),
+then loads the **live** default style from the Worker once login completes
+(`fetchDefaultStyle()` → `/styles/<name>` → overlay-preserving `setStyle`). So
+the default always tracks what the server publishes — change the charte on the
+Worker and every app picks it up on next load. The swap is skipped if you call
+`setStyle()` yourself during the brief async gap.
 
-**Provenance.** It's a snapshot of the charte style the BeNomad Tiles Worker
-serves at `<tilesHost>/styles/` (the same style you'd fetch with
-`map.fetchAvailableStyles()`), captured into `src/bemap-maplibre/bemap-default-style.js`
-from `styles_charte_2026.json` so the first frame renders without a Worker
-round-trip for the style. To refresh it, re-export the Worker's style JSON over
-`styles_charte_2026.json` and regenerate (keep the `TILES_SOURCE` /
-`__BILINGUAL_PLACE__` placeholders). Fonts (glyphs) are covered in the **Fonts
-(glyphs)** section below.
+> **The bundled style is a tiny fallback, not the source of truth.**
+> `bemap.fallbackStyle` (`src/bemap-maplibre/bemap-default-style.js`) is a
+> deliberately minimal **fill/line-only** style — background, land, water,
+> landcover and major roads, **no labels and no `glyphs`, so it ships no fonts**.
+> It exists only as the instant first paint and the offline/error fallback (if
+> the server style can't be fetched, the basic map stays — never a blank). It
+> carries the `TILES_SOURCE` placeholder. `bemap.defaultStyle` is kept as a
+> back-compat alias of it. Because the real charte lives on the Worker, you
+> never rebuild the library to update it.
+
+## 1b. Pick a style by name
+
+```js
+map.fetchAvailableStyles().then(function (cfg) {
+  // cfg.styles → ['style_liberty', 'charte_2026', …]   cfg.defaultStyle → the default
+});
+map.setStyle('style_liberty');   // bare name → <tilesHost>/styles/style_liberty
+```
+
+`setStyle()` accepts a **name**, a **URL**, or an **inline object** — all
+overlay-preserving. See the runnable **Style picker** example
+(`examples/services-v2/style-picker.html`). Fonts (glyphs) are covered below.
 
 ## 2. A customer-hosted style URL
 
@@ -70,27 +91,27 @@ Two placeholders make a style portable across customers and languages:
 
 ## Fonts (glyphs)
 
-MapLibre needs a `glyphs` URL to render text labels. The library ships the two
-fontstacks the default style uses — **`Noto Sans Regular`** and **`Noto Sans
-Bold`** — in `dist/fonts/`, and wires them up automatically. The `glyphs` URL is
-resolved in this precedence:
+**The library ships no fonts** — there is no `dist/fonts/` to deliver. Labels
+come from the **Worker**, not the bundle:
 
-1. **`ctx.glyphsUrl`** — an explicit override, e.g.
-   `new bemap.Context({ glyphsUrl: 'https://my-host/fonts/{fontstack}/{range}.pbf' })`.
-   Wins over everything and is applied to custom styles too.
-2. **Bundled fonts (the default).** At load, the bundle detects the directory
-   `bemap-js-api(.min).js` was served from and points the default style's
-   `glyphs` at `<that dir>/fonts/{fontstack}/{range}.pbf` — exposed as
-   `bemap.TilesStyle.bundledGlyphsUrl()`. Zero config.
-3. **Public fallback** — `demotiles.maplibre.org`, used only when the bundle
-   directory can't be detected (SSR / exotic loaders).
+- The **tiny fallback** (`bemap.fallbackStyle`, the instant first paint) has no
+  label layers and no `glyphs`, so it never requests a font.
+- The **server styles** (the live charte and any named style) ship their own
+  `glyphs`. A root-relative one (e.g. the charte's `/fonts/{fontstack}/{range}.pbf`)
+  is **absolutised against the tilesHost** by `resolvePlaceholders` →
+  `<tilesHost>/fonts/{fontstack}/{range}.pbf`, and the fetch interceptor attaches
+  the `X-Session-Token`. So the Worker serves the fonts, gated and cached.
 
-> **Deployment:** the one requirement is that `dist/fonts/` is served next to
-> `bemap-js-api.js`. It ships inside `dist/`, so vendoring the whole `dist/`
-> folder is enough — but copying *only* the `.js` (without the `fonts/` folder)
-> makes the auto-detected glyphs URL **404**. To self-host the glyph `.pbf`
-> ranges, drop them under `lib/fonts/<fontstack>/<range>.pbf` and run
-> `npx grunt` (see `lib/fonts/README.md`).
+To point glyphs somewhere else, set **`ctx.glyphsUrl`** — it overrides every
+style's `glyphs`:
+
+```js
+new bemap.Context({ glyphsUrl: 'https://my-host/fonts/{fontstack}/{range}.pbf' });
+```
+
+> **Deployment:** ship just `bemap-js-api.js` (+ css) — no fonts folder. Fonts
+> are served by the Worker with the style. (Earlier versions bundled fonts in
+> `dist/fonts/`; that's gone.)
 
 Custom styles (URL or inline object) keep their own `glyphs` unless you set
 `ctx.glyphsUrl`.
@@ -124,3 +145,25 @@ map.setLayerZoomRange('building', 13, 22);
 ```
 
 All four are no-ops on Leaflet and OpenLayers (warn-once, no throw).
+
+## Engine-agnostic styling (Leaflet / OpenLayers)
+
+`setStyle()` and the style/discovery fetchers exist on **all three engines**, so
+switching engine via `bemap.createMap` never breaks a style call. They aren't
+identical — Leaflet/OL render **WMS raster** (geoserver-styled), not MapLibre
+vector styles:
+
+| Call | MapLibre | Leaflet / OpenLayers (WMS) |
+| --- | --- | --- |
+| `setStyle('<name>')` | fetch `/styles/<name>` vector style | re-apply `<name>` as the WMS `STYLES` on the BeNomad layer(s) — the dark/light theme switch (`'benomadGrayLevel'` / `'benomadLight'`) |
+| `setStyle('<url>')` | fetch the vector style URL | swap the raster tile-source URL (XYZ) |
+| `setStyle({json})` | apply the vector style | no-op (warn once) — vector styles are MapLibre-only |
+| `fetchAvailableStyles()` / `fetchDefaultStyle()` / `fetchAvailableMaps()` / `fetchDefaultMap()` | resolve from the Worker | reject `bemap.Error.MAPLIBRE_ONLY` |
+
+A theme toggle stays portable — the app picks the right name per engine (vector
+style names ≠ WMS style names):
+
+```js
+map.setStyle(theme === 'dark' ? darkName : lightName);
+// MapLibre → vector dark/light style;  Leaflet/OL → WMS STYLES benomadGrayLevel / benomadLight
+```

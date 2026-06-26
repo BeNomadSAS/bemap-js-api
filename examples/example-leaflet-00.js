@@ -17,7 +17,7 @@ onLoaded = function () {
   var polylineLayer = map.getLayerByName(bemap.Map.DEFAULT_LAYER.POLYLINE);
 
   var clusterIcon = new bemap.Icon({
-    src: 'styles/icones/icon--point.svg',
+    src: 'images/map-marker-red.svg',
     anchorX: 0.5,
     anchorY: 0.5,
     anchorXUnits: 'fraction',

@@ -12,8 +12,8 @@ var maps = {};
 var state = { markers: {}, polylines: {}, polygons: {}, circles: {}, popups: {}, layers: {}, heatmaps: {} };
 
 // MapLibre background — BeNomad Tiles (via ctx.tilesHost). The style
-// switcher in the showcase rebuilds the map; the library re-applies the
-// bundled BeNomad gray-level style automatically.
+// switcher in the showcase rebuilds the map; the library paints the tiny
+// fallback then loads the live BeNomad charte from the Worker after login.
 function switchMapLibreStyle(value) {
   try {
     if (maps.ml && maps.ml.native) maps.ml.native.remove();
@@ -40,7 +40,7 @@ function initMaps() {
   } catch(e) { console.error('Leaflet init failed:', e); }
 
   try {
-    // ctx.tilesHost on bemapMainCtx → bundled BeNomad gray-level style.
+    // ctx.tilesHost on bemapMainCtx → tiny fallback then the live BeNomad charte from the Worker.
     // DON'T chain .move() on construction — MapLibre measures the canvas at
     // construction time, and inside the SPA iframe the container may not
     // have its final flex-grow width yet. We resize() + move() AFTER layout
@@ -1581,7 +1581,7 @@ FUNCS['setStyle'] = function() {
     '// MapLibre only — swap the entire style at runtime.\n' +
     '// Markers, polylines, popups added before the call are auto-replayed\n' +
     '// by bemap.MapLibreMap.setStyle (overlay catalogue).\n' +
-    'map.setStyle(bemap.defaultStyle);              // Bundled BeNomad gray\n' +
+    'map.setStyle(bemap.fallbackStyle);            // tiny font-free fallback\n' +
     'map.setStyle({version:8, sources:{...}, layers:[...]});  // your own JSON');
 
   // Pretty-print a MapLibre Style spec. The bundled BeNomad style has ~80
@@ -1623,8 +1623,8 @@ FUNCS['setStyle'] = function() {
   }
 
   setControls('setStyle — runtime style swap (ML only)', [
-    { label: 'Bundled (BeNomad gray)',
-      fn: function() { applyStyle('bundled',  bemap.defaultStyle); }},
+    { label: 'Fallback (tiny)',
+      fn: function() { applyStyle('fallback', bemap.fallbackStyle); }},
     { label: 'Dark',
       fn: function() { applyStyle('dark',     DARK); }},
     { label: 'Paper',

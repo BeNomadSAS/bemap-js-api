@@ -56,46 +56,6 @@ bemap.TilesStyle.SOURCE_PLACEHOLDER = 'TILES_SOURCE';
 bemap.TilesStyle.PLACE_LABEL_PLACEHOLDER = '__BILINGUAL_PLACE__';
 
 /**
- * Directory bemap-js-api(.min).js was loaded from, captured once at load so the
- * bundled default-style fonts (shipped to `dist/fonts/`) can be addressed with
- * an absolute URL — the default style is an inline object, so a relative
- * `glyphs` would resolve against the page origin, not the bundle. Returns e.g.
- * `'https://host/bemap-js-api/'`, or `null` when undetectable (SSR / exotic
- * loaders), in which case the style keeps its own (public demo) glyphs.
- * @private
- */
-bemap.TilesStyle._assetsBaseUrl = (function () {
-  try {
-    if (typeof document === 'undefined') return null;
-    var re = /bemap-js-api(\.min)?\.js(\?|#|$)/;
-    var s = document.currentScript;
-    if (!s || !s.src || !re.test(s.src)) {
-      var scripts = document.getElementsByTagName('script');
-      s = null;
-      for (var i = scripts.length - 1; i >= 0; i--) {
-        if (scripts[i].src &amp;&amp; re.test(scripts[i].src)) { s = scripts[i]; break; }
-      }
-    }
-    return (s &amp;&amp; s.src) ? s.src.replace(/[^\/]*(\?.*)?(#.*)?$/, '') : null;
-  } catch (e) { return null; }
-})();
-
-/**
- * The glyphs URL template for the fonts shipped in `dist/fonts/`, derived from
- * the bundle location — or `null` when the bundle dir can't be detected.
- * Apps can pass this to `new bemap.Context({ glyphsUrl: bemap.TilesStyle.bundledGlyphsUrl() })`,
- * but the default style already falls back to it automatically.
- * @public
- * @since 2.0.0
- * @return {String|null}
- */
-bemap.TilesStyle.bundledGlyphsUrl = function () {
-  return bemap.TilesStyle._assetsBaseUrl
-    ? bemap.TilesStyle._assetsBaseUrl + 'fonts/{fontstack}/{range}.pbf'
-    : null;
-};
-
-/**
  * @public
  * @param {bemap.Context} ctx
  * @param {String|Object} urlOrObject
@@ -150,19 +110,47 @@ bemap.TilesStyle.resolvePlaceholders = function (rawStyle, ctx, tilesFile) {
   var placeLabelPh = meta.place_label_placeholder || bemap.TilesStyle.PLACE_LABEL_PLACEHOLDER;
   var SOURCE_KEY = 'tiles';
 
-  // An explicit ctx.glyphsUrl overrides the style's font server everywhere
-  // (default and custom styles alike). The bundled-fonts default for the
-  // built-in style is applied in the MapLibreMap constructor.
-  if (ctx &amp;&amp; ctx.glyphsUrl) rawStyle.glyphs = ctx.glyphsUrl;
+  // Glyphs (fonts) resolution:
+  //   1. an explicit ctx.glyphsUrl overrides the style's font server everywhere;
+  //   2. else absolutise a ROOT-relative glyphs (e.g. the charte 2026 style's
+  //      "/fonts/{fontstack}/{range}.pbf") against the tilesHost Worker. When
+  //      MapLibre gets the style as an OBJECT it resolves a relative glyphs URL
+  //      against the PAGE origin — which 404s the Worker-hosted fonts and blanks
+  //      every label (the charte is label-heavy, so the map looks empty). Making
+  //      it absolute routes glyphs to the Worker; the fetch interceptor then
+  //      attaches X-Session-Token. A full ("https://…") or protocol-relative
+  //      ("//host/…") glyphs is already absolute and left as-is — the
+  //      charAt(1)!=='/' guard avoids mangling "//host" into "&lt;base>//host".
+  //   (The tiny bundled fallback has no symbol layers and no `glyphs`, so it
+  //   never requests a font; fonts come from the Worker with the server style.)
+  //   Mirrors mp-tiles-demo's resolveStyle.
+  if (ctx &amp;&amp; ctx.glyphsUrl) {
+    rawStyle.glyphs = ctx.glyphsUrl;
+  } else if (typeof rawStyle.glyphs === 'string'
+      &amp;&amp; rawStyle.glyphs.charAt(0) === '/' &amp;&amp; rawStyle.glyphs.charAt(1) !== '/') {
+    var glyphsBase = ctx &amp;&amp; typeof ctx.getTilesBaseUrl === 'function' &amp;&amp; ctx.getTilesBaseUrl();
+    if (glyphsBase) rawStyle.glyphs = glyphsBase + rawStyle.glyphs;
+  }
 
-  if (rawStyle.sources &amp;&amp; rawStyle.sources[sourcePh]) {
-    var tpl = rawStyle.sources[sourcePh];
+  // BeNomad styles ALWAYS proxy their tiles through the configured Worker
+  // (auth + gating + edge cache), using the app's resolved tileset — the
+  // style's OWN source url / archive / XYZ template is intentionally ignored
+  // (mirrors mp-tiles-demo). So the `TILES_SOURCE` placeholder, a self-hosted
+  // root-relative template, AND a hardcoded foreign archive url (e.g. a public
+  // R2 bucket that 404s, as style_google/style_apple ship) all resolve to
+  // `pmtiles://&lt;tilesHost>/&lt;tilesFile>`. Only the conventional source key
+  // (the placeholder or 'tiles') is rewritten; a source keyed anything else is
+  // left untouched, so a genuinely custom style is never hijacked.
+  var sourceTpl = rawStyle.sources &amp;&amp; (rawStyle.sources[sourcePh] || rawStyle.sources[SOURCE_KEY]);
+  if (sourceTpl) {
     var url = ctx &amp;&amp; ctx.getTilesFileUrl ? ctx.getTilesFileUrl(tilesFile) : null;
+    var newSrc = Object.assign({}, sourceTpl);
     if (url) {
-      rawStyle.sources[SOURCE_KEY] = Object.assign({}, tpl, { url: 'pmtiles://' + url });
-    } else {
-      rawStyle.sources[SOURCE_KEY] = tpl;
+      newSrc.url = 'pmtiles://' + url;
+      if (newSrc.tiles) delete newSrc.tiles; // ignore the style's own template/archive
     }
+    if (!rawStyle.sources) rawStyle.sources = {};
+    rawStyle.sources[SOURCE_KEY] = newSrc;
     if (sourcePh !== SOURCE_KEY) delete rawStyle.sources[sourcePh];
   }
 
@@ -257,7 +245,7 @@ bemap.TilesStyle.hardenSymbolCollisions = function (styleObject) {
 <br class="clear">
 
 <footer>
-    Documentation generated by <a href="https://github.com/jsdoc/jsdoc">JSDoc 3.6.3</a> on Tue Jun 09 2026 18:17:43 GMT+0200 (heure d’été d’Europe centrale)
+    Documentation generated by <a href="https://github.com/jsdoc/jsdoc">JSDoc 3.6.3</a> on Fri Jun 26 2026 15:48:23 GMT+0200 (heure d’été d’Europe centrale)
 </footer>
 
 <script> prettyPrint(); </script>

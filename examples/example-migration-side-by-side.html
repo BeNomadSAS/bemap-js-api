@@ -65,7 +65,7 @@ mapTiles.move(2.35, 48.85, 5);
 bn.log('Both maps constructed — Leaflet uses WMS, MapLibre uses BeNomad Tiles.', 'info');
 
 bn.onMapReady(mapWms,   function () { bn.log('Leaflet (WMS) ready.',  'ok'); });
-bn.onMapReady(mapTiles, function () { bn.log('MapLibre (BeNomad Tiles) ready — bundled style + JWT injected.', 'ok'); });
+bn.onMapReady(mapTiles, function () { bn.log('MapLibre (BeNomad Tiles) ready — fallback painted, live charte loads from the Worker; JWT injected.', 'ok'); });
 
 // Synchronise pan/zoom between the two so the comparison stays useful.
 var syncing = false;

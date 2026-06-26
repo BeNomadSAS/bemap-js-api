@@ -368,9 +368,10 @@ bemap.Context = function (options) {
   /**
    * Optional override for the MapLibre glyphs (font) URL template, e.g.
    * `'https://my-host/fonts/{fontstack}/{range}.pbf'`. When set it wins over
-   * the bundled-fonts auto-detection and the style's own `glyphs`. Leave unset
-   * to use the fonts shipped in `dist/fonts/` (auto-detected from the bundle
-   * location) with the public demo server as the ultimate fallback.
+   * every style's own `glyphs`. Leave unset and the library bundles no fonts:
+   * the tiny fallback style requests none, and server styles fetch their own
+   * glyphs from the Worker (a root-relative `/fonts/...` is absolutised to
+   * `<tilesHost>/fonts/...` by `bemap.TilesStyle.resolvePlaceholders`).
    * @public
    * @since 2.0.0
    * @type {string|null}
@@ -465,6 +466,41 @@ bemap.Context.prototype.getTilesMapsUrl = function () {
 bemap.Context.prototype.getTilesStylesUrl = function () {
   var base = this.getTilesBaseUrl();
   return base ? base + '/api/styles' : null;
+};
+
+/**
+ * URL of the Worker default-STYLE pointer (`/api/default-style`) — returns the
+ * name of the MapLibre style applied when the developer pins no style. Used for
+ * the "load the live charte from the server after login" default path.
+ * @public
+ * @since 2.0.0
+ * @return {string|null}
+ */
+bemap.Context.prototype.getTilesDefaultStyleUrl = function () {
+  var base = this.getTilesBaseUrl();
+  return base ? base + '/api/default-style' : null;
+};
+
+/**
+ * URL of a named MapLibre style JSON served by the Worker. Accepts either a
+ * bare style name (`'openfreemap_graylevel'` → `<base>/styles/openfreemap_graylevel`)
+ * or a Worker-relative path as returned by `/api/styles`
+ * (`'styles/openfreemap_graylevel.json'` → `<base>/styles/openfreemap_graylevel.json`).
+ * A leading slash is stripped; a value that already carries a path segment is
+ * resolved against the tilesHost root rather than re-nested under `/styles/`.
+ * Returns `null` when there is no tilesHost or no name.
+ * @public
+ * @since 2.0.0
+ * @param {String} name
+ * @return {string|null}
+ */
+bemap.Context.prototype.getTilesStyleUrl = function (name) {
+  var base = this.getTilesBaseUrl();
+  if (!base || !name) return null;
+  var n = String(name).replace(/^\/+/, '');           // strip leading slash(es)
+  // Already a path (e.g. 'styles/foo.json' from /api/styles) → prefix the host
+  // root; a bare name → the /styles/ collection.
+  return (n.indexOf('/') > -1) ? (base + '/' + n) : (base + '/styles/' + n);
 };
 
 /**
@@ -3119,6 +3155,9 @@ bemap.OlMap.prototype.addLayer = function (layer, options) {
           }
         })
       });
+      // Tag BeNomad WMS sources so setStyle('<theme>') re-styles ONLY these,
+      // never a customer's own bemap.WmsLayer (same ol.source.TileWMS).
+      layer.native.getSource()._bemapWms = true;
 
     } else if (bemap.inheritsof(layer, bemap.WmsLayer)) {
       layer.native = new ol.layer.Tile({
@@ -4218,21 +4257,57 @@ bemap.OlMap.prototype.cameraTour = function (options) {
 };
 
 /**
- * Cross-engine `setStyle` for OL — swaps the URL on the first XYZ /
- * TileWMS source it finds. Object form `{ url, attribution }`
- * accepted; string form treated as URL template.
+ * Cross-engine `setStyle` for OL. The MapLibre wrapper has the same name but a
+ * richer contract (vector style name / URL / object); on Leaflet/OL "style"
+ * means the WMS theme or the raster tile source. The argument is interpreted as:
+ *   • bare NAME (no '/' or ':') → re-applied as the WMS `STYLES` on the BeNomad
+ *     TileWMS source(s) — the dark/light theme switch (`'benomadGrayLevel'` /
+ *     `'benomadLight'`). Vector style names are MapLibre-only.
+ *   • URL string (contains '/' or ':') → swaps the XYZ raster source URL.
+ *   • inline style object → MapLibre-only; warn-once no-op here.
  *
  * @public
  * @since 2.0.0
+ * @param {String|Object} urlOrSpec  WMS style name, a raster URL template, or a
+ *                                   MapLibre vector style object (no-op).
  * @return {bemap.OlMap} this
  */
 bemap.OlMap.prototype.setStyle = function (urlOrSpec) {
-  var url = (typeof urlOrSpec === 'string') ? urlOrSpec : (urlOrSpec && urlOrSpec.url);
-  if (!url) { this._maplibreOnly('setStyle:object'); return this; }
+  var self = this;
+  if (urlOrSpec && typeof urlOrSpec === 'object') { this._maplibreOnly('setStyle:vector-object'); return this; }
+  if (typeof urlOrSpec === 'string' && urlOrSpec && !/[:/]/.test(urlOrSpec)) {
+    // getAllLayers() flattens ol.layer.Group children (getLayers() is top-level
+    // only) so a BeNomad WMS layer nested in a group is still re-themed; fall
+    // back to the top-level collection on older OL builds.
+    var allLayers = (typeof this.native.getAllLayers === 'function')
+      ? this.native.getAllLayers()
+      : this.native.getLayers().getArray();
+    var applied = 0;
+    try {
+      allLayers.forEach(function (layer) {
+        var s = layer && typeof layer.getSource === 'function' ? layer.getSource() : null;
+        // Only BeNomad WMS sources (tagged in addLayer) — never a customer's own
+        // bemap.WmsLayer, which uses the identical ol.source.TileWMS.
+        if (s && s._bemapWms && typeof s.updateParams === 'function') {
+          s.updateParams({ STYLES: urlOrSpec }); applied++;
+        }
+      });
+    } catch (e) { /* ignore */ }
+    if (!applied && typeof console !== 'undefined' && console.warn) {
+      console.warn('[bemap] OlMap.setStyle("' + urlOrSpec + '"): no BeNomad WMS layer to re-style yet — add a bemap.BemapLayer (or call defaultLayers()) first.');
+    }
+    return this;
+  }
+  // String with '/' or ':' → raster URL template. (Objects and bare names
+  // already returned above, so urlOrSpec here is a URL string or falsy.)
+  var url = (typeof urlOrSpec === 'string') ? urlOrSpec : null;
+  if (!url) { this._maplibreOnly('setStyle'); return this; }
   // Only swap pure XYZ sources via setUrl; TileWMS / VectorTile sources
   // refuse a bare setUrl (they need format / featureLoader). Falling
   // through to addLayer is safer than throwing.
   var swapped = false;
+  // Top-level layers only here (unchanged from prior behavior): the raster URL
+  // swap deliberately does not descend into ol.layer.Group children.
   this.native.getLayers().forEach(function (layer) {
     var src = layer && typeof layer.getSource === 'function' ? layer.getSource() : null;
     if (!src) return;
@@ -4245,12 +4320,25 @@ bemap.OlMap.prototype.setStyle = function (urlOrSpec) {
     var newLayer = new ol.layer.Tile({ source: new ol.source.XYZ({ url: url }) });
     this.native.addLayer(newLayer);
   }
-  var self = this;
   if (typeof self._registerEffect === 'function') {
     self._registerEffect('setStyle', function () { /* customer-restorable */ });
   }
   return this;
 };
+
+/* Worker tile-style discovery is MapLibre-only (OL uses WMS). Uniform-surface
+ * stubs so engine-agnostic code never hits "not a function" after an engine
+ * switch — they reject with a typed MAPLIBRE_ONLY error. */
+bemap.OlMap.prototype._styleApiMaplibreOnly = function (label) {
+  return Promise.reject(new bemap.Error({
+    code: bemap.Error.MAPLIBRE_ONLY,
+    message: 'bemap.OlMap.' + label + ' is MapLibre-only (OpenLayers uses WMS). Use bemap.MapLibreMap for vector tile styles.'
+  }));
+};
+bemap.OlMap.prototype.fetchAvailableStyles = function () { return this._styleApiMaplibreOnly('fetchAvailableStyles'); };
+bemap.OlMap.prototype.fetchDefaultStyle    = function () { return this._styleApiMaplibreOnly('fetchDefaultStyle'); };
+bemap.OlMap.prototype.fetchAvailableMaps   = function () { return this._styleApiMaplibreOnly('fetchAvailableMaps'); };
+bemap.OlMap.prototype.fetchDefaultMap      = function () { return this._styleApiMaplibreOnly('fetchDefaultMap'); };
 
 /* ============================================================
  * Cross-engine animation (v2.0) — OpenLayers implementation
@@ -4475,6 +4563,9 @@ bemap.LeafletMap.prototype.addLayer = function (layer, options) {
       }
 
       layer.native = L.tileLayer.wms(this.ctx.getBaseUrl() + 'wms', layerOption);
+      // Tag BeNomad WMS layers so setStyle('<theme>') re-styles ONLY these,
+      // never a customer's own bemap.WmsLayer (same L.tileLayer.wms constructor).
+      layer.native._bemapWms = true;
 
     } else if (bemap.inheritsof(layer, bemap.WmsLayer)) {
       layer.native = L.tileLayer.wms(layer.url, {
@@ -5119,23 +5210,46 @@ bemap.LeafletMap.prototype.cameraTour = function (options) {
 };
 
 /**
- * Cross-engine `setStyle` for Leaflet — swaps the raster URL on any
- * `L.TileLayer` currently in the map. The MapLibre wrapper has the
- * same name with a different contract (it accepts a vector style
- * object); on Leaflet/OL "style" really means "where the raster tiles
- * come from". String argument = URL template; object argument with
- * `.url` field also accepted.
+ * Cross-engine `setStyle` for Leaflet. The MapLibre wrapper has the same name
+ * but a richer contract (vector style name / URL / object); on Leaflet/OL
+ * "style" means the WMS theme or the raster tile source. The argument is
+ * interpreted as:
+ *   • bare NAME (no '/' or ':') → re-applied as the WMS `STYLES` on the BeNomad
+ *     layer(s) — the dark/light theme switch (`'benomadGrayLevel'` /
+ *     `'benomadLight'`). Vector style names are MapLibre-only, so the app passes
+ *     the right name per engine.
+ *   • URL string (contains '/' or ':') → swaps the raster tile-source URL.
+ *   • inline style object → MapLibre-only; warn-once no-op here.
  *
  * @public
  * @since 2.0.0
- * @param {String|Object} urlOrSpec  URL template (`https://.../{z}/{x}/{y}.png`)
- *                                   OR `{ url: '...', attribution: '...' }`
+ * @param {String|Object} urlOrSpec  WMS style name (`'benomadGrayLevel'`),
+ *                                   a raster URL template
+ *                                   (`https://.../{z}/{x}/{y}.png`), or a
+ *                                   MapLibre vector style object (no-op).
  * @return {bemap.LeafletMap} this
  */
 bemap.LeafletMap.prototype.setStyle = function (urlOrSpec) {
-  var url = (typeof urlOrSpec === 'string') ? urlOrSpec : (urlOrSpec && urlOrSpec.url);
-  if (!url) { this._maplibreOnly('setStyle:object'); return this; }
   var self = this;
+  if (urlOrSpec && typeof urlOrSpec === 'object') { this._maplibreOnly('setStyle:vector-object'); return this; }
+  if (typeof urlOrSpec === 'string' && urlOrSpec && !/[:/]/.test(urlOrSpec)) {
+    var applied = 0;
+    try {
+      this.native.eachLayer(function (l) {
+        // Only BeNomad WMS layers (tagged in addLayer) — never a customer's own
+        // bemap.WmsLayer, which uses the identical L.tileLayer.wms constructor.
+        if (l && l._bemapWms && typeof l.setParams === 'function') { l.setParams({ styles: urlOrSpec }); applied++; }
+      });
+    } catch (e) { /* ignore */ }
+    if (!applied && typeof console !== 'undefined' && console.warn) {
+      console.warn('[bemap] LeafletMap.setStyle("' + urlOrSpec + '"): no BeNomad WMS layer to re-style yet — add a bemap.BemapLayer (or call defaultLayers()) first.');
+    }
+    return this;
+  }
+  // String with '/' or ':' → raster URL template. (Objects and bare names
+  // already returned above, so urlOrSpec here is a URL string or falsy.)
+  var url = (typeof urlOrSpec === 'string') ? urlOrSpec : null;
+  if (!url) { this._maplibreOnly('setStyle'); return this; }
   var swapped = false;
   this.native.eachLayer(function (layer) {
     if (typeof layer.setUrl === 'function' && layer._url) {
@@ -5145,13 +5259,28 @@ bemap.LeafletMap.prototype.setStyle = function (urlOrSpec) {
   });
   if (!swapped) {
     // No existing tile layer — create one.
-    L.tileLayer(url, urlOrSpec && typeof urlOrSpec === 'object' ? urlOrSpec : {}).addTo(this.native);
+    L.tileLayer(url, {}).addTo(this.native);
   }
   if (typeof self._registerEffect === 'function') {
     self._registerEffect('setStyle', function () { /* customer must call setStyle again to restore */ });
   }
   return this;
 };
+
+/* Worker tile-style discovery is MapLibre-only (Leaflet uses WMS). These stubs
+ * keep the API surface uniform so engine-agnostic code (bemap.createMap) never
+ * hits "not a function" after switching engines — they reject with a clear,
+ * typed MAPLIBRE_ONLY error the caller can branch on. */
+bemap.LeafletMap.prototype._styleApiMaplibreOnly = function (label) {
+  return Promise.reject(new bemap.Error({
+    code: bemap.Error.MAPLIBRE_ONLY,
+    message: 'bemap.LeafletMap.' + label + ' is MapLibre-only (Leaflet uses WMS). Use bemap.MapLibreMap for vector tile styles.'
+  }));
+};
+bemap.LeafletMap.prototype.fetchAvailableStyles = function () { return this._styleApiMaplibreOnly('fetchAvailableStyles'); };
+bemap.LeafletMap.prototype.fetchDefaultStyle    = function () { return this._styleApiMaplibreOnly('fetchDefaultStyle'); };
+bemap.LeafletMap.prototype.fetchAvailableMaps   = function () { return this._styleApiMaplibreOnly('fetchAvailableMaps'); };
+bemap.LeafletMap.prototype.fetchDefaultMap      = function () { return this._styleApiMaplibreOnly('fetchDefaultMap'); };
 
 /* ============================================================
  * Cross-engine animation (v2.0) — Leaflet implementation
@@ -5299,7 +5428,10 @@ bemap.MapLibreMap = function(context, target, options) {
         // → refresh loop. We also route through the wrapper's setStyle
         // (not native) so the overlay catalogue replay listener fires.
         if (info && info.reason === 'refresh' && _self.native && _self._currentStyleSpec) {
-          try { _self.setStyle(_self._currentStyleSpec); } catch (e) { /* ignore */ }
+          // _internal: this re-applies the SAME current spec for token renewal —
+          // it is not the developer choosing a style, so it must not latch
+          // _userSetStyle (which would suppress the init default-style refresh).
+          try { _self.setStyle(_self._currentStyleSpec, { _internal: true }); } catch (e) { /* ignore */ }
         }
       }
     });
@@ -5322,7 +5454,11 @@ bemap.MapLibreMap = function(context, target, options) {
   //   ctx.hasTilesConfig()    → BeNomad Tiles default style
   //   none                    → empty background (legacy fallback)
   var style;
-  if (opts.style) {
+  // opts.style is EXPLICIT only as an inline object or a URL/path. A bare style
+  // NAME, the string 'default', or omitting it all flow to the tiny fallback
+  // below, then load/refresh from the Worker after login.
+  var _explicitStyle = opts.style && (typeof opts.style === 'object' || /[:/]/.test(opts.style));
+  if (_explicitStyle) {
     style = opts.style;
   } else if (opts.tiles) {
     // PMTiles URL — build a minimal style, then load real style async
@@ -5335,23 +5471,31 @@ bemap.MapLibreMap = function(context, target, options) {
     };
     this._pendingTilesStyle = opts.tilesStyle || null;
     this._pendingTilesUrl = tilesUrl;
-  } else if (this._hasTilesConfig && typeof bemap.defaultStyle !== 'undefined' && typeof bemap.TilesStyle !== 'undefined') {
-    // BeNomad Tiles default — clone the frozen default style then resolve
+  } else if (this._hasTilesConfig && typeof bemap.fallbackStyle !== 'undefined' && typeof bemap.TilesStyle !== 'undefined') {
+    // BeNomad Tiles — clone the tiny font-free fallback style then resolve
     // placeholders against the configured ctx/tilesFile. Precedence is
     // opts.tilesFile -> ctx.tilesFile -> ctx.geoserver -> 'default', so a
     // Context with `geoserver: 'osm'` (and no explicit tilesFile) loads the
     // 'osm' tiles instead of the server default.
-    style = JSON.parse(JSON.stringify(bemap.defaultStyle));
-    // Fonts: prefer ctx.glyphsUrl, else the fonts bundled in dist/fonts/
-    // (auto-detected from the bundle location), else the style's own glyphs
-    // (the public demo server) as the ultimate fallback.
-    var _glyphs = context.glyphsUrl
-      || (bemap.TilesStyle.bundledGlyphsUrl && bemap.TilesStyle.bundledGlyphsUrl());
-    if (_glyphs) style.glyphs = _glyphs;
+    //
+    // The fallback has no symbol layers and no `glyphs`, so it requests no
+    // fonts. ctx.glyphsUrl (if set) is still applied by resolvePlaceholders;
+    // server styles bring their own (Worker) fonts when they swap in.
+    style = JSON.parse(JSON.stringify(bemap.fallbackStyle));
     var _tilesFile = context.resolveTilesFile(opts.tilesFile);
     bemap.TilesStyle.resolvePlaceholders(style, context, _tilesFile);
     if (typeof bemap.TilesStyle.hardenSymbolCollisions === 'function') {
       bemap.TilesStyle.hardenSymbolCollisions(style);
+    }
+    // After construction (so setStyle has a target): a bare NAME swaps to
+    // /styles/<name>; omitted or 'default' refreshes to the Worker's live
+    // default style once login completes. The tiny fallback above is the
+    // instant first paint either way — no first-paint cost, and it stays if
+    // the server style ever fails to load.
+    if (typeof opts.style === 'string' && opts.style && opts.style !== 'default') {
+      this._pendingStyleName = opts.style;
+    } else {
+      this._refreshDefaultOnInit = true;
     }
   } else {
     style = {
@@ -5417,6 +5561,16 @@ bemap.MapLibreMap = function(context, target, options) {
     _nativeOpts.transformRequest = this._tilesAuth.buildTransformRequest();
   }
   this.native = new maplibregl.Map(_nativeOpts);
+
+  // Default-style "bootstrap → refresh", or a deferred named style — run once on
+  // init, after the native map exists so setStyle() has a target to swap into.
+  // _refreshDefaultStyleFromServer() waits for login; setStyle(name) resolves it
+  // to /styles/<name>. The tiny fallback already painted, so no first-paint cost.
+  if (this._refreshDefaultOnInit) {
+    this._refreshDefaultStyleFromServer();
+  } else if (this._pendingStyleName) {
+    this.setStyle(this._pendingStyleName);
+  }
 
   // Reload tiles on resize. MapLibre v5 already observes the container and
   // resizes its canvas, but resize() updates the canvas + transform WITHOUT
@@ -6871,6 +7025,42 @@ bemap.MapLibreMap.prototype.fetchDefaultMap = function() {
 };
 
 /**
+ * Fetch the name of the Worker's default MapLibre style — `GET /api/default-style`
+ * — resolving with `{ default: '<style-name>'|null }`. This is the style applied
+ * when the developer pins none; see {@link bemap.MapLibreMap#fetchAvailableStyles}.
+ * @public
+ * @since 2.0.0
+ * @return {Promise<Object>}
+ */
+bemap.MapLibreMap.prototype.fetchDefaultStyle = function() {
+  return this._fetchTilesApi(this.ctx && this.ctx.getTilesDefaultStyleUrl && this.ctx.getTilesDefaultStyleUrl(), 'fetchDefaultStyle');
+};
+
+/**
+ * Default-style "fallback then load": the constructor already painted the tiny
+ * `bemap.fallbackStyle` for an instant first frame; once login has completed
+ * this fetches the Worker's current default style name and swaps the live charte
+ * in via `setStyle()` (overlay-preserving). Failures are swallowed so the tiny
+ * fallback simply stays. Called once, on init, only when the developer pinned
+ * no `style`.
+ * @private
+ */
+bemap.MapLibreMap.prototype._refreshDefaultStyleFromServer = function() {
+  var self = this;
+  var url = this.ctx && typeof this.ctx.getTilesDefaultStyleUrl === 'function' && this.ctx.getTilesDefaultStyleUrl();
+  if (!url || typeof fetch !== 'function') return;
+  // _fetchTilesApi awaits whenTokenReady() → the call goes out AFTER login.
+  this._fetchTilesApi(url, 'defaultStyle')
+    .then(function(cfg) {
+      var name = cfg && (cfg.default || cfg.defaultStyle);
+      // Only swap if the server names a style AND the map wasn't re-styled in
+      // the meantime (developer called setStyle() during the async gap).
+      if (name && !self._userSetStyle) self.setStyle(name);
+    })
+    .catch(function() { /* keep the bundled bootstrap */ });
+};
+
+/**
  * Shared authenticated GET against a Worker `/api/*` discovery endpoint.
  * @private
  */
@@ -7120,6 +7310,9 @@ bemap.MapLibreMap.prototype.addRasterLayer = function(layer) {
 bemap.MapLibreMap.prototype.setStyle = function (urlOrObject, options) {
   var self = this;
   var opts = options || {};
+  // Mark that a style was chosen explicitly, so the init-time default-style
+  // refresh (_refreshDefaultStyleFromServer) won't overwrite it.
+  if (!opts._internal) this._userSetStyle = true;
   // Same precedence as the constructor (opts.tilesFile -> ctx.tilesFile ->
   // ctx.geoserver -> 'default') — without this the TILES_SOURCE placeholder
   // stays a literal string when the customer calls `map.setStyle(obj)` without
@@ -7154,11 +7347,21 @@ bemap.MapLibreMap.prototype.setStyle = function (urlOrObject, options) {
     });
     return this;
   }
+  // Resolve a Worker style reference against the tilesHost. This covers both a
+  // bare NAME ('openfreemap_graylevel') AND a Worker-relative path as returned
+  // by /api/styles ('styles/openfreemap_graylevel.json'); either way it must hit
+  // <tilesHost>/styles/…, NOT a page-relative URL. Only an ABSOLUTE URL
+  // (http(s):// or //host) is passed through untouched.
+  var styleUrl = urlOrObject;
+  if (typeof urlOrObject === 'string' && !/^(?:https?:)?\/\//i.test(urlOrObject)
+      && this.ctx && typeof this.ctx.getTilesStyleUrl === 'function') {
+    styleUrl = this.ctx.getTilesStyleUrl(urlOrObject) || urlOrObject;
+  }
   // URL → fetch + resolve asynchronously, but still return `this` sync so
   // method chaining works. Errors flow to the map's error channel.
   var getToken = this._tilesAuth ? function () { return self._tilesAuth.getToken(); } : null;
   if (typeof bemap.TilesStyle !== 'undefined') {
-    bemap.TilesStyle.fetch(this.ctx, urlOrObject, { getToken: getToken })
+    bemap.TilesStyle.fetch(this.ctx, styleUrl, { getToken: getToken })
       .then(function (style) {
         bemap.TilesStyle.resolvePlaceholders(style, self.ctx, tilesFile);
         bemap.TilesStyle.hardenSymbolCollisions(style);
@@ -7177,7 +7380,7 @@ bemap.MapLibreMap.prototype.setStyle = function (urlOrObject, options) {
         }));
       });
   } else {
-    try { this.native.setStyle(urlOrObject); } catch (e) {}
+    try { this.native.setStyle(styleUrl); } catch (e) {}
   }
   return this;
 };
@@ -18284,31 +18487,41 @@ bemap.MapLibreMap.prototype.setCoordinatePopup = function(popup, coordinate, opt
 };
 
 /**
- * BeNomad BeMap JavaScript API — Default MapLibre style (v2.0)
+ * BeNomad BeMap JavaScript API — tiny fallback MapLibre style (v2.0)
  *
- * Bundled BeNomad "charte 2026" gray-level chart (from styles_charte_2026.json)
- * so the library renders the first frame without a Worker round-trip for the
- * style itself. Single vector source (no raster relief base): water, roads,
- * boundaries, buildings and place labels are all drawn from the PMTiles tiles.
+ * This is NOT the full charte. It is a deliberately MINIMAL fill/line-only
+ * style — background + land / water / landcover / major-road layers, with
+ * colours and source-layers copied from the charte so it blends into the real
+ * style. It has NO symbol/label layers and NO `glyphs` key, so it NEVER
+ * requests a font: the library ships no bundled fonts (lightweight delivery —
+ * just bemap-js-api.js + css).
  *
- * Carries the two placeholders bemap.TilesStyle understands:
- *   - TILES_SOURCE        — replaced at runtime with a pmtiles:// source
- *                           pointing at the resolved tiles map
- *   - __BILINGUAL_PLACE__ — replaced with a MapLibre format expression for
- *                           browser-language + local-name labels (BeNomad
- *                           name_<lang> underscore convention)
+ * Role: the instant first paint, and the offline / error fallback. The REAL,
+ * full style is loaded from the BeNomad Tiles Worker after login
+ * (`/api/default-style` → `/styles/<name>`, see
+ * `bemap.MapLibreMap#_refreshDefaultStyleFromServer`) or pinned by the developer
+ * via `new bemap.MapLibreMap(ctx, target, { style: ... })`. Because the default
+ * comes from the server, updating the charte propagates to every app with NO
+ * redeploy; this tiny fallback only paints until that lands (or if it fails).
  *
- * glyphs are served from demotiles.maplibre.org (Noto Sans Regular/Bold) so
- * labels render zero-config — the BeNomad Tiles Worker does not host fonts.
- *
- * Override per-instance via new bemap.MapLibreMap(ctx, target, { style: ... }).
- * Generated from styles_charte_2026.json — re-run the replacement to refresh.
+ * Carries the `TILES_SOURCE` placeholder that `bemap.TilesStyle.resolvePlaceholders`
+ * rewrites at runtime to a `pmtiles://<tilesHost>/<tilesFile>` source.
  *
  * @since 2.0.0
  * @public
  * @type {Object}
  */
-bemap.defaultStyle = Object.freeze({"version":8,"name":"OpenFreeMap Single-Layer","metadata":{"description":"Style extrait de index_switch.html (Benelux v2) pour couches vectorielles PMTiles","source_placeholder":"TILES_SOURCE","place_label_placeholder":"__BILINGUAL_PLACE__","maputnik:renderer":"mlgljs"},"sources":{"TILES_SOURCE":{"type":"vector","url":"pmtiles://PLACEHOLDER_REPLACED_AT_RUNTIME","minzoom":0,"maxzoom":14}},"glyphs":"https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf","layers":[{"id":"background","type":"background","paint":{"background-color":["step",["zoom"],"#8adaec",8,"#f4f1ea"]}},{"id":"earth","type":"fill","source-layer":"earth","maxzoom":8,"paint":{"fill-color":"#f4f1ea","fill-antialias":false},"source":"tiles"},{"id":"landcover_pm","type":"fill","source-layer":"landcover","maxzoom":8,"paint":{"fill-antialias":false,"fill-opacity":["interpolate",["linear"],["zoom"],6,1,8,0],"fill-color":["match",["get","kind"],"forest","#b6dfa8","grassland","#d4ecc4","scrub","#dcebc0","farmland","#e8ecd6","barren","#efe9d6","urban_area","#ece8de","glacier","#ffffff","#f4f1ea"]},"source":"tiles"},{"id":"landcover_omt","type":"fill","source-layer":"landcover","minzoom":8,"paint":{"fill-antialias":false,"fill-opacity":0.7,"fill-color":["match",["get","class"],"wood","#b6dfa8","grass","#d4ecc4","sand","#efe9d6","#f4f1ea"]},"source":"tiles"},{"id":"landuse","type":"fill","source-layer":"landuse","minzoom":7,"paint":{"fill-antialias":false,"fill-color":["match",["coalesce",["get","kind"],["get","class"],""],["park","national_park","nature_reserve","protected_area","cemetery","golf_course","village_green","recreation_ground","garden","allotments","playground"],"#c8e6c4",["forest","wood"],"#b6dfa8",["grass","grassland","scrub","meadow","orchard"],"#d4ecc4","residential","#efe9da",["industrial","railway","commercial","retail"],"#e6e0d2",["hospital","school","university","college"],"#ece5da",["military","naval_base","zoo"],"#dde3d4",["sand","beach","bare_rock"],"#efe9d6","glacier","#ffffff",["aerodrome","airfield"],"#e9e7e0","rgba(0,0,0,0)"],"fill-opacity":0.85},"source":"tiles"},{"id":"water","type":"fill","source-layer":"water","paint":{"fill-color":"#8adaec","fill-antialias":false},"source":"tiles"},{"id":"waterway","type":"line","source-layer":"waterway","minzoom":8,"paint":{"line-color":"#8adaec","line-width":["interpolate",["linear"],["zoom"],8,0.5,14,2.5]},"source":"tiles"},{"id":"water_river_pm","type":"line","source-layer":"water","filter":["all",["==",["geometry-type"],"LineString"],["==",["get","kind"],"river"]],"paint":{"line-color":"#8adaec","line-width":["interpolate",["linear"],["zoom"],6,0.4,14,2.2]},"source":"tiles"},{"id":"aeroway_aerodrome","type":"fill","source":"TILES_SOURCE","source-layer":"aeroway","minzoom":10.5,"filter":["==",["get","class"],"aerodrome"],"paint":{"fill-color":"#D5DAE2","fill-opacity":0.5}},{"id":"aeroway_taxiway","type":"fill","source":"TILES_SOURCE","source-layer":"aeroway","minzoom":10.5,"filter":["==",["get","class"],"taxiway"],"paint":{"fill-color":"#C7CADC","fill-opacity":0.8}},{"id":"boundaries_region","type":"line","source-layer":"boundaries","filter":[">",["to-number",["get","kind_detail"]],2],"paint":{"line-color":"#cdc6b8","line-width":0.5,"line-dasharray":["step",["zoom"],["literal",[2,0]],5,["literal",[2,1.5]]]},"source":"tiles"},{"id":"boundary_line_region","type":"line","source":"TILES_SOURCE","source-layer":"boundary","minzoom":5,"filter":["all",["==",["geometry-type"],"LineString"],[">",["coalesce",["get","admin_level"],0],2]],"paint":{"line-color":"#c0b0a0","line-width":["interpolate",["linear"],["zoom"],5,0.4,8,0.8,10,1.2],"line-dasharray":[4,4]}},{"id":"boundaries_country","type":"line","source-layer":"boundaries","filter":["<=",["to-number",["get","kind_detail"]],2],"paint":{"line-color":["interpolate",["linear"],["zoom"],0,"#9a8c78",6,"#b3a99a"],"line-width":["interpolate",["linear"],["zoom"],0,0.7,6,1.3,10,1.8],"line-dasharray":["step",["zoom"],["literal",[2,0]],4,["literal",[3,1.5]]]},"source":"tiles"},{"id":"roads_pm_major_casing","type":"line","source-layer":"roads","maxzoom":8,"filter":["all",["==",["get","kind"],"major_road"],["!=",["get","is_link"],true]],"layout":{"line-cap":"round","line-join":"round"},"paint":{"line-color":"#e4ddc9","line-width":["interpolate",["exponential",1.6],["zoom"],4,0,8,2.8]},"source":"tiles"},{"id":"roads_pm_major","type":"line","source-layer":"roads","maxzoom":8,"filter":["all",["==",["get","kind"],"major_road"],["!=",["get","is_link"],true]],"layout":{"line-cap":"round","line-join":"round"},"paint":{"line-color":"#ffffff","line-width":["interpolate",["exponential",1.6],["zoom"],4,0.2,8,1.6]},"source":"tiles"},{"id":"roads_pm_highway_casing","type":"line","source-layer":"roads","maxzoom":8,"filter":["all",["==",["get","kind"],"highway"],["!=",["get","is_link"],true]],"layout":{"line-cap":"round","line-join":"round"},"paint":{"line-color":"#e9ac77","line-width":["interpolate",["exponential",1.6],["zoom"],4,0,8,3.5999999999999996]},"source":"tiles"},{"id":"roads_pm_highway","type":"line","source-layer":"roads","maxzoom":8,"filter":["all",["==",["get","kind"],"highway"],["!=",["get","is_link"],true]],"layout":{"line-cap":"round","line-join":"round"},"paint":{"line-color":"#fcd9a6","line-width":["interpolate",["exponential",1.6],["zoom"],4,0.4,8,2.4]},"source":"tiles"},{"id":"lowzoom_minor","type":"line","source":"TILES_SOURCE","source-layer":"transportation","minzoom":11.5,"maxzoom":13,"filter":["==",["get","class"],"minor"],"layout":{"line-cap":"round","line-join":"round","visibility":"visible"},"paint":{"line-color":"#eeeeee","line-width":["interpolate",["exponential",1.2],["zoom"],12,0.5,13,1.73]}},{"id":"lowzoom_tertiary","type":"line","source":"TILES_SOURCE","source-layer":"transportation","minzoom":10,"maxzoom":13,"filter":["==",["get","class"],"tertiary"],"layout":{"line-cap":"round","line-join":"round","visibility":"visible"},"paint":{"line-color":"#eeeeee","line-width":["interpolate",["exponential",1.2],["zoom"],10,0.5,13,1.73]}},{"id":"lowzoom_secondary","type":"line","source":"TILES_SOURCE","source-layer":"transportation","minzoom":9,"maxzoom":13,"filter":["==",["get","class"],"secondary"],"layout":{"line-cap":"round","line-join":"round","visibility":"visible"},"paint":{"line-color":"#eeeeee","line-width":["interpolate",["exponential",1.2],["zoom"],7,1,13,3]}},{"id":"lowzoom_motorway","type":"line","source":"TILES_SOURCE","source-layer":"transportation","minzoom":5.5,"maxzoom":9,"filter":["==",["get","class"],"motorway"],"layout":{"line-cap":"round","line-join":"round"},"paint":{"line-color":"#FFA35C","line-width":["interpolate",["exponential",1.2],["zoom"],12,1.73,16,14.52,24,207.36]}},{"id":"tunnel_casing_pedestrian","type":"line","source":"TILES_SOURCE","source-layer":"transportation","minzoom":14,"filter":["all",["==",["get","class"],"pedestrian"],["==",["get","brunnel"],"tunnel"]],"layout":{"line-cap":"round","line-join":"round"},"paint":{"line-color":"#b3b3b3","line-width":["interpolate",["exponential",1.2],["zoom"],14,1.1,16,4,24,80],"line-opacity":0.85}},{"id":"tunnel_casing_minor","type":"line","source":"TILES_SOURCE","source-layer":"transportation","minzoom":13,"filter":["all",["==",["get","class"],"minor"],["==",["get","brunnel"],"tunnel"]],"layout":{"line-cap":"round","line-join":"round"},"paint":{"line-color":"#b3b3b3","line-width":["interpolate",["exponential",1.2],["zoom"],13,1.2,16,10.08,24,144],"line-opacity":0.5}},{"id":"tunnel_casing_tertiary","type":"line","source":"TILES_SOURCE","source-layer":"transportation","minzoom":10,"filter":["all",["==",["get","class"],"tertiary"],["==",["get","brunnel"],"tunnel"]],"layout":{"line-cap":"round","line-join":"round"},"paint":{"line-color":"#b3b3b3","line-width":["interpolate",["exponential",1.2],["zoom"],13,1.44,16,12.1,24,172.8],"line-opacity":0.5}},{"id":"tunnel_casing_secondary","type":"line","source":"TILES_SOURCE","source-layer":"transportation","minzoom":9,"filter":["all",["==",["get","class"],"secondary"],["==",["get","brunnel"],"tunnel"]],"layout":{"line-cap":"round","line-join":"round"},"paint":{"line-color":"#b3b3b3","line-width":["interpolate",["exponential",1.2],["zoom"],13,1.73,16,14.52,24,207.36],"line-opacity":0.5}},{"id":"tunnel_casing_primary","type":"line","source":"TILES_SOURCE","source-layer":"transportation","minzoom":8,"filter":["all",["==",["get","class"],"primary"],["==",["get","brunnel"],"tunnel"]],"layout":{"line-cap":"round","line-join":"round"},"paint":{"line-color":"#ffffff","line-width":["interpolate",["exponential",1.2],["zoom"],12,2.07,16,17.42,24,248.83],"line-opacity":0.5}},{"id":"tunnel_casing_trunk","type":"line","source":"TILES_SOURCE","source-layer":"transportation","minzoom":7,"filter":["all",["==",["get","class"],"trunk"],["==",["get","brunnel"],"tunnel"]],"layout":{"line-cap":"round","line-join":"round"},"paint":{"line-color":"#ffffff","line-width":["interpolate",["exponential",1.2],["zoom"],12,2.07,16,17.42,24,248.83],"line-opacity":0.5}},{"id":"tunnel_casing_motorway","type":"line","source":"TILES_SOURCE","source-layer":"transportation","minzoom":8,"filter":["all",["==",["get","class"],"motorway"],["==",["get","brunnel"],"tunnel"]],"layout":{"line-cap":"round","line-join":"round"},"paint":{"line-color":"#ffffff","line-width":["interpolate",["exponential",1.2],["zoom"],12,2.07,16,17.42,24,248.83],"line-opacity":0.5}},{"id":"tunnel_pedestrian","type":"line","source":"TILES_SOURCE","source-layer":"transportation","minzoom":14,"filter":["all",["==",["get","class"],"pedestrian"],["==",["get","brunnel"],"tunnel"]],"layout":{"line-cap":"round","line-join":"round"},"paint":{"line-color":"#f0f0f0","line-width":["interpolate",["exponential",1.2],["zoom"],14,1,16,3,24,65],"line-opacity":0.85}},{"id":"tunnel_minor","type":"line","source":"TILES_SOURCE","source-layer":"transportation","minzoom":12,"filter":["all",["==",["get","class"],"minor"],["==",["get","brunnel"],"tunnel"]],"layout":{"line-cap":"round","line-join":"round"},"paint":{"line-color":"#f8f8f8","line-width":["interpolate",["exponential",1.2],["zoom"],13,1,16,8.4,24,120],"line-opacity":0.85}},{"id":"tunnel_tertiary","type":"line","source":"TILES_SOURCE","source-layer":"transportation","minzoom":10,"filter":["all",["==",["get","class"],"tertiary"],["==",["get","brunnel"],"tunnel"]],"layout":{"line-cap":"round","line-join":"round"},"paint":{"line-color":"#f8f8f8","line-width":["interpolate",["exponential",1.2],["zoom"],13,1.2,16,10.8,24,144],"line-opacity":0.85}},{"id":"tunnel_secondary","type":"line","source":"TILES_SOURCE","source-layer":"transportation","minzoom":9,"filter":["all",["==",["get","class"],"secondary"],["==",["get","brunnel"],"tunnel"]],"layout":{"line-cap":"round","line-join":"round"},"paint":{"line-color":"#f8f8f8","line-width":["interpolate",["exponential",1.2],["zoom"],13,1.44,16,12.1,24,172.8],"line-opacity":0.85}},{"id":"tunnel_primary","type":"line","source":"TILES_SOURCE","source-layer":"transportation","minzoom":8,"filter":["all",["==",["get","class"],"primary"],["==",["get","brunnel"],"tunnel"]],"layout":{"line-cap":"round","line-join":"round"},"paint":{"line-color":"#F2D163","line-width":["interpolate",["exponential",1.2],["zoom"],12,1.73,16,14.52,24,207.36],"line-opacity":0.85}},{"id":"tunnel_trunk","type":"line","source":"TILES_SOURCE","source-layer":"transportation","minzoom":7,"filter":["all",["==",["get","class"],"trunk"],["==",["get","brunnel"],"tunnel"]],"layout":{"line-cap":"round","line-join":"round"},"paint":{"line-color":"#FFA35C","line-width":["interpolate",["exponential",1.2],["zoom"],12,1.73,16,14.52,24,207.36],"line-opacity":0.85}},{"id":"tunnel_motorway","type":"line","source":"TILES_SOURCE","source-layer":"transportation","minzoom":8,"filter":["all",["==",["get","class"],"motorway"],["==",["get","brunnel"],"tunnel"]],"layout":{"line-cap":"round","line-join":"round"},"paint":{"line-color":"#FFA35C","line-width":["interpolate",["exponential",1.2],["zoom"],12,1.73,16,14.52,24,207.36],"line-opacity":0.85}},{"id":"railway_hatching","type":"line","source":"TILES_SOURCE","source-layer":"transportation","minzoom":15,"filter":["==",["get","class"],"rail"],"layout":{"line-cap":"butt","line-join":"round"},"paint":{"line-color":"#ccc","line-width":["interpolate",["exponential",1.2],["zoom"],8,1.5,14,4,20,8],"line-dasharray":[0.2,8]}},{"id":"railway_base","type":"line","source":"TILES_SOURCE","source-layer":"transportation","minzoom":13,"filter":["==",["get","class"],"rail"],"layout":{"line-cap":"butt","line-join":"round"},"paint":{"line-color":"#ccc","line-width":["interpolate",["exponential",1.2],["zoom"],8,0.5,14,1,20,2]}},{"id":"road_casing_pedestrian","type":"line","source":"TILES_SOURCE","source-layer":"transportation","minzoom":14,"filter":["all",["==",["get","class"],"pedestrian"],["!=",["get","brunnel"],"bridge"],["!=",["get","brunnel"],"tunnel"]],"layout":{"line-cap":"round","line-join":"round"},"paint":{"line-color":"#b3b3b3","line-width":["interpolate",["exponential",1.2],["zoom"],14,1.1,16,4,24,80]}},{"id":"road_casing_minor","type":"line","source":"TILES_SOURCE","source-layer":"transportation","minzoom":13,"filter":["all",["==",["get","class"],"minor"],["!=",["get","brunnel"],"bridge"],["!=",["get","brunnel"],"tunnel"]],"layout":{"line-cap":"round","line-join":"round","visibility":"visible"},"paint":{"line-color":"#b3b3b3","line-width":["interpolate",["exponential",1.2],["zoom"],14,4,16,10.08,24,144]}},{"id":"road_casing_tertiary","type":"line","source":"TILES_SOURCE","source-layer":"transportation","minzoom":10,"filter":["all",["==",["get","class"],"tertiary"],["!=",["get","brunnel"],"bridge"],["!=",["get","brunnel"],"tunnel"]],"layout":{"line-cap":"round","line-join":"round"},"paint":{"line-color":"#b3b3b3","line-width":["interpolate",["exponential",1.2],["zoom"],13,3.5,16,12.1,24,172.8],"line-opacity":0.75}},{"id":"road_casing_secondary","type":"line","source":"TILES_SOURCE","source-layer":"transportation","minzoom":9,"filter":["all",["==",["get","class"],"secondary"],["!=",["get","brunnel"],"bridge"],["!=",["get","brunnel"],"tunnel"]],"layout":{"line-cap":"round","line-join":"round"},"paint":{"line-color":"#b3b3b3","line-width":["interpolate",["exponential",1.2],["zoom"],13,5,16,14.52,24,207.36],"line-opacity":0.5}},{"id":"road_casing_primary","type":"line","source":"TILES_SOURCE","source-layer":"transportation","minzoom":8,"filter":["all",["==",["get","class"],"primary"],["!=",["get","brunnel"],"bridge"],["!=",["get","brunnel"],"tunnel"]],"layout":{"line-cap":"round","line-join":"round"},"paint":{"line-color":"#ffffff","line-width":["interpolate",["exponential",1.2],["zoom"],12,2.07,16,17.42,24,248.83],"line-opacity":0.5}},{"id":"road_casing_trunk","type":"line","source":"TILES_SOURCE","source-layer":"transportation","minzoom":7,"filter":["all",["==",["get","class"],"trunk"],["!=",["get","brunnel"],"bridge"],["!=",["get","brunnel"],"tunnel"]],"layout":{"line-cap":"round","line-join":"round"},"paint":{"line-color":"#ffffff","line-width":["interpolate",["exponential",1.2],["zoom"],12,2.07,16,17.42,24,248.83],"line-opacity":0.5}},{"id":"road_casing_motorway","type":"line","source":"TILES_SOURCE","source-layer":"transportation","minzoom":8,"filter":["all",["==",["get","class"],"motorway"],["!=",["get","brunnel"],"bridge"],["!=",["get","brunnel"],"tunnel"]],"layout":{"line-cap":"round","line-join":"round"},"paint":{"line-color":"#ffffff","line-width":["interpolate",["exponential",1.2],["zoom"],12,2.07,16,17.42,24,248.83],"line-opacity":0.5}},{"id":"road_pedestrian","type":"line","source":"TILES_SOURCE","source-layer":"transportation","minzoom":14,"filter":["all",["==",["get","class"],"pedestrian"],["!=",["get","brunnel"],"bridge"],["!=",["get","brunnel"],"tunnel"]],"layout":{"line-cap":"round","line-join":"round"},"paint":{"line-color":"#f0f0f0","line-width":["interpolate",["exponential",1.2],["zoom"],14,1,16,3,24,65]}},{"id":"road_minor","type":"line","source":"TILES_SOURCE","source-layer":"transportation","minzoom":12,"filter":["all",["==",["get","class"],"minor"],["!=",["get","brunnel"],"bridge"],["!=",["get","brunnel"],"tunnel"]],"layout":{"line-cap":"round","line-join":"round"},"paint":{"line-color":"#f8f8f8","line-width":["interpolate",["exponential",1.2],["zoom"],13,1,16,8.4,24,120]}},{"id":"road_tertiary","type":"line","source":"TILES_SOURCE","source-layer":"transportation","minzoom":10,"filter":["all",["==",["get","class"],"tertiary"],["!=",["get","brunnel"],"bridge"],["!=",["get","brunnel"],"tunnel"]],"layout":{"line-cap":"round","line-join":"round"},"paint":{"line-color":"#f8f8f8","line-width":["interpolate",["exponential",1.2],["zoom"],13,1.8,16,10.8,24,144]}},{"id":"road_secondary","type":"line","source":"TILES_SOURCE","source-layer":"transportation","minzoom":9,"filter":["all",["==",["get","class"],"secondary"],["!=",["get","brunnel"],"bridge"],["!=",["get","brunnel"],"tunnel"]],"layout":{"line-cap":"round","line-join":"round"},"paint":{"line-color":"#f8f8f8","line-width":["interpolate",["exponential",1.2],["zoom"],13,3.5,16,12.1,24,172.8]}},{"id":"road_primary","type":"line","source":"TILES_SOURCE","source-layer":"transportation","minzoom":8,"filter":["all",["==",["get","class"],"primary"],["!=",["get","brunnel"],"bridge"],["!=",["get","brunnel"],"tunnel"]],"layout":{"line-cap":"round","line-join":"round","visibility":"visible"},"paint":{"line-color":"#F2D163","line-width":["interpolate",["exponential",1.2],["zoom"],12,1.73,16,14.52,24,207.36]}},{"id":"road_trunk","type":"line","source":"TILES_SOURCE","source-layer":"transportation","minzoom":7,"filter":["all",["==",["get","class"],"trunk"],["!=",["get","brunnel"],"bridge"],["!=",["get","brunnel"],"tunnel"]],"layout":{"line-cap":"round","line-join":"round","visibility":"visible"},"paint":{"line-color":"#FFA35C","line-width":["interpolate",["exponential",1.2],["zoom"],12,1.73,16,14.52,24,207.36]}},{"id":"road_motorway","type":"line","source":"TILES_SOURCE","source-layer":"transportation","minzoom":8,"filter":["all",["==",["get","class"],"motorway"],["!=",["get","brunnel"],"bridge"],["!=",["get","brunnel"],"tunnel"]],"layout":{"line-cap":"round","line-join":"round"},"paint":{"line-color":"#FFA35C","line-width":["interpolate",["exponential",1.2],["zoom"],12,1.73,16,14.52,24,207.36]}},{"id":"ferry_minor","type":"line","source":"TILES_SOURCE","source-layer":"transportation","minzoom":14,"filter":["all",["==",["get","class"],"ferry"],["==",["get","fcc"],0]],"layout":{"line-cap":"butt","line-join":"round","visibility":"visible"},"paint":{"line-color":"#000010","line-width":["interpolate",["exponential",1.2],["zoom"],13,1,16,2.8,24,40],"line-opacity":0.05}},{"id":"ferry_tertiary","type":"line","source":"TILES_SOURCE","source-layer":"transportation","minzoom":13,"filter":["all",["==",["get","class"],"ferry"],["==",["get","fcc"],1]],"layout":{"line-cap":"butt","line-join":"round","visibility":"visible"},"paint":{"line-color":"#000010","line-width":["interpolate",["exponential",1.2],["zoom"],13,1,16,2.8,24,40],"line-opacity":0.05}},{"id":"ferry_secondary","type":"line","source":"TILES_SOURCE","source-layer":"transportation","minzoom":11,"filter":["all",["==",["get","class"],"ferry"],["==",["get","fcc"],2]],"layout":{"line-cap":"butt","line-join":"round","visibility":"visible"},"paint":{"line-width":["interpolate",["exponential",1.2],["zoom"],13,1,16,2.8,24,40],"line-opacity":0.05}},{"id":"ferry_primary","type":"line","source":"TILES_SOURCE","source-layer":"transportation","minzoom":7,"filter":["all",["==",["get","class"],"ferry"],["==",["get","fcc"],3]],"layout":{"line-cap":"butt","line-join":"round","visibility":"visible"},"paint":{"line-color":"#000010","line-width":["interpolate",["exponential",1.2],["zoom"],13,1,16,2.8,24,40],"line-opacity":0.05}},{"id":"bridge_casing_pedestrian","type":"line","source":"TILES_SOURCE","source-layer":"transportation","minzoom":14,"filter":["all",["==",["get","class"],"pedestrian"],["==",["get","brunnel"],"bridge"]],"layout":{"line-cap":"butt","line-join":"round"},"paint":{"line-color":"#b3b3b3","line-width":["interpolate",["exponential",1.2],["zoom"],14,1.1,16,4,24,80]}},{"id":"bridge_casing_minor","type":"line","source":"TILES_SOURCE","source-layer":"transportation","minzoom":13,"filter":["all",["==",["get","class"],"minor"],["==",["get","brunnel"],"bridge"]],"layout":{"line-cap":"butt","line-join":"round","line-sort-key":["coalesce",["get","layer"],0]},"paint":{"line-width":["interpolate",["exponential",1.2],["zoom"],13,1.2,16,10.08,24,144],"line-color":"#b3b3b3"}},{"id":"bridge_casing_tertiary","type":"line","source":"TILES_SOURCE","source-layer":"transportation","minzoom":10,"filter":["all",["==",["get","class"],"tertiary"],["==",["get","brunnel"],"bridge"]],"layout":{"line-cap":"butt","line-join":"round"},"paint":{"line-color":"#b3b3b3","line-width":["interpolate",["exponential",1.2],["zoom"],13,1.44,16,12.1,24,172.8]}},{"id":"bridge_casing_secondary","type":"line","source":"TILES_SOURCE","source-layer":"transportation","minzoom":9,"filter":["all",["==",["get","class"],"secondary"],["==",["get","brunnel"],"bridge"]],"layout":{"line-cap":"butt","line-join":"round"},"paint":{"line-color":"#b3b3b3","line-width":["interpolate",["exponential",1.2],["zoom"],13,1.73,16,14.52,24,207.36]}},{"id":"bridge_casing_primary","type":"line","source":"TILES_SOURCE","source-layer":"transportation","minzoom":8,"filter":["all",["==",["get","class"],"primary"],["==",["get","brunnel"],"bridge"]],"layout":{"line-cap":"butt","line-join":"round"},"paint":{"line-color":"#ffffff","line-width":["interpolate",["exponential",1.2],["zoom"],12,2.07,16,17.42,24,248.83]}},{"id":"bridge_casing_trunk","type":"line","source":"TILES_SOURCE","source-layer":"transportation","minzoom":7,"filter":["all",["==",["get","class"],"trunk"],["==",["get","brunnel"],"bridge"]],"layout":{"line-cap":"butt","line-join":"round"},"paint":{"line-color":"#ffffff","line-width":["interpolate",["exponential",1.2],["zoom"],12,2.07,16,17.42,24,248.83]}},{"id":"bridge_casing_motorway","type":"line","source":"TILES_SOURCE","source-layer":"transportation","minzoom":8,"filter":["all",["==",["get","class"],"motorway"],["==",["get","brunnel"],"bridge"]],"layout":{"line-cap":"butt","line-join":"round"},"paint":{"line-color":"#ffffff","line-width":["interpolate",["exponential",1.2],["zoom"],12,2.07,16,17.42,24,248.83]}},{"id":"bridge_pedestrian","type":"line","source":"TILES_SOURCE","source-layer":"transportation","minzoom":14,"filter":["all",["==",["get","class"],"pedestrian"],["==",["get","brunnel"],"bridge"]],"layout":{"line-cap":"round","line-join":"round","line-sort-key":["coalesce",["get","layer"],0]},"paint":{"line-width":["interpolate",["exponential",1.2],["zoom"],14,1,16,3,24,65],"line-color":"#f0f0f0"}},{"id":"bridge_minor","type":"line","source":"TILES_SOURCE","source-layer":"transportation","minzoom":12,"filter":["all",["==",["get","class"],"minor"],["==",["get","brunnel"],"bridge"]],"layout":{"line-cap":"round","line-join":"round","line-sort-key":["coalesce",["get","layer"],0]},"paint":{"line-width":["interpolate",["exponential",1.2],["zoom"],13,1,16,8.4,24,120],"line-color":"#f8f8f8"}},{"id":"bridge_tertiary","type":"line","source":"TILES_SOURCE","source-layer":"transportation","minzoom":10,"filter":["all",["==",["get","class"],"tertiary"],["==",["get","brunnel"],"bridge"]],"layout":{"line-cap":"round","line-join":"round"},"paint":{"line-color":"#f8f8f8","line-width":["interpolate",["exponential",1.2],["zoom"],13,1.2,16,10.8,24,144]}},{"id":"bridge_secondary","type":"line","source":"TILES_SOURCE","source-layer":"transportation","minzoom":9,"filter":["all",["==",["get","class"],"secondary"],["==",["get","brunnel"],"bridge"]],"layout":{"line-cap":"round","line-join":"round"},"paint":{"line-color":"#f8f8f8","line-width":["interpolate",["exponential",1.2],["zoom"],13,1.44,16,12.1,24,172.8]}},{"id":"bridge_primary","type":"line","source":"TILES_SOURCE","source-layer":"transportation","minzoom":8,"filter":["all",["==",["get","class"],"primary"],["==",["get","brunnel"],"bridge"]],"layout":{"line-cap":"round","line-join":"round","visibility":"visible"},"paint":{"line-color":"#F2D163","line-width":["interpolate",["exponential",1.2],["zoom"],12,1.73,16,14.52,24,207.36]}},{"id":"bridge_trunk","type":"line","source":"TILES_SOURCE","source-layer":"transportation","minzoom":7,"filter":["all",["==",["get","class"],"trunk"],["==",["get","brunnel"],"bridge"]],"layout":{"line-cap":"round","line-join":"round","visibility":"visible"},"paint":{"line-color":"#FFA35C","line-width":["interpolate",["exponential",1.2],["zoom"],12,1.73,16,14.52,24,207.36]}},{"id":"bridge_motorway","type":"line","source":"TILES_SOURCE","source-layer":"transportation","minzoom":8,"filter":["all",["==",["get","class"],"motorway"],["==",["get","brunnel"],"bridge"]],"layout":{"line-cap":"round","line-join":"round","visibility":"visible"},"paint":{"line-color":"#FFA35C","line-width":["interpolate",["exponential",1.2],["zoom"],12,1.73,16,14.52,24,207.36]}},{"id":"road-oneway-arrow-neg","type":"symbol","source":"TILES_SOURCE","source-layer":"transportation","minzoom":15,"filter":["all",["!=",["get","class"],"motorway"],["!=",["get","class"],"ferry"],["==",["get","oneway"],-1]],"layout":{"symbol-placement":"line","symbol-avoid-edges":true,"symbol-spacing":200,"text-field":"←","text-font":["Noto Sans Regular"],"text-size":24,"text-keep-upright":false,"text-rotation-alignment":"map","text-anchor":"center","text-offset":[0,-0.2],"text-padding":20},"paint":{"text-color":"#555555","text-halo-color":"#ffffff","text-halo-width":1}},{"id":"road-oneway-arrow-pos","type":"symbol","source":"TILES_SOURCE","source-layer":"transportation","minzoom":15,"filter":["all",["!=",["get","class"],"motorway"],["!=",["get","class"],"ferry"],["==",["get","oneway"],1]],"layout":{"symbol-placement":"line","symbol-avoid-edges":true,"symbol-spacing":200,"text-field":"→","text-font":["Noto Sans Regular"],"text-size":24,"text-keep-upright":false,"text-rotation-alignment":"map","text-anchor":"center","text-offset":[0,-0.2],"text-padding":20},"paint":{"text-color":"#555555","text-halo-color":"#ffffff","text-halo-width":1}},{"id":"lowzoom_building","type":"fill-extrusion","source":"TILES_SOURCE","source-layer":"building","minzoom":12,"maxzoom":14.5,"layout":{"visibility":"visible"},"paint":{"fill-extrusion-color":"#e6e1d8","fill-extrusion-height":0,"fill-extrusion-base":0}},{"id":"building","type":"fill-extrusion","source":"TILES_SOURCE","source-layer":"building","minzoom":14.5,"layout":{"visibility":"visible"},"paint":{"fill-extrusion-color":"#e6e1d8","fill-extrusion-height":["coalesce",["get","height"],5],"fill-extrusion-base":["coalesce",["get","min_height"],0],"fill-extrusion-opacity":0.75}},{"id":"road_shield-minor","type":"symbol","source":"TILES_SOURCE","source-layer":"transportation","minzoom":14,"maxzoom":19,"filter":["all",["==",["get","class"],"minor"],["has","ref"],["!=",["get","ref_lenth"],0]],"layout":{"text-field":["get","ref"],"text-font":["Noto Sans Regular"],"text-size":11,"text-rotation-alignment":"viewport","text-padding":70,"symbol-placement":"point","text-optional":true,"text-allow-overlap":false},"paint":{"text-color":"#000000","text-halo-color":"#ffffff","text-halo-width":5,"text-halo-blur":0}},{"id":"road_shield-tertiary","type":"symbol","source":"TILES_SOURCE","source-layer":"transportation","minzoom":14,"maxzoom":19,"filter":["all",["==",["get","class"],"tertiary"],["has","ref"],["!=",["get","ref_lenth"],0]],"layout":{"text-field":["get","ref"],"text-font":["Noto Sans Regular"],"text-size":11,"text-rotation-alignment":"viewport","text-padding":70,"symbol-placement":"point","text-optional":true,"text-allow-overlap":false},"paint":{"text-color":"#000000","text-halo-color":"#ffffff","text-halo-width":5,"text-halo-blur":0}},{"id":"road_shield-secondary","type":"symbol","source":"TILES_SOURCE","source-layer":"transportation","minzoom":13,"maxzoom":19,"filter":["all",["==",["get","class"],"secondary"],["has","ref"],["!=",["get","ref_lenth"],0]],"layout":{"text-field":["get","ref"],"text-font":["Noto Sans Regular"],"text-size":12,"text-rotation-alignment":"viewport","text-padding":70,"symbol-placement":"point","text-optional":true,"text-allow-overlap":false},"paint":{"text-color":"#000000","text-halo-color":"#ffffff","text-halo-width":5,"text-halo-blur":0}},{"id":"road_shield-primary","type":"symbol","source":"TILES_SOURCE","source-layer":"transportation","minzoom":11,"maxzoom":19,"filter":["all",["==",["get","class"],"primary"],["has","ref"],["!=",["get","ref_lenth"],0]],"layout":{"text-field":["get","ref"],"text-font":["Noto Sans Bold"],"text-size":12,"text-rotation-alignment":"viewport","text-padding":70,"symbol-placement":"point","text-optional":true,"text-allow-overlap":false},"paint":{"text-color":"#101010","text-halo-color":"#ffffff","text-halo-width":5,"text-halo-blur":0}},{"id":"road_shield-trunk","type":"symbol","source":"TILES_SOURCE","source-layer":"transportation","minzoom":9,"maxzoom":24,"filter":["all",["==",["get","class"],"trunk"],["has","ref"],["!=",["get","ref_lenth"],0]],"layout":{"text-field":["get","ref"],"text-font":["Noto Sans Bold"],"text-size":14,"text-rotation-alignment":"viewport","text-padding":70,"symbol-placement":"point","text-optional":true,"text-allow-overlap":false},"paint":{"text-color":"#ffffff","text-halo-color":"#CC2929","text-halo-width":5,"text-halo-blur":0}},{"id":"road_shield-motorway","type":"symbol","source":"TILES_SOURCE","source-layer":"transportation","minzoom":7,"maxzoom":24,"filter":["all",["==",["get","class"],"motorway"],["has","ref"],["!=",["get","ref_lenth"],0]],"layout":{"text-field":["get","ref"],"text-font":["Noto Sans Bold"],"text-size":16,"text-rotation-alignment":"viewport","text-padding":70,"symbol-placement":"point","text-optional":true,"text-allow-overlap":false},"paint":{"text-color":"#ffffff","text-halo-color":"#CC2929","text-halo-width":5,"text-halo-blur":0}},{"id":"road_label","type":"symbol","source":"TILES_SOURCE","source-layer":"transportation","minzoom":13,"filter":["all",["!=",["get","class"],"motorway"],["!=",["get","class"],"trunk"],["has","name"]],"layout":{"symbol-placement":"line","text-font":["Noto Sans Regular"],"text-field":["get","name"],"text-size":11,"text-max-angle":30,"text-pitch-alignment":"auto","text-rotation-alignment":"auto","text-allow-overlap":false,"text-padding":120},"paint":{"text-color":"#101010","text-halo-color":"#fff","text-halo-width":2}},{"id":"places_locality_pm","type":"symbol","source-layer":"places","maxzoom":8,"filter":["==",["get","kind"],"locality"],"layout":{"text-field":["format",["coalesce",["get","name:fr"],["get","name:en"],["get","name"]],{"font-scale":1},["case",["all",["has","name"],["!=",["coalesce",["get","name:fr"],["get","name:en"],["get","name"]],["get","name"]]],["concat","\n",["get","name"]],""],{"font-scale":0.75}],"text-font":["Noto Sans Regular"],"text-size":["interpolate",["linear"],["zoom"],3,11,6,13,8,15],"text-max-width":8,"symbol-sort-key":["-",["coalesce",["get","population_rank"],0]]},"paint":{"text-color":"#5a5346","text-halo-color":"#ffffff","text-halo-width":1.2},"source":"tiles"},{"id":"place_village","type":"symbol","source":"TILES_SOURCE","source-layer":"place","minzoom":12,"maxzoom":17,"filter":["in",["get","class"],["literal",["village","hamlet"]]],"layout":{"text-field":"__BILINGUAL_PLACE__","text-size":["interpolate",["linear"],["zoom"],12,9,14,11],"text-font":["Noto Sans Regular"],"text-max-width":8,"text-allow-overlap":false,"text-padding":3,"symbol-sort-key":["coalesce",["get","rank"],50]},"paint":{"text-color":"#555","text-halo-color":"#fff","text-halo-width":1}},{"id":"place_town","type":"symbol","source":"TILES_SOURCE","source-layer":"place","minzoom":9,"maxzoom":15,"filter":["==",["get","class"],"town"],"layout":{"text-field":"__BILINGUAL_PLACE__","text-size":["interpolate",["linear"],["zoom"],9,["interpolate",["linear"],["coalesce",["get","rank"],10],1,11,5,9,10,8],12,["interpolate",["linear"],["coalesce",["get","rank"],10],1,16,5,13,10,11]],"text-font":["Noto Sans Regular"],"text-max-width":8,"text-allow-overlap":false,"text-padding":5,"symbol-sort-key":["coalesce",["get","rank"],50]},"paint":{"text-color":"#444","text-halo-color":"#fff","text-halo-width":1.5}},{"id":"place_city","type":"symbol","source":"TILES_SOURCE","source-layer":"place","minzoom":0,"maxzoom":14,"filter":["in",["get","class"],["literal",["city","state_capital","country_capital"]]],"layout":{"text-field":"__BILINGUAL_PLACE__","text-size":["interpolate",["linear"],["zoom"],4,["interpolate",["linear"],["coalesce",["get","rank"],10],1,16,3,14,4,10,6,9,10,8],10,["interpolate",["linear"],["coalesce",["get","rank"],10],1,24,3,20,4,14,6,12,10,11],14,["interpolate",["linear"],["coalesce",["get","rank"],10],1,28,3,24,4,17,6,15,10,13]],"text-font":["Noto Sans Bold"],"text-max-width":8,"text-allow-overlap":false,"text-padding":8,"symbol-sort-key":["coalesce",["get","rank"],99]},"paint":{"text-color":["case",["<=",["coalesce",["get","rank"],10],3],"#333","#666"],"text-halo-color":"#fff","text-halo-width":2,"text-opacity":["step",["zoom"],["case",["<=",["coalesce",["get","rank"],99],2],1,0],5,["case",["<=",["coalesce",["get","rank"],99],4],1,0],6,["case",["<=",["coalesce",["get","rank"],99],5],1,0],7,["case",["<=",["coalesce",["get","rank"],99],7],1,0],8,1]}},{"id":"places_region_pm","type":"symbol","source-layer":"places","maxzoom":8,"filter":["==",["get","kind"],"region"],"minzoom":4,"layout":{"text-field":["format",["coalesce",["get","name:fr"],["get","name:en"],["get","name"]],{"font-scale":1},["case",["all",["has","name"],["!=",["coalesce",["get","name:fr"],["get","name:en"],["get","name"]],["get","name"]]],["concat","\n",["get","name"]],""],{"font-scale":0.75}],"text-font":["Noto Sans Regular"],"text-transform":"uppercase","text-letter-spacing":0.1,"text-size":["interpolate",["linear"],["zoom"],4,10,7,13]},"paint":{"text-color":"#a89e8c","text-halo-color":"#f4f1ea","text-halo-width":1},"source":"tiles"},{"id":"places_country_pm","type":"symbol","source-layer":"places","maxzoom":8,"minzoom":2,"filter":["==",["get","kind"],"country"],"layout":{"text-field":["format",["coalesce",["get","name:fr"],["get","name:en"],["get","name"]],{"font-scale":1},["case",["all",["has","name"],["!=",["coalesce",["get","name:fr"],["get","name:en"],["get","name"]],["get","name"]]],["concat","\n",["get","name"]],""],{"font-scale":0.75}],"text-font":["Noto Sans Bold"],"text-transform":"uppercase","text-letter-spacing":0.12,"text-max-width":8,"text-size":["interpolate",["linear"],["zoom"],2,11,5,15,8,19],"symbol-sort-key":["-",["coalesce",["get","population_rank"],0]]},"paint":{"text-color":"#8a7f6d","text-halo-color":"#f4f1ea","text-halo-width":1.4},"source":"tiles"},{"id":"water_label","type":"symbol","source":"TILES_SOURCE","source-layer":"water","minzoom":11,"layout":{"text-field":["get","name"],"text-size":12,"text-font":["Noto Sans Regular"],"text-max-width":8,"text-allow-overlap":false,"text-padding":120},"paint":{"text-color":"#666","text-halo-color":"#fff","text-halo-width":1}},{"id":"water_line_label","type":"symbol","source":"TILES_SOURCE","source-layer":"waterway","minzoom":13,"filter":["has","name"],"layout":{"symbol-placement":"line","text-font":["Noto Sans Regular"],"text-field":["get","name"],"text-size":12,"text-max-angle":30,"text-pitch-alignment":"auto","text-rotation-alignment":"auto","text-allow-overlap":false,"text-padding":120},"paint":{"text-color":"#666","text-halo-color":"#fff","text-halo-width":2}},{"id":"landuse_label","type":"symbol","source":"TILES_SOURCE","source-layer":"landuse","minzoom":16,"layout":{"text-field":["get","name"],"text-size":12,"text-font":["Noto Sans Regular"],"text-max-width":8,"text-allow-overlap":false,"text-padding":5},"paint":{"text-color":"#666","text-halo-color":"#fff","text-halo-width":2}},{"id":"poi_label","type":"symbol","source":"TILES_SOURCE","source-layer":"poi","minzoom":20,"layout":{"text-field":["get","name"],"text-size":11,"text-font":["Noto Sans Regular"],"text-max-width":8,"text-allow-overlap":false,"text-padding":5},"paint":{"text-color":"#666","text-halo-color":"#fff","text-halo-width":1}}],"id":"3a0ug26"});
+bemap.fallbackStyle = Object.freeze({"version":8,"name":"BeMap Fallback (charte 2026, no fonts)","metadata":{"description":"Tiny fill/line-only fallback derived from styles_charte_2026.json. No symbol/label layers, no glyphs — never requests fonts. Swapped out for the live server default style after login.","source_placeholder":"TILES_SOURCE"},"sources":{"TILES_SOURCE":{"type":"vector","url":"pmtiles://PLACEHOLDER_REPLACED_AT_RUNTIME","minzoom":0,"maxzoom":14}},"layers":[{"id":"background","type":"background","paint":{"background-color":["step",["zoom"],"#8adaec",8,"#f4f1ea"]}},{"id":"earth","type":"fill","source":"tiles","source-layer":"earth","maxzoom":8,"paint":{"fill-color":"#f4f1ea","fill-antialias":false}},{"id":"landcover_pm","type":"fill","source":"tiles","source-layer":"landcover","maxzoom":8,"paint":{"fill-antialias":false,"fill-opacity":["interpolate",["linear"],["zoom"],6,1,8,0],"fill-color":["match",["get","kind"],"forest","#b6dfa8","grassland","#d4ecc4","scrub","#dcebc0","farmland","#e8ecd6","barren","#efe9d6","urban_area","#ece8de","glacier","#ffffff","#f4f1ea"]}},{"id":"landcover_omt","type":"fill","source":"tiles","source-layer":"landcover","minzoom":8,"paint":{"fill-antialias":false,"fill-opacity":0.7,"fill-color":["match",["get","class"],"wood","#b6dfa8","grass","#d4ecc4","sand","#efe9d6","#f4f1ea"]}},{"id":"water","type":"fill","source":"tiles","source-layer":"water","paint":{"fill-color":"#8adaec","fill-antialias":false}},{"id":"water_river_pm","type":"line","source":"tiles","source-layer":"water","filter":["all",["==",["geometry-type"],"LineString"],["==",["get","kind"],"river"]],"paint":{"line-color":"#8adaec","line-width":["interpolate",["linear"],["zoom"],6,0.4,14,2.2]}},{"id":"roads_pm_major_casing","type":"line","source":"tiles","source-layer":"roads","maxzoom":8,"filter":["all",["==",["get","kind"],"major_road"],["!=",["get","is_link"],true]],"layout":{"line-cap":"round","line-join":"round"},"paint":{"line-color":"#e4ddc9","line-width":["interpolate",["exponential",1.6],["zoom"],4,0,8,2.8]}},{"id":"roads_pm_major","type":"line","source":"tiles","source-layer":"roads","maxzoom":8,"filter":["all",["==",["get","kind"],"major_road"],["!=",["get","is_link"],true]],"layout":{"line-cap":"round","line-join":"round"},"paint":{"line-color":"#ffffff","line-width":["interpolate",["exponential",1.6],["zoom"],4,0.2,8,1.6]}},{"id":"roads_pm_highway_casing","type":"line","source":"tiles","source-layer":"roads","maxzoom":8,"filter":["all",["==",["get","kind"],"highway"],["!=",["get","is_link"],true]],"layout":{"line-cap":"round","line-join":"round"},"paint":{"line-color":"#e9ac77","line-width":["interpolate",["exponential",1.6],["zoom"],4,0,8,3.6]}},{"id":"roads_pm_highway","type":"line","source":"tiles","source-layer":"roads","maxzoom":8,"filter":["all",["==",["get","kind"],"highway"],["!=",["get","is_link"],true]],"layout":{"line-cap":"round","line-join":"round"},"paint":{"line-color":"#fcd9a6","line-width":["interpolate",["exponential",1.6],["zoom"],4,0.4,8,2.4]}}]});
+
+/**
+ * Back-compat alias of {@link bemap.fallbackStyle}.
+ * @deprecated since 2.0.0 — the bundled style is now only a tiny fallback; the
+ * real default style is loaded from the Worker after login. Use server styles
+ * (or `ctx`/`{style}`); this alias keeps older callers working.
+ * @public
+ * @type {Object}
+ */
+bemap.defaultStyle = bemap.fallbackStyle;
 
 /**
  * BeNomad BeMap JavaScript API — TilesAuth (v2.0)
@@ -18773,7 +18986,9 @@ bemap.TilesAuth.prototype.buildTransformRequest = function () {
  * token is picked up by every pending request.
  *
  * @public
- * @param {Object} nativeMap MapLibre `map.native` instance.
+ * @param {Object} nativeMap The map to reload — normally the bemap.MapLibreMap
+ *   WRAPPER (so its overlay-replay listener fires and `{_internal:true}` is
+ *   honoured), or a raw `map.native` instance (which ignores the option).
  * @param {Object} [currentStyleSpec] Style currently displayed, for the reload.
  * @return {Promise<String>}
  */
@@ -18785,7 +19000,11 @@ bemap.TilesAuth.prototype.handle401 = function (nativeMap, currentStyleSpec) {
   var self = this;
   var p = this.refresh().then(function (token) {
     if (nativeMap && currentStyleSpec && typeof nativeMap.setStyle === 'function') {
-      try { nativeMap.setStyle(currentStyleSpec); } catch (e) { /* ignore */ }
+      // _internal: a 401-driven reload re-applies the SAME current spec, so it
+      // must not latch _userSetStyle on the wrapper (that would permanently
+      // suppress the init-time server default-style refresh). The wrapper reads
+      // the option; the native MapLibre map ignores the unknown key.
+      try { nativeMap.setStyle(currentStyleSpec, { _internal: true }); } catch (e) { /* ignore */ }
     }
     self._handle401InFlight = null;
     return token;
@@ -18885,46 +19104,6 @@ bemap.TilesStyle.SOURCE_PLACEHOLDER = 'TILES_SOURCE';
 bemap.TilesStyle.PLACE_LABEL_PLACEHOLDER = '__BILINGUAL_PLACE__';
 
 /**
- * Directory bemap-js-api(.min).js was loaded from, captured once at load so the
- * bundled default-style fonts (shipped to `dist/fonts/`) can be addressed with
- * an absolute URL — the default style is an inline object, so a relative
- * `glyphs` would resolve against the page origin, not the bundle. Returns e.g.
- * `'https://host/bemap-js-api/'`, or `null` when undetectable (SSR / exotic
- * loaders), in which case the style keeps its own (public demo) glyphs.
- * @private
- */
-bemap.TilesStyle._assetsBaseUrl = (function () {
-  try {
-    if (typeof document === 'undefined') return null;
-    var re = /bemap-js-api(\.min)?\.js(\?|#|$)/;
-    var s = document.currentScript;
-    if (!s || !s.src || !re.test(s.src)) {
-      var scripts = document.getElementsByTagName('script');
-      s = null;
-      for (var i = scripts.length - 1; i >= 0; i--) {
-        if (scripts[i].src && re.test(scripts[i].src)) { s = scripts[i]; break; }
-      }
-    }
-    return (s && s.src) ? s.src.replace(/[^\/]*(\?.*)?(#.*)?$/, '') : null;
-  } catch (e) { return null; }
-})();
-
-/**
- * The glyphs URL template for the fonts shipped in `dist/fonts/`, derived from
- * the bundle location — or `null` when the bundle dir can't be detected.
- * Apps can pass this to `new bemap.Context({ glyphsUrl: bemap.TilesStyle.bundledGlyphsUrl() })`,
- * but the default style already falls back to it automatically.
- * @public
- * @since 2.0.0
- * @return {String|null}
- */
-bemap.TilesStyle.bundledGlyphsUrl = function () {
-  return bemap.TilesStyle._assetsBaseUrl
-    ? bemap.TilesStyle._assetsBaseUrl + 'fonts/{fontstack}/{range}.pbf'
-    : null;
-};
-
-/**
  * @public
  * @param {bemap.Context} ctx
  * @param {String|Object} urlOrObject
@@ -18979,19 +19158,47 @@ bemap.TilesStyle.resolvePlaceholders = function (rawStyle, ctx, tilesFile) {
   var placeLabelPh = meta.place_label_placeholder || bemap.TilesStyle.PLACE_LABEL_PLACEHOLDER;
   var SOURCE_KEY = 'tiles';
 
-  // An explicit ctx.glyphsUrl overrides the style's font server everywhere
-  // (default and custom styles alike). The bundled-fonts default for the
-  // built-in style is applied in the MapLibreMap constructor.
-  if (ctx && ctx.glyphsUrl) rawStyle.glyphs = ctx.glyphsUrl;
+  // Glyphs (fonts) resolution:
+  //   1. an explicit ctx.glyphsUrl overrides the style's font server everywhere;
+  //   2. else absolutise a ROOT-relative glyphs (e.g. the charte 2026 style's
+  //      "/fonts/{fontstack}/{range}.pbf") against the tilesHost Worker. When
+  //      MapLibre gets the style as an OBJECT it resolves a relative glyphs URL
+  //      against the PAGE origin — which 404s the Worker-hosted fonts and blanks
+  //      every label (the charte is label-heavy, so the map looks empty). Making
+  //      it absolute routes glyphs to the Worker; the fetch interceptor then
+  //      attaches X-Session-Token. A full ("https://…") or protocol-relative
+  //      ("//host/…") glyphs is already absolute and left as-is — the
+  //      charAt(1)!=='/' guard avoids mangling "//host" into "<base>//host".
+  //   (The tiny bundled fallback has no symbol layers and no `glyphs`, so it
+  //   never requests a font; fonts come from the Worker with the server style.)
+  //   Mirrors mp-tiles-demo's resolveStyle.
+  if (ctx && ctx.glyphsUrl) {
+    rawStyle.glyphs = ctx.glyphsUrl;
+  } else if (typeof rawStyle.glyphs === 'string'
+      && rawStyle.glyphs.charAt(0) === '/' && rawStyle.glyphs.charAt(1) !== '/') {
+    var glyphsBase = ctx && typeof ctx.getTilesBaseUrl === 'function' && ctx.getTilesBaseUrl();
+    if (glyphsBase) rawStyle.glyphs = glyphsBase + rawStyle.glyphs;
+  }
 
-  if (rawStyle.sources && rawStyle.sources[sourcePh]) {
-    var tpl = rawStyle.sources[sourcePh];
+  // BeNomad styles ALWAYS proxy their tiles through the configured Worker
+  // (auth + gating + edge cache), using the app's resolved tileset — the
+  // style's OWN source url / archive / XYZ template is intentionally ignored
+  // (mirrors mp-tiles-demo). So the `TILES_SOURCE` placeholder, a self-hosted
+  // root-relative template, AND a hardcoded foreign archive url (e.g. a public
+  // R2 bucket that 404s, as style_google/style_apple ship) all resolve to
+  // `pmtiles://<tilesHost>/<tilesFile>`. Only the conventional source key
+  // (the placeholder or 'tiles') is rewritten; a source keyed anything else is
+  // left untouched, so a genuinely custom style is never hijacked.
+  var sourceTpl = rawStyle.sources && (rawStyle.sources[sourcePh] || rawStyle.sources[SOURCE_KEY]);
+  if (sourceTpl) {
     var url = ctx && ctx.getTilesFileUrl ? ctx.getTilesFileUrl(tilesFile) : null;
+    var newSrc = Object.assign({}, sourceTpl);
     if (url) {
-      rawStyle.sources[SOURCE_KEY] = Object.assign({}, tpl, { url: 'pmtiles://' + url });
-    } else {
-      rawStyle.sources[SOURCE_KEY] = tpl;
+      newSrc.url = 'pmtiles://' + url;
+      if (newSrc.tiles) delete newSrc.tiles; // ignore the style's own template/archive
     }
+    if (!rawStyle.sources) rawStyle.sources = {};
+    rawStyle.sources[SOURCE_KEY] = newSrc;
     if (sourcePh !== SOURCE_KEY) delete rawStyle.sources[sourcePh];
   }
 

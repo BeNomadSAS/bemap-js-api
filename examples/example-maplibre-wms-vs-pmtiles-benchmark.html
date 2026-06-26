@@ -221,18 +221,20 @@ var CONFIG = {
 var PREVIEW_MLPMT = mk('ml-prev-pmt', 'MapLibre · PMTiles', 'ml', 'pmtiles', 'ml', { cache: true });
 
 // ---- Context factories -----------------------------------------------------
-// Mirror the dashboard Context (bemapMainCtx) — CRUCIALLY its `geoserver`,
-// without which WMS tile requests come back empty (the grey Leaflet/OL map).
-// functions.html works precisely because it uses bemapMainCtx (which carries
-// geoserver). WMS configs get a tilesHost-FREE copy so MapLibre renders WMS,
-// not PMTiles; the PMTiles config adds tilesHost on top.
+// Mirror the dashboard Context (bemapMainCtx) for host/credentials, but pin
+// geoserver to 'osm' for EVERY config so all engines compare the SAME map
+// (WMS osm AND the PMTiles 'osm' archive) — independent of whatever the
+// dashboard sidebar geoserver is set to (e.g. 'here'). geoserver must be set
+// or WMS tiles come back empty (grey map); for the PMTiles config it also
+// drives the tiles archive (geoserver → tilesFile → 'osm').
+var BENCH_GEOSERVER = 'osm';
 function baseOpts() {
   return {
     host:       bemapMainCtx.host,
     secure:     bemapMainCtx.protocol === 'https',
     login:      bemapMainCtx.login,
     password:   bemapMainCtx.password,
-    geoserver:  bemapMainCtx.geoserver,
+    geoserver:  BENCH_GEOSERVER,
     path:       bemapMainCtx.path,
     authInPost: bemapMainCtx.authInPost
   };
@@ -277,10 +279,10 @@ function attachWmsBackground(map) {
   map._benchBg = bg;   // bg.native: OL → ol.layer.Tile; LF → L.TileLayer.WMS
 }
 
-// The bundled MapLibre style paints a pale-blue (#d4ecf5) `background` layer.
-// Match the BeNomad demo's neutral grey (#e3e3e3). Re-applied on every styledata
-// because the lib reloads the style on JWT refresh. (Per-instance only — we do
-// NOT touch bemap.defaultStyle, which other apps like bfleet/evmove5 share.)
+// The tiny fallback paints a `background` layer. Match the BeNomad demo's
+// neutral grey (#e3e3e3). Re-applied on every styledata because the lib reloads
+// the style on JWT refresh. (Per-instance only — we do NOT touch
+// bemap.fallbackStyle, which other apps like bfleet/evmove5 share.)
 function applyGreyBackground(map) {
   var set = function () {
     try { if (map.native.getLayer && map.native.getLayer('background')) map.native.setPaintProperty('background', 'background-color', '#e3e3e3'); } catch (e) {}

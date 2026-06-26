@@ -69,7 +69,8 @@ The rest of the app stays identical — markers, polylines, polygons,
 clustering, drawing, routing, geocoding all work the same way on MapLibre.
 The `bemap.BemapLayer({ name: 'background' })` call is short-circuited
 inside `MapLibreMap.defaultLayers()` when `ctx.tilesHost` is set: the
-background is supplied by the bundled BeNomad style instead.
+background is supplied by the BeNomad Tiles vector charte instead (a tiny
+font-free fallback first, then the live charte loaded from the Worker).
 
 ## What about Leaflet and OpenLayers?
 
@@ -82,7 +83,7 @@ is the explicit switch.
 - **Service Worker caching** — `dist/bemap-sw-tiles.js` is auto-registered;
   the live HIT/MISS counter is exposed via `map.onCacheStats(fn)` and
   `map.getBrowserCacheStats()`. **You must copy that file to your site
-  root once** — see [docs/browser-cache.md](browser-cache.md) for the
+  root once** — see [Browser cache](#page-../docs/browser-cache.md) for the
   one-line copy step, verification steps, and the diagnostic console
   logs the library emits when the SW is not reachable.
 - **MapLibre-only methods** — call them directly on the map:

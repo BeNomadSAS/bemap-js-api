@@ -274,7 +274,7 @@
 
 
 <div class="description">
-    Optional override for the MapLibre glyphs (font) URL template, e.g.`'https://my-host/fonts/{fontstack}/{range}.pbf'`. When set it wins overthe bundled-fonts auto-detection and the style's own `glyphs`. Leave unsetto use the fonts shipped in `dist/fonts/` (auto-detected from the bundlelocation) with the public demo server as the ultimate fallback.
+    Optional override for the MapLibre glyphs (font) URL template, e.g.`'https://my-host/fonts/{fontstack}/{range}.pbf'`. When set it wins overevery style's own `glyphs`. Leave unset and the library bundles no fonts:the tiny fallback style requests none, and server styles fetch their ownglyphs from the Worker (a root-relative `/fonts/...` is absolutised to`<tilesHost>/fonts/...` by `bemap.TilesStyle.resolvePlaceholders`).
 </div>
 
 
@@ -328,7 +328,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line378">line 378</a>
+        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line379">line 379</a>
     </li></ul></dd>
     
 
@@ -1066,7 +1066,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line387">line 387</a>
+        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line388">line 388</a>
     </li></ul></dd>
     
 
@@ -1146,7 +1146,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line551">line 551</a>
+        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line587">line 587</a>
     </li></ul></dd>
     
 
@@ -1256,7 +1256,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line540">line 540</a>
+        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line576">line 576</a>
     </li></ul></dd>
     
 
@@ -1369,7 +1369,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line532">line 532</a>
+        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line568">line 568</a>
     </li></ul></dd>
     
 
@@ -1478,7 +1478,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line577">line 577</a>
+        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line613">line 613</a>
     </li></ul></dd>
     
 
@@ -1591,7 +1591,119 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line408">line 408</a>
+        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line409">line 409</a>
+    </li></ul></dd>
+    
+
+    
+
+    
+
+    
+</dl>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<h5>Returns:</h5>
+
+        
+
+
+<dl>
+    <dt>
+        Type
+    </dt>
+    <dd>
+        
+<span class="param-type">string</span>
+|
+
+<span class="param-type">null</span>
+
+
+    </dd>
+</dl>
+
+    
+
+
+
+
+
+        
+            
+
+    
+
+    
+    <h4 class="name" id="getTilesDefaultStyleUrl"><span class="type-signature"></span>getTilesDefaultStyleUrl<span class="signature">()</span><span class="type-signature"> &rarr; {string|null}</span></h4>
+    
+
+    
+
+
+
+<div class="description">
+    URL of the Worker default-STYLE pointer (`/api/default-style`) — returns thename of the MapLibre style applied when the developer pins no style. Used forthe "load the live charte from the server after login" default path.
+</div>
+
+
+
+
+
+
+
+
+
+
+
+
+
+<dl class="details">
+
+    
+
+    
+    <dt class="tag-since">Since:</dt>
+    <dd class="tag-since"><ul class="dummy"><li>2.0.0</li></ul></dd>
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+    <dt class="tag-source">Source:</dt>
+    <dd class="tag-source"><ul class="dummy"><li>
+        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line479">line 479</a>
     </li></ul></dd>
     
 
@@ -1703,7 +1815,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line477">line 477</a>
+        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line513">line 513</a>
     </li></ul></dd>
     
 
@@ -1876,7 +1988,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line490">line 490</a>
+        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line526">line 526</a>
     </li></ul></dd>
     
 
@@ -1988,7 +2100,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line419">line 419</a>
+        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line420">line 420</a>
     </li></ul></dd>
     
 
@@ -2100,7 +2212,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line441">line 441</a>
+        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line442">line 442</a>
     </li></ul></dd>
     
 
@@ -2212,7 +2324,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line453">line 453</a>
+        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line454">line 454</a>
     </li></ul></dd>
     
 
@@ -2324,7 +2436,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line430">line 430</a>
+        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line431">line 431</a>
     </li></ul></dd>
     
 
@@ -2436,7 +2548,168 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line465">line 465</a>
+        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line466">line 466</a>
+    </li></ul></dd>
+    
+
+    
+
+    
+
+    
+</dl>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<h5>Returns:</h5>
+
+        
+
+
+<dl>
+    <dt>
+        Type
+    </dt>
+    <dd>
+        
+<span class="param-type">string</span>
+|
+
+<span class="param-type">null</span>
+
+
+    </dd>
+</dl>
+
+    
+
+
+
+
+
+        
+            
+
+    
+
+    
+    <h4 class="name" id="getTilesStyleUrl"><span class="type-signature"></span>getTilesStyleUrl<span class="signature">(name)</span><span class="type-signature"> &rarr; {string|null}</span></h4>
+    
+
+    
+
+
+
+<div class="description">
+    URL of a named MapLibre style JSON served by the Worker. Accepts either abare style name (`'openfreemap_graylevel'` → `<base>/styles/openfreemap_graylevel`)or a Worker-relative path as returned by `/api/styles`(`'styles/openfreemap_graylevel.json'` → `<base>/styles/openfreemap_graylevel.json`).A leading slash is stripped; a value that already carries a path segment isresolved against the tilesHost root rather than re-nested under `/styles/`.Returns `null` when there is no tilesHost or no name.
+</div>
+
+
+
+
+
+
+
+
+
+    <h5>Parameters:</h5>
+    
+
+<table class="params">
+    <thead>
+    <tr>
+        
+        <th>Name</th>
+        
+
+        <th>Type</th>
+
+        
+
+        
+
+        <th class="last">Description</th>
+    </tr>
+    </thead>
+
+    <tbody>
+    
+
+        <tr>
+            
+                <td class="name"><code>name</code></td>
+            
+
+            <td class="type">
+            
+                
+<span class="param-type">String</span>
+
+
+            
+            </td>
+
+            
+
+            
+
+            <td class="description last"></td>
+        </tr>
+
+    
+    </tbody>
+</table>
+
+
+
+
+
+
+<dl class="details">
+
+    
+
+    
+    <dt class="tag-since">Since:</dt>
+    <dd class="tag-since"><ul class="dummy"><li>2.0.0</li></ul></dd>
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+    <dt class="tag-source">Source:</dt>
+    <dd class="tag-source"><ul class="dummy"><li>
+        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line497">line 497</a>
     </li></ul></dd>
     
 
@@ -2548,7 +2821,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line397">line 397</a>
+        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line398">line 398</a>
     </li></ul></dd>
     
 
@@ -2654,7 +2927,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line569">line 569</a>
+        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line605">line 605</a>
     </li></ul></dd>
     
 
@@ -2813,7 +3086,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line585">line 585</a>
+        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line621">line 621</a>
     </li></ul></dd>
     
 
@@ -2965,7 +3238,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line518">line 518</a>
+        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line554">line 554</a>
     </li></ul></dd>
     
 
@@ -3071,7 +3344,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line561">line 561</a>
+        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line597">line 597</a>
     </li></ul></dd>
     
 
@@ -3123,7 +3396,7 @@
 <br class="clear">
 
 <footer>
-    Documentation generated by <a href="https://github.com/jsdoc/jsdoc">JSDoc 3.6.3</a> on Tue Jun 09 2026 18:17:44 GMT+0200 (heure d’été d’Europe centrale)
+    Documentation generated by <a href="https://github.com/jsdoc/jsdoc">JSDoc 3.6.3</a> on Fri Jun 26 2026 15:48:23 GMT+0200 (heure d’été d’Europe centrale)
 </footer>
 
 <script> prettyPrint(); </script>

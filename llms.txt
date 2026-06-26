@@ -81,7 +81,7 @@ uniform API. Same code, three engines.
 ### Classes
 
 - `bemap.Context({ host, secure, login, password, authInPost, geoserver?, tilesHost?, tilesFile?, tilesStyle?, glyphsUrl? })`
-  - `tilesHost` must be paired with `host` per env (beta/preprod/prod). MapLibre map = which PMTiles map: `tilesFile → geoserver → 'default'` (server-resolved); `glyphsUrl` overrides the font host (default: fonts bundled in `dist/fonts/`, auto-detected).
+  - `tilesHost` must be paired with `host` per env (beta/preprod/prod). MapLibre map = which PMTiles map: `tilesFile → geoserver → 'default'` (server-resolved); `glyphsUrl` overrides the font host (default: no bundled fonts — the tiny fallback is font-free; server styles fetch glyphs from the Worker).
 - `bemap.LeafletMap(ctx, target, options?)` — Leaflet engine
 - `bemap.Ol3Map(ctx, target, options?)` / `bemap.OlMap` — OpenLayers v10 engine
 - `bemap.MapLibreMap(ctx, target, options?)` — MapLibre v5 engine (BeNomad Tiles)

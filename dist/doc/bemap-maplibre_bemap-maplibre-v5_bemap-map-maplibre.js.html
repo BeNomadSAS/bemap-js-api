@@ -104,7 +104,10 @@ bemap.MapLibreMap = function(context, target, options) {
         // → refresh loop. We also route through the wrapper's setStyle
         // (not native) so the overlay catalogue replay listener fires.
         if (info &amp;&amp; info.reason === 'refresh' &amp;&amp; _self.native &amp;&amp; _self._currentStyleSpec) {
-          try { _self.setStyle(_self._currentStyleSpec); } catch (e) { /* ignore */ }
+          // _internal: this re-applies the SAME current spec for token renewal —
+          // it is not the developer choosing a style, so it must not latch
+          // _userSetStyle (which would suppress the init default-style refresh).
+          try { _self.setStyle(_self._currentStyleSpec, { _internal: true }); } catch (e) { /* ignore */ }
         }
       }
     });
@@ -127,7 +130,11 @@ bemap.MapLibreMap = function(context, target, options) {
   //   ctx.hasTilesConfig()    → BeNomad Tiles default style
   //   none                    → empty background (legacy fallback)
   var style;
-  if (opts.style) {
+  // opts.style is EXPLICIT only as an inline object or a URL/path. A bare style
+  // NAME, the string 'default', or omitting it all flow to the tiny fallback
+  // below, then load/refresh from the Worker after login.
+  var _explicitStyle = opts.style &amp;&amp; (typeof opts.style === 'object' || /[:/]/.test(opts.style));
+  if (_explicitStyle) {
     style = opts.style;
   } else if (opts.tiles) {
     // PMTiles URL — build a minimal style, then load real style async
@@ -140,23 +147,31 @@ bemap.MapLibreMap = function(context, target, options) {
     };
     this._pendingTilesStyle = opts.tilesStyle || null;
     this._pendingTilesUrl = tilesUrl;
-  } else if (this._hasTilesConfig &amp;&amp; typeof bemap.defaultStyle !== 'undefined' &amp;&amp; typeof bemap.TilesStyle !== 'undefined') {
-    // BeNomad Tiles default — clone the frozen default style then resolve
+  } else if (this._hasTilesConfig &amp;&amp; typeof bemap.fallbackStyle !== 'undefined' &amp;&amp; typeof bemap.TilesStyle !== 'undefined') {
+    // BeNomad Tiles — clone the tiny font-free fallback style then resolve
     // placeholders against the configured ctx/tilesFile. Precedence is
     // opts.tilesFile -> ctx.tilesFile -> ctx.geoserver -> 'default', so a
     // Context with `geoserver: 'osm'` (and no explicit tilesFile) loads the
     // 'osm' tiles instead of the server default.
-    style = JSON.parse(JSON.stringify(bemap.defaultStyle));
-    // Fonts: prefer ctx.glyphsUrl, else the fonts bundled in dist/fonts/
-    // (auto-detected from the bundle location), else the style's own glyphs
-    // (the public demo server) as the ultimate fallback.
-    var _glyphs = context.glyphsUrl
-      || (bemap.TilesStyle.bundledGlyphsUrl &amp;&amp; bemap.TilesStyle.bundledGlyphsUrl());
-    if (_glyphs) style.glyphs = _glyphs;
+    //
+    // The fallback has no symbol layers and no `glyphs`, so it requests no
+    // fonts. ctx.glyphsUrl (if set) is still applied by resolvePlaceholders;
+    // server styles bring their own (Worker) fonts when they swap in.
+    style = JSON.parse(JSON.stringify(bemap.fallbackStyle));
     var _tilesFile = context.resolveTilesFile(opts.tilesFile);
     bemap.TilesStyle.resolvePlaceholders(style, context, _tilesFile);
     if (typeof bemap.TilesStyle.hardenSymbolCollisions === 'function') {
       bemap.TilesStyle.hardenSymbolCollisions(style);
+    }
+    // After construction (so setStyle has a target): a bare NAME swaps to
+    // /styles/&lt;name>; omitted or 'default' refreshes to the Worker's live
+    // default style once login completes. The tiny fallback above is the
+    // instant first paint either way — no first-paint cost, and it stays if
+    // the server style ever fails to load.
+    if (typeof opts.style === 'string' &amp;&amp; opts.style &amp;&amp; opts.style !== 'default') {
+      this._pendingStyleName = opts.style;
+    } else {
+      this._refreshDefaultOnInit = true;
     }
   } else {
     style = {
@@ -222,6 +237,16 @@ bemap.MapLibreMap = function(context, target, options) {
     _nativeOpts.transformRequest = this._tilesAuth.buildTransformRequest();
   }
   this.native = new maplibregl.Map(_nativeOpts);
+
+  // Default-style "bootstrap → refresh", or a deferred named style — run once on
+  // init, after the native map exists so setStyle() has a target to swap into.
+  // _refreshDefaultStyleFromServer() waits for login; setStyle(name) resolves it
+  // to /styles/&lt;name>. The tiny fallback already painted, so no first-paint cost.
+  if (this._refreshDefaultOnInit) {
+    this._refreshDefaultStyleFromServer();
+  } else if (this._pendingStyleName) {
+    this.setStyle(this._pendingStyleName);
+  }
 
   // Reload tiles on resize. MapLibre v5 already observes the container and
   // resizes its canvas, but resize() updates the canvas + transform WITHOUT
@@ -1676,6 +1701,42 @@ bemap.MapLibreMap.prototype.fetchDefaultMap = function() {
 };
 
 /**
+ * Fetch the name of the Worker's default MapLibre style — `GET /api/default-style`
+ * — resolving with `{ default: '&lt;style-name>'|null }`. This is the style applied
+ * when the developer pins none; see {@link bemap.MapLibreMap#fetchAvailableStyles}.
+ * @public
+ * @since 2.0.0
+ * @return {Promise&lt;Object>}
+ */
+bemap.MapLibreMap.prototype.fetchDefaultStyle = function() {
+  return this._fetchTilesApi(this.ctx &amp;&amp; this.ctx.getTilesDefaultStyleUrl &amp;&amp; this.ctx.getTilesDefaultStyleUrl(), 'fetchDefaultStyle');
+};
+
+/**
+ * Default-style "fallback then load": the constructor already painted the tiny
+ * `bemap.fallbackStyle` for an instant first frame; once login has completed
+ * this fetches the Worker's current default style name and swaps the live charte
+ * in via `setStyle()` (overlay-preserving). Failures are swallowed so the tiny
+ * fallback simply stays. Called once, on init, only when the developer pinned
+ * no `style`.
+ * @private
+ */
+bemap.MapLibreMap.prototype._refreshDefaultStyleFromServer = function() {
+  var self = this;
+  var url = this.ctx &amp;&amp; typeof this.ctx.getTilesDefaultStyleUrl === 'function' &amp;&amp; this.ctx.getTilesDefaultStyleUrl();
+  if (!url || typeof fetch !== 'function') return;
+  // _fetchTilesApi awaits whenTokenReady() → the call goes out AFTER login.
+  this._fetchTilesApi(url, 'defaultStyle')
+    .then(function(cfg) {
+      var name = cfg &amp;&amp; (cfg.default || cfg.defaultStyle);
+      // Only swap if the server names a style AND the map wasn't re-styled in
+      // the meantime (developer called setStyle() during the async gap).
+      if (name &amp;&amp; !self._userSetStyle) self.setStyle(name);
+    })
+    .catch(function() { /* keep the bundled bootstrap */ });
+};
+
+/**
  * Shared authenticated GET against a Worker `/api/*` discovery endpoint.
  * @private
  */
@@ -1925,6 +1986,9 @@ bemap.MapLibreMap.prototype.addRasterLayer = function(layer) {
 bemap.MapLibreMap.prototype.setStyle = function (urlOrObject, options) {
   var self = this;
   var opts = options || {};
+  // Mark that a style was chosen explicitly, so the init-time default-style
+  // refresh (_refreshDefaultStyleFromServer) won't overwrite it.
+  if (!opts._internal) this._userSetStyle = true;
   // Same precedence as the constructor (opts.tilesFile -> ctx.tilesFile ->
   // ctx.geoserver -> 'default') — without this the TILES_SOURCE placeholder
   // stays a literal string when the customer calls `map.setStyle(obj)` without
@@ -1959,11 +2023,21 @@ bemap.MapLibreMap.prototype.setStyle = function (urlOrObject, options) {
     });
     return this;
   }
+  // Resolve a Worker style reference against the tilesHost. This covers both a
+  // bare NAME ('openfreemap_graylevel') AND a Worker-relative path as returned
+  // by /api/styles ('styles/openfreemap_graylevel.json'); either way it must hit
+  // &lt;tilesHost>/styles/…, NOT a page-relative URL. Only an ABSOLUTE URL
+  // (http(s):// or //host) is passed through untouched.
+  var styleUrl = urlOrObject;
+  if (typeof urlOrObject === 'string' &amp;&amp; !/^(?:https?:)?\/\//i.test(urlOrObject)
+      &amp;&amp; this.ctx &amp;&amp; typeof this.ctx.getTilesStyleUrl === 'function') {
+    styleUrl = this.ctx.getTilesStyleUrl(urlOrObject) || urlOrObject;
+  }
   // URL → fetch + resolve asynchronously, but still return `this` sync so
   // method chaining works. Errors flow to the map's error channel.
   var getToken = this._tilesAuth ? function () { return self._tilesAuth.getToken(); } : null;
   if (typeof bemap.TilesStyle !== 'undefined') {
-    bemap.TilesStyle.fetch(this.ctx, urlOrObject, { getToken: getToken })
+    bemap.TilesStyle.fetch(this.ctx, styleUrl, { getToken: getToken })
       .then(function (style) {
         bemap.TilesStyle.resolvePlaceholders(style, self.ctx, tilesFile);
         bemap.TilesStyle.hardenSymbolCollisions(style);
@@ -1982,7 +2056,7 @@ bemap.MapLibreMap.prototype.setStyle = function (urlOrObject, options) {
         }));
       });
   } else {
-    try { this.native.setStyle(urlOrObject); } catch (e) {}
+    try { this.native.setStyle(styleUrl); } catch (e) {}
   }
   return this;
 };
@@ -2202,7 +2276,7 @@ bemap.MapLibreMap.prototype.remove = function () {
 <br class="clear">
 
 <footer>
-    Documentation generated by <a href="https://github.com/jsdoc/jsdoc">JSDoc 3.6.3</a> on Tue Jun 09 2026 18:17:43 GMT+0200 (heure d’été d’Europe centrale)
+    Documentation generated by <a href="https://github.com/jsdoc/jsdoc">JSDoc 3.6.3</a> on Fri Jun 26 2026 15:48:23 GMT+0200 (heure d’été d’Europe centrale)
 </footer>
 
 <script> prettyPrint(); </script>

@@ -49,7 +49,7 @@ if (typeof map._onError === 'function') {
 }
 
 bn.onMapReady(map, function () {
-  bn.log('Map ready — bundled BeNomad gray-level style loaded.', 'ok');
+  bn.log('Map ready — fallback painted; live BeNomad charte loads from the Worker after login.', 'ok');
   if (typeof map.isTokenValid === 'function') {
     bn.log('JWT token: ' + (map.isTokenValid() ? 'valid' : 'pending') + ' — watch Network for /OSM_*.pmtiles range requests.', 'info');
   }

@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Style picker v2 — BeMap JS API</title>
+    <link rel="stylesheet" type="text/css" href="../../dist/ol.css">
+    <link rel="stylesheet" type="text/css" href="../../dist/maplibre-gl.css">
+    <link rel="stylesheet" type="text/css" href="../../dist/bemap-js-api.css">
+    <link rel="stylesheet" type="text/css" href="_shell.css">
+
+    <script src="../../dist/ol.js"></script>
+    <script src="../../dist/maplibre-gl.js"></script>
+    <script src="../../dist/pmtiles.js"></script>
+    <script src="../../dist/bemap-js-api.js"></script>
+    <script src="../context.js"></script>
+    <script src="../bemap-provider.js"></script>
+    <script src="_snippet.js"></script>
+</head>
+<body>
+    <div id="map1"></div>
+
+    <div class="panel-v2">
+        <h4>Style picker <span class="v2-badge">v2</span></h4>
+        <p style="margin:0 0 8px 0;color:#555;font-size:11px;">
+            The map is created with <b>no</b> <code>style</code> option, so it paints the
+            tiny font-free fallback instantly and then <b>loads the live default style from the
+            server after login</b> (<code>/api/default-style</code> → <code>/styles/&lt;name&gt;</code>).
+            Pick any allow-listed style and <code>map.setStyle(name)</code> fetches
+            <code>/styles/&lt;name&gt;</code> and swaps it in (markers/overlays survive).
+            <b>MapLibre only</b> — vector styles.
+        </p>
+
+        <div class="field-row">
+            <div style="flex:1;">
+                <label>Style (from <code>/api/styles</code>)</label>
+                <select id="sp-style"></select>
+            </div>
+            <button id="sp-apply" style="align-self:flex-end;">Apply</button>
+        </div>
+
+        <div id="sp-status" class="status">Authenticating &amp; loading styles…</div>
+
+        <p style="font-size:12px;margin:10px 0 2px;">
+            <b>Server default style:</b> <code id="sp-default">…</code>
+            <span style="color:#888;"> (already live on the map)</span>
+        </p>
+
+        <details style="margin-top:8px;">
+            <summary style="cursor:pointer;font-size:12px;color:#2c3e50;">GET /api/styles</summary>
+            <pre id="sp-json" style="max-height:160px;overflow:auto;background:#0d1117;color:#7ee787;font-size:10px;padding:6px;border-radius:3px;white-space:pre-wrap;"></pre>
+        </details>
+    </div>
+
+    <script src="style-picker.js"></script>
+</body>
+</html>

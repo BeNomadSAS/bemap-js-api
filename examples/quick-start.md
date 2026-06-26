@@ -20,9 +20,10 @@ var ctx = new bemap.Context({
     "host":     'bemap.benomad.com',
     "authInPost": false,
     "geoserver":  'default',
-    // BeNomad Tiles v2.0 — when MapLibreMap sees tilesHost on the Context
-    // it uses the bundled BeNomad default style and injects the JWT on
-    // every tile request. Leaflet / OL ignore tilesHost and stay on WMS.
+    // BeNomad Tiles v2.0 — when MapLibreMap sees tilesHost on the Context it
+    // paints a tiny fallback, loads the live BeNomad charte from the Worker
+    // after login, and injects the JWT on every tile request. Leaflet / OL
+    // ignore tilesHost and stay on WMS.
     "tilesHost":  'mptiles-api-beta.benomad.net'
 });
 ```
@@ -88,7 +89,7 @@ The library:
 - POSTs the Context credentials to `https://mptiles-api-beta.benomad.net/api/login` and caches the JWT.
 - Injects the `X-Session-Token` header on every tile request via `transformRequest`.
 - Renews the token 5 minutes before expiry, and on every `401` the next request gets a fresh token transparently.
-- Loads the bundled gray-level style (`bemap.defaultStyle`) with bilingual place labels.
+- Paints a tiny font-free fallback instantly, then loads the **live default style from the Worker** after login (full charte with bilingual place labels + Worker fonts). Change the charte server-side and every app picks it up — no rebuild.
 - **Auto-registers `dist/bemap-sw-tiles.js` as a Service Worker** for tile caching — **you must copy that file to your site root once**. Tile caching is the difference between a sub-second second visit and a multi-second one — **don't skip this step**. Full setup, verification, and the diagnostic console logs the library emits on success or failure are documented in [Browser cache (Service Worker)](#page-../docs/browser-cache.md).
 
 ### Leaflet (WMS)
@@ -122,10 +123,10 @@ var map = new bemap.Ol3Map(bemapMainCtx, 'map3', {
 
 ## 4. Add a marker
 
-The exact same call works on every engine — the Context decides the backend, not the marker code.
+The exact same call works on every engine — the Context decides the backend, not the marker code. (Live marker/polyline/click demos are in the dedicated [examples](index.html); shown here as code so the quick-start page stays light.)
 
 ```
-{"bemap":{"language":"javascript","mapid":"map-marker","run":true}}
+{"bemap":{"language":"javascript"}}
 var map = new bemap.MapLibreMap(bemapMainCtx, 'map-marker').move(2.35, 48.85, 14);
 
 var marker = new bemap.Marker(
@@ -147,7 +148,7 @@ map.addMarker(marker);
 ## 5. Add a polyline
 
 ```
-{"bemap":{"language":"javascript","mapid":"map-line","run":true}}
+{"bemap":{"language":"javascript"}}
 var map = new bemap.MapLibreMap(bemapMainCtx, 'map-line').move(2.35, 48.85, 13);
 
 map.addPolyline(new bemap.Polyline([
@@ -164,7 +165,7 @@ map.addPolyline(new bemap.Polyline([
 ## 6. Listen to map clicks
 
 ```
-{"bemap":{"language":"javascript","mapid":"map-click","run":true}}
+{"bemap":{"language":"javascript"}}
 var map = new bemap.MapLibreMap(bemapMainCtx, 'map-click').move(2.35, 48.85, 12);
 
 map.on(bemap.Map.EventType.CLICK, function(evt) {
@@ -177,7 +178,7 @@ map.on(bemap.Map.EventType.CLICK, function(evt) {
 
 ## 7. Customising the look
 
-By default `bemap.MapLibreMap` loads the **bundled BeNomad gray-level style** with bilingual labels. To use your own style, pass it in `opts.style`:
+By default `bemap.MapLibreMap` paints a tiny font-free fallback, then loads the **live BeNomad default style from the Worker** after login (bilingual labels, Worker fonts). To use your own style instead, pass it in `opts.style`:
 
 ```
 {"bemap":{"language":"javascript"}}
@@ -188,7 +189,7 @@ var map = new bemap.MapLibreMap(ctx, 'map', {
 
 If the style references `tilesHost` URLs, the library still injects `X-Session-Token` automatically.
 
-See [Style customisation](docs/style-customisation.md) for the full guide.
+See [Style customisation](#page-../docs/style-customisation.md) for the full guide.
 
 ---
 
@@ -198,5 +199,5 @@ See [Style customisation](docs/style-customisation.md) for the full guide.
 - [MapLibre guide](#page-guide-maplibre.md) — BeNomad Tiles, 3D buildings, terrain, globe projection
 - [Leaflet guide](#page-guide-leaflet.md) — WMS path
 - [OpenLayers guide](#page-guide-openlayers.md) — WMS path
-- [Migration WMS → BeNomad Tiles](docs/migration-wms-to-tiles.md) — upgrade an existing app
-- [Browser cache](docs/browser-cache.md) — zero-config Service Worker tile cache
+- [Migration WMS → BeNomad Tiles](#page-../docs/migration-wms-to-tiles.md) — upgrade an existing app
+- [Browser cache](#page-../docs/browser-cache.md) — zero-config Service Worker tile cache

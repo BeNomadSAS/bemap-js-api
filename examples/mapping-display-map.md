@@ -27,7 +27,7 @@ var ctx = new bemap.Context({
 
 ## BeNomad Tiles path (MapLibre)
 
-When the Context carries `tilesHost`, `MapLibreMap` loads the bundled BeNomad gray-level style automatically — no inline style block, no third-party sources. Authentication, token renewal, and `X-Session-Token` injection are handled by the library.
+When the Context carries `tilesHost`, `MapLibreMap` paints a tiny font-free fallback then loads the live BeNomad charte from the Worker after login — no inline style block, no third-party sources. Authentication, token renewal, and `X-Session-Token` injection are handled by the library.
 
 ```
 {"bemap":{"language":"javascript","mapid":"map-ml","run":true}}
@@ -47,7 +47,7 @@ var map = new bemap.MapLibreMap(bemapMainCtx, 'map-ml', {
 <script src="dist/bemap-js-api.js"></script>
 ```
 
-To override the bundled style, pass your own `opts.style` (URL or full MapLibre Style JSON). The library still injects the JWT for any URL that points at `ctx.tilesHost`.
+To override the default (server-loaded) style, pass your own `opts.style` (URL or full MapLibre Style JSON). The library still injects the JWT for any URL that points at `ctx.tilesHost`.
 
 ---
 
@@ -102,9 +102,9 @@ var map = new bemap.Ol3Map(bemapMainCtx, 'map-ol', {
 |---|---|---|
 | Tile format | Vector PMTiles, GPU-rendered | Raster PNG/JPEG, server-rendered |
 | Auth | JWT (`X-Session-Token`) injected by `transformRequest` | HTTP Basic, set on the Context |
-| Default style | Bundled `bemap.defaultStyle` (gray-level, bilingual) | BeMap WMS layers, `defaultLayers()` |
+| Default style | Tiny font-free `bemap.fallbackStyle` first, then the live charte from the Worker after login (bilingual) | BeMap WMS layers, `defaultLayers()` |
 | 3D features | `setProjection('globe')`, `setTerrain`, `add3DBuildings` | Not available |
-| Browser cache | Auto-registered Service Worker ([`dist/bemap-sw-tiles.js`](docs/browser-cache.md) — copy to site root) | Browser HTTP cache only |
+| Browser cache | Auto-registered Service Worker ([`dist/bemap-sw-tiles.js`](#page-../docs/browser-cache.md) — copy to site root) | Browser HTTP cache only |
 
 The Context object is the same — only the constructor class changes.
 

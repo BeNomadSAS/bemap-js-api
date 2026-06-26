@@ -8,9 +8,10 @@
  */
 
 // MapLibre default style: nothing forced. When ctx.tilesHost is set
-// (the normal case for examples that load context.js), the library uses
-// the bundled BeNomad gray-level style and authenticates pmtiles range
-// requests automatically. When ctx.tilesHost is NOT set, the library
+// (the normal case for examples that load context.js), the library paints
+// the tiny fallback then loads the live BeNomad charte from the Worker after
+// login, and authenticates pmtiles range requests automatically. When
+// ctx.tilesHost is NOT set, the library
 // falls back to an empty background — explicit opt-in style only.
 
 /**
@@ -61,10 +62,10 @@ bemap.createMap = function(context, target, options) {
       console.warn('MapLibre GL JS not loaded, falling back to OpenLayers');
       return new bemap.OlMap(context, target, opts);
     }
-    // No opts.style here — the library uses bemap.defaultStyle (BeNomad
-    // gray-level) when ctx.tilesHost is set. Customers wanting a custom
-    // visual pass their own opts.style; that takes precedence per spec
-    // §3.6 precedence table.
+    // No opts.style here — the library paints the tiny font-free
+    // bemap.fallbackStyle, then loads the live default style from the Worker
+    // after login. Customers wanting a custom visual pass their own opts.style;
+    // that takes precedence per spec §3.6 precedence table.
     return new bemap.MapLibreMap(context, target, opts);
 
   } else if (provider === 'leaflet') {

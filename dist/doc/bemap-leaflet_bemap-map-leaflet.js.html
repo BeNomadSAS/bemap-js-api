@@ -160,6 +160,9 @@ bemap.LeafletMap.prototype.addLayer = function (layer, options) {
       }
 
       layer.native = L.tileLayer.wms(this.ctx.getBaseUrl() + 'wms', layerOption);
+      // Tag BeNomad WMS layers so setStyle('&lt;theme>') re-styles ONLY these,
+      // never a customer's own bemap.WmsLayer (same L.tileLayer.wms constructor).
+      layer.native._bemapWms = true;
 
     } else if (bemap.inheritsof(layer, bemap.WmsLayer)) {
       layer.native = L.tileLayer.wms(layer.url, {
@@ -804,23 +807,46 @@ bemap.LeafletMap.prototype.cameraTour = function (options) {
 };
 
 /**
- * Cross-engine `setStyle` for Leaflet — swaps the raster URL on any
- * `L.TileLayer` currently in the map. The MapLibre wrapper has the
- * same name with a different contract (it accepts a vector style
- * object); on Leaflet/OL "style" really means "where the raster tiles
- * come from". String argument = URL template; object argument with
- * `.url` field also accepted.
+ * Cross-engine `setStyle` for Leaflet. The MapLibre wrapper has the same name
+ * but a richer contract (vector style name / URL / object); on Leaflet/OL
+ * "style" means the WMS theme or the raster tile source. The argument is
+ * interpreted as:
+ *   • bare NAME (no '/' or ':') → re-applied as the WMS `STYLES` on the BeNomad
+ *     layer(s) — the dark/light theme switch (`'benomadGrayLevel'` /
+ *     `'benomadLight'`). Vector style names are MapLibre-only, so the app passes
+ *     the right name per engine.
+ *   • URL string (contains '/' or ':') → swaps the raster tile-source URL.
+ *   • inline style object → MapLibre-only; warn-once no-op here.
  *
  * @public
  * @since 2.0.0
- * @param {String|Object} urlOrSpec  URL template (`https://.../{z}/{x}/{y}.png`)
- *                                   OR `{ url: '...', attribution: '...' }`
+ * @param {String|Object} urlOrSpec  WMS style name (`'benomadGrayLevel'`),
+ *                                   a raster URL template
+ *                                   (`https://.../{z}/{x}/{y}.png`), or a
+ *                                   MapLibre vector style object (no-op).
  * @return {bemap.LeafletMap} this
  */
 bemap.LeafletMap.prototype.setStyle = function (urlOrSpec) {
-  var url = (typeof urlOrSpec === 'string') ? urlOrSpec : (urlOrSpec &amp;&amp; urlOrSpec.url);
-  if (!url) { this._maplibreOnly('setStyle:object'); return this; }
   var self = this;
+  if (urlOrSpec &amp;&amp; typeof urlOrSpec === 'object') { this._maplibreOnly('setStyle:vector-object'); return this; }
+  if (typeof urlOrSpec === 'string' &amp;&amp; urlOrSpec &amp;&amp; !/[:/]/.test(urlOrSpec)) {
+    var applied = 0;
+    try {
+      this.native.eachLayer(function (l) {
+        // Only BeNomad WMS layers (tagged in addLayer) — never a customer's own
+        // bemap.WmsLayer, which uses the identical L.tileLayer.wms constructor.
+        if (l &amp;&amp; l._bemapWms &amp;&amp; typeof l.setParams === 'function') { l.setParams({ styles: urlOrSpec }); applied++; }
+      });
+    } catch (e) { /* ignore */ }
+    if (!applied &amp;&amp; typeof console !== 'undefined' &amp;&amp; console.warn) {
+      console.warn('[bemap] LeafletMap.setStyle("' + urlOrSpec + '"): no BeNomad WMS layer to re-style yet — add a bemap.BemapLayer (or call defaultLayers()) first.');
+    }
+    return this;
+  }
+  // String with '/' or ':' → raster URL template. (Objects and bare names
+  // already returned above, so urlOrSpec here is a URL string or falsy.)
+  var url = (typeof urlOrSpec === 'string') ? urlOrSpec : null;
+  if (!url) { this._maplibreOnly('setStyle'); return this; }
   var swapped = false;
   this.native.eachLayer(function (layer) {
     if (typeof layer.setUrl === 'function' &amp;&amp; layer._url) {
@@ -830,13 +856,28 @@ bemap.LeafletMap.prototype.setStyle = function (urlOrSpec) {
   });
   if (!swapped) {
     // No existing tile layer — create one.
-    L.tileLayer(url, urlOrSpec &amp;&amp; typeof urlOrSpec === 'object' ? urlOrSpec : {}).addTo(this.native);
+    L.tileLayer(url, {}).addTo(this.native);
   }
   if (typeof self._registerEffect === 'function') {
     self._registerEffect('setStyle', function () { /* customer must call setStyle again to restore */ });
   }
   return this;
 };
+
+/* Worker tile-style discovery is MapLibre-only (Leaflet uses WMS). These stubs
+ * keep the API surface uniform so engine-agnostic code (bemap.createMap) never
+ * hits "not a function" after switching engines — they reject with a clear,
+ * typed MAPLIBRE_ONLY error the caller can branch on. */
+bemap.LeafletMap.prototype._styleApiMaplibreOnly = function (label) {
+  return Promise.reject(new bemap.Error({
+    code: bemap.Error.MAPLIBRE_ONLY,
+    message: 'bemap.LeafletMap.' + label + ' is MapLibre-only (Leaflet uses WMS). Use bemap.MapLibreMap for vector tile styles.'
+  }));
+};
+bemap.LeafletMap.prototype.fetchAvailableStyles = function () { return this._styleApiMaplibreOnly('fetchAvailableStyles'); };
+bemap.LeafletMap.prototype.fetchDefaultStyle    = function () { return this._styleApiMaplibreOnly('fetchDefaultStyle'); };
+bemap.LeafletMap.prototype.fetchAvailableMaps   = function () { return this._styleApiMaplibreOnly('fetchAvailableMaps'); };
+bemap.LeafletMap.prototype.fetchDefaultMap      = function () { return this._styleApiMaplibreOnly('fetchDefaultMap'); };
 
 /* ============================================================
  * Cross-engine animation (v2.0) — Leaflet implementation
@@ -921,7 +962,7 @@ bemap.LeafletMap.prototype.animateAlongRoute = function (options) {
 <br class="clear">
 
 <footer>
-    Documentation generated by <a href="https://github.com/jsdoc/jsdoc">JSDoc 3.6.3</a> on Tue Jun 09 2026 18:17:43 GMT+0200 (heure d’été d’Europe centrale)
+    Documentation generated by <a href="https://github.com/jsdoc/jsdoc">JSDoc 3.6.3</a> on Fri Jun 26 2026 15:48:23 GMT+0200 (heure d’été d’Europe centrale)
 </footer>
 
 <script> prettyPrint(); </script>

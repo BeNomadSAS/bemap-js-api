@@ -53,7 +53,7 @@ onLoaded = function() {
     var multimarker = new bemap.MultiMarker(
         [new bemap.Coordinate(15, 23), new bemap.Coordinate(55, 0)], {
             icon: new bemap.Icon({
-                src: 'http://openlayers.org/en/v3.18.2/examples/data/icon.png',
+                src: 'images/map-marker-red.svg',
                 anchorX: 0.5,
                 anchorY: 1,
                 anchorYUnits: 'fraction',

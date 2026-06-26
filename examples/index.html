@@ -51,6 +51,26 @@
                      data-bn-subtitle="Vector maps, BeNomad Tiles, geocoding, routing, EV — one SDK, three engines."
                      data-bn-chips="OL:ol,Leaflet:lf,MapLibre:ml,v2.0:brand">
 <script>
+/* If opened straight from disk (file://) the dashboard can't fetch its doc
+   pages, register the tile-cache Service Worker, or load MapLibre tiles. Show a
+   clear "serve it" banner instead of a silently broken page. */
+(function () {
+  if (location.protocol !== 'file:') return;
+  document.addEventListener('DOMContentLoaded', function () {
+    var b = document.createElement('div');
+    b.setAttribute('role', 'alert');
+    b.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:100000;background:#e94560;color:#fff;' +
+      'padding:12px 18px;font:14px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;text-align:center;' +
+      'box-shadow:0 2px 10px rgba(0,0,0,.35)';
+    b.innerHTML = '⚠️  Open this through a local server, not from disk. On <code>file://</code> the ' +
+      'doc pages, tile cache and MapLibre maps won’t load. Double-click <b>start.bat</b> / <b>start.sh</b>, ' +
+      'or run <code style="background:rgba(0,0,0,.25);padding:1px 6px;border-radius:4px">npx http-server -p 8080</code>, ' +
+      'then open <a href="http://localhost:8080/examples/" style="color:#fff;text-decoration:underline">http://localhost:8080/examples/</a>';
+    document.body.appendChild(b);
+  });
+})();
+</script>
+<script>
 (function () {
   // Provider card markup is built imperatively so we can wire it to RuntimeConfig.
   function el(tag, attrs, kids) {

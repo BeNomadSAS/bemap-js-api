@@ -66,9 +66,17 @@
     var subtitle = opts.subtitle || '';
     var chips    = opts.chips    || [];
 
+    // Brand text shows the real library version (bemap.version) so the
+    // dashboard always advertises exactly which build it is running. Falls
+    // back to "2026" if the library hasn't loaded yet.
+    var libVer = (typeof bemap !== 'undefined' && bemap.version) ? ('v' + bemap.version) : '2026';
     var brand = el('a', { class: 'bn-topbar__brand', href: '../examples/index.html', title: 'Back to BeMap dashboard' }, [
-      el('img', { src: 'benomad-logo.png', alt: 'BeNomad' }),
-      el('div', { class: 'bn-topbar__brand-text', html: 'BeMap<small>JS API · 2026</small>' })
+      // Official scalable BeNomad SVG (the same source pav / fleex / zone-optimizer
+      // use) — crisp at any size, unlike the old 143×20 PNG. Falls back to the
+      // bundled PNG if the SVG is unreachable (offline / CSP-restricted host).
+      el('img', { src: 'https://benomad.com/assets/benomad-logo.svg', alt: 'BeNomad',
+        on: { error: function (e) { var i = e.target || e.srcElement; if (i && !i._fellBack) { i._fellBack = true; i.src = 'benomad-logo.png'; } } } }),
+      el('div', { class: 'bn-topbar__brand-text', html: 'BeMap<small>JS API · ' + libVer + '</small>' })
     ]);
 
     var chipBox = el('div', { class: 'bn-topbar__chips' });
@@ -641,23 +649,66 @@
     openCredentialsPopover();
   }
 
+  // Read the saved credentials for a specific environment from the per-env
+  // map ({ beta:{login,password}, … }). Returns blanks when none are saved.
+  function credsForEnv(envKey) {
+    try {
+      var key = global.bemapUserCredentialsKey || 'bemap.user-credentials.v1';
+      var raw = localStorage.getItem(key);
+      if (raw) {
+        var map = JSON.parse(raw);
+        if (map && typeof map === 'object' && map[envKey] && typeof map[envKey].login === 'string') {
+          return { login: map[envKey].login || '', password: map[envKey].password || '' };
+        }
+      }
+    } catch (e) { /* ignore */ }
+    return { login: '', password: '' };
+  }
+
   function openCredentialsPopover() {
-    var cfg = (global.bemap && global.bemap.RuntimeConfig)
-      ? global.bemap.RuntimeConfig.toJSON()
-      : {};
+    // Credentials are PER ENVIRONMENT — pick the env first, then the account.
+    var envs = global.bemapEnvironments || {};
+    var activeEnvKey = global.bemapActiveEnvKey || 'beta';
+
+    var envSel = el('select', { class: 'bn-cred__input', id: 'credEnvSelect',
+      title: 'BeMap environment these credentials belong to' });
+    var hasEnvs = false;
+    for (var ek in envs) {
+      if (!Object.prototype.hasOwnProperty.call(envs, ek)) continue;
+      hasEnvs = true;
+      envSel.appendChild(el('option', { value: ek, text: (envs[ek].label || ek) + ' — ' + envs[ek].host }));
+    }
+    if (hasEnvs) envSel.value = activeEnvKey;
+
+    // Initial fields = saved creds for the active env; fall back to whatever the
+    // live Context holds (covers an unsaved demo account on the active env).
+    var initial = credsForEnv(activeEnvKey);
+    if (!initial.login && global.bemap && global.bemap.RuntimeConfig) {
+      var cfg = global.bemap.RuntimeConfig.toJSON() || {};
+      initial = { login: cfg.login || '', password: cfg.password || '' };
+    }
+
     var loginInput = el('input', {
       type: 'text',
       class: 'bn-cred__input',
       placeholder: 'your BeMap login',
-      value: cfg.login || '',
+      value: initial.login || '',
       autocomplete: 'username'
     });
     var passInput = el('input', {
       type: 'password',
       class: 'bn-cred__input',
       placeholder: 'your BeMap password',
-      value: cfg.password || '',
+      value: initial.password || '',
       autocomplete: 'current-password'
+    });
+
+    // Switching env in the popover loads THAT env's saved creds (blank if none)
+    // so each environment can carry a different BeMap account.
+    envSel.addEventListener('change', function () {
+      var c = credsForEnv(envSel.value);
+      loginInput.value = c.login;
+      passInput.value  = c.password;
     });
     var hint = el('div', { class: 'bn-cred__hint' });
     function updateHint() {
@@ -679,7 +730,7 @@
           hint.innerHTML = '<strong style="color:var(--bn-err)">Both login and password are required.</strong>';
           return;
         }
-        saveCredentials(login, pwd);
+        saveCredentials(login, pwd, envSel.value);
         closeCredentialsPopover();
       }}
     });
@@ -711,6 +762,8 @@
 
     var popover = el('div', { class: 'bn-cred__popover', role: 'dialog', 'aria-label': 'BeMap credentials' }, [
       el('div', { class: 'bn-cred__title', text: 'BeMap account credentials' }),
+      hasEnvs ? el('label', { class: 'bn-cred__label', text: 'Environment' }) : null,
+      hasEnvs ? envSel : null,
       el('label', { class: 'bn-cred__label', text: 'Login' }),
       loginInput,
       el('label', { class: 'bn-cred__label', text: 'Password' }),
@@ -749,26 +802,76 @@
     credentialsState.popover = null;
   }
 
-  function saveCredentials(login, password) {
+  // Read the per-env credentials map from storage (always a map post-migration;
+  // a stray legacy flat shape is treated as empty so we never merge into it).
+  function _readCredsMap() {
+    try {
+      var raw = localStorage.getItem(global.bemapUserCredentialsKey || 'bemap.user-credentials.v1');
+      if (raw) {
+        var p = JSON.parse(raw);
+        if (p && typeof p === 'object' && typeof p.login !== 'string') return p;
+      }
+    } catch (e) { /* ignore */ }
+    return {};
+  }
+  function _writeCredsMap(map) {
     try {
       var key = global.bemapUserCredentialsKey || 'bemap.user-credentials.v1';
-      localStorage.setItem(key, JSON.stringify({ login: login, password: password }));
+      if (map && Object.keys(map).length) localStorage.setItem(key, JSON.stringify(map));
+      else localStorage.removeItem(key);
     } catch (e) { /* quota / private mode — ignore */ }
-    applyCredentialsLive(login, password, /* demo */ false);
-    log('Credentials saved — service calls now use the account "' + login + '"');
+  }
+
+  // Persist creds for an env into the per-env map + remember it as the active
+  // env. PURE storage (no reload / no live mutation) so it is unit-testable.
+  // Returns the resolved env + whether activating it needs a reload (i.e. the
+  // chosen env differs from the currently-active one → host + tiles change).
+  function _persistCredsForEnv(login, password, selectedEnv) {
+    var activeEnv = global.bemapActiveEnvKey || 'beta';
+    var envKey = selectedEnv || activeEnv;
+    var map = _readCredsMap();
+    map[envKey] = { login: login, password: password };
+    _writeCredsMap(map);
+    try { localStorage.setItem(global.bemapEnvStorageKey || 'bemap-env', envKey); } catch (e) { /* ignore */ }
+    return { envKey: envKey, willReload: envKey !== activeEnv };
+  }
+
+  // Remove just one env's entry from the per-env map (others untouched).
+  function _clearCredsForEnv(envKey) {
+    var map = _readCredsMap();
+    delete map[envKey];
+    _writeCredsMap(map);
+  }
+
+  function saveCredentials(login, password, selectedEnv) {
+    var plan = _persistCredsForEnv(login, password, selectedEnv);
+    if (!plan.willReload) {
+      // Same env → API/tiles host unchanged → apply live, no reload.
+      applyCredentialsLive(login, password, /* demo */ false);
+      log('Credentials saved for "' + plan.envKey + '" — service calls now use the account "' + login + '"');
+    } else {
+      // Different env → API host AND tiles host change → clean rebuild via
+      // reload (host is bound once at RuntimeConfig.bind; TilesAuth logs in
+      // once at map construction). Drop the old env's tiles JWT first.
+      try {
+        var tkey = (global.bemap && global.bemap.TilesAuth && global.bemap.TilesAuth.STORAGE_KEY) || 'bemap_tiles_token';
+        localStorage.removeItem(tkey);
+      } catch (e) { /* ignore */ }
+      log('Switching to "' + plan.envKey + '" and reloading to apply its host + credentials…');
+      global.location.reload();
+    }
   }
 
   function resetCredentials() {
-    try {
-      var key = global.bemapUserCredentialsKey || 'bemap.user-credentials.v1';
-      localStorage.removeItem(key);
-    } catch (e) { /* ignore */ }
+    // Clear ONLY the active env's entry — other envs keep their saved accounts.
+    var envKey = global.bemapActiveEnvKey || 'beta';
+    _clearCredsForEnv(envKey);
     var demo = global.bemapDemoCredentials || { login: '', password: '' };
     var hasDemo = !!(demo.login && demo.password);
     applyCredentialsLive(demo.login, demo.password, /* isDemo */ hasDemo);
     log(hasDemo
-      ? 'Credentials reset to the bundled demo account'
-      : 'Credentials cleared — service calls will 401 until you save new ones');
+      ? 'Credentials reset to the bundled demo account for "' + envKey + '"'
+      : 'Credentials cleared for "' + envKey + '" — service calls will 401 until you save new ones');
   }
 
   function applyCredentialsLive(login, password, isDemo) {
@@ -1608,7 +1711,31 @@
     } catch (e) {}
   }
 
+  // Markdown-embedded runnable demos (quick-start, the mapping pages) create
+  // REAL maps directly in the stage — not in an iframe — and the SPA holds no
+  // handle to call map.remove() on them. Removing the DOM nodes does NOT free
+  // their WebGL contexts, so browsing through several map docs (quick-start
+  // alone mounts several) eventually hits the browser's live-WebGL-context cap
+  // and later canvases render BLANK (this is the "quick start doesn't work"
+  // report). Force-free every WebGL context still in the stage before we tear
+  // it down. Library-agnostic and safe: a canvas about to be detached needs no
+  // context, and querySelectorAll does not pierce iframe boundaries so this
+  // never touches an example iframe's own maps (those are GC'd with the frame).
+  function _loseStageWebGL() {
+    var stage = shellState.stage;
+    if (!stage || !stage.querySelectorAll) return;
+    var canvases = stage.querySelectorAll('canvas');
+    for (var i = 0; i < canvases.length; i++) {
+      var gl = null;
+      try { gl = canvases[i].getContext('webgl2') || canvases[i].getContext('webgl'); } catch (e) {}
+      if (!gl) continue;
+      try { var ext = gl.getExtension('WEBGL_lose_context'); if (ext) ext.loseContext(); } catch (e) {}
+    }
+  }
+
   function disposeCurrentExample() {
+    // Free any markdown-mounted maps' GPU contexts first (see _loseStageWebGL).
+    _loseStageWebGL();
     if (shellState.currentExample) {
       var ex = registry[shellState.currentExample];
       if (ex && typeof ex.dispose === 'function') {
@@ -1810,6 +1937,35 @@
     requestSnippet: requestSnippet,
     registerExample: registerExample,
     lookupExample: lookupExample,
+
+    // Credentials — pure per-env storage hooks for src-test/test-env-credentials.js.
+    // The DOM popover (openCredentialsPopover) and the live mutation /
+    // page-reload side effects are NOT exposed here.
+    creds: {
+      storageKey:    function () { return global.bemapUserCredentialsKey || 'bemap.user-credentials.v1'; },
+      envStorageKey: function () { return global.bemapEnvStorageKey || 'bemap-env'; },
+      readMap:       _readCredsMap,
+      writeMap:      _writeCredsMap,
+      forEnv:        credsForEnv,
+      persist:       _persistCredsForEnv,
+      clearEnv:      _clearCredsForEnv,
+      // Pure mirror of context.js's boot-time migration: a legacy flat
+      // {login,password} becomes { <envKey>: {login,password} } (empty login →
+      // no entry); an existing per-env map is returned unchanged.
+      migrateLegacy: function (raw, envKey) {
+        try {
+          if (!raw) return {};
+          var p = JSON.parse(raw);
+          if (!p || typeof p !== 'object') return {};
+          if (typeof p.login === 'string') {
+            var m = {};
+            if (p.login) m[envKey] = { login: p.login, password: p.password || '' };
+            return m;
+          }
+          return p;
+        } catch (e) { return {}; }
+      }
+    },
 
     // Search — pure-logic test hooks. The DOM-bound parts (popover render,
     // keyboard handlers) live behind `buildSearchBox` and aren't exposed

@@ -90,12 +90,6 @@ The **same code runs on all three engines** — switch the constructor, switch t
 
 ---
 
-## 🌍 Put it online
-
-Host the `examples/` dashboard — or your own app — on any static host: **GitHub Pages**, Netlify, S3, your own server. The only requirement is that your BeMap **API host** and **tiles host** allow your site's origin (CORS). Step-by-step → **[DEPLOY.md](DEPLOY.md)**.
-
----
-
 ## License
 
 Commercial — see **[LICENSE.md](LICENSE.md)**. © BeNomad.

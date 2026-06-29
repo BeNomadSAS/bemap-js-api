@@ -44,6 +44,36 @@
         .bn-provider-card .pc-info { font-size: 10px; color: rgba(255,255,255,0.75); margin-top: 3px; line-height: 1.3; }
         .service-unavailable, .csp-unavailable { display: none !important; }
         body:not(.is-admin) .admin-only { display: none !important; }
+
+        /* Authentication gate (pav-style): full-screen, blocks the dashboard
+           until the BeMap account is verified + its geoservers/CSP are loaded. */
+        .bn-auth-gate { position: fixed; inset: 0; z-index: 100001;
+          background: rgba(13,17,23,0.97); display: flex; align-items: center;
+          justify-content: center; padding: 24px; }
+        .bn-auth__card { width: 340px; max-width: 92vw; background: #161b22;
+          border: 1px solid #30363d; border-radius: 14px; padding: 26px 24px 22px;
+          box-shadow: 0 14px 44px rgba(0,0,0,.55); color: #e6edf3; text-align: center;
+          font: 14px/1.45 system-ui,-apple-system,Segoe UI,Roboto,sans-serif; }
+        .bn-auth__logo { height: 30px; width: auto; margin: 0 auto 14px; display: block; }
+        .bn-auth__title { font-size: 20px; margin: 0 0 4px; font-weight: 700; }
+        .bn-auth__sub { margin: 0 0 16px; opacity: .7; font-size: 13px; }
+        .bn-auth__form label { display: block; text-align: left; font-size: 11px;
+          text-transform: uppercase; letter-spacing: .04em; opacity: .7; margin: 12px 0 4px; }
+        .bn-auth__input { width: 100%; box-sizing: border-box; background: #0d1117;
+          border: 1px solid #30363d; color: #e6edf3; border-radius: 8px;
+          padding: 9px 11px; font-size: 14px; }
+        .bn-auth__input:focus { outline: none; border-color: #58a6ff; }
+        .bn-auth__err { color: #ff7b72; font-size: 13px; min-height: 18px;
+          margin: 12px 0 2px; text-align: left; }
+        .bn-auth__btn { width: 100%; margin-top: 14px; justify-content: center;
+          height: auto; padding: 11px 16px; font-size: 15px; font-weight: 600; }
+        .bn-auth__hint { margin-top: 14px; font-size: 11px; opacity: .55; line-height: 1.4; }
+        .bn-auth__loading { display: flex; flex-direction: column; align-items: center;
+          gap: 14px; padding: 22px 0 8px; }
+        .bn-auth__loadmsg { opacity: .8; font-size: 13px; }
+        .bn-auth__spin { width: 30px; height: 30px; border: 3px solid rgba(255,255,255,.18);
+          border-top-color: #58a6ff; border-radius: 50%; animation: bn-auth-spin .8s linear infinite; }
+        @keyframes bn-auth-spin { to { transform: rotate(360deg); } }
     </style>
 </head>
 
@@ -324,71 +354,202 @@
     }
   }
 
-  /* ---- ACL load — populates geoserver + CSP dropdowns + admin role ---- */
-  function loadGeoserversAndCsp() {
-    if (typeof bemap === 'undefined' || !bemap.AclService) return;
+  /* ---- ACL load — populates geoserver + CSP dropdowns + admin role ----
+     Split so the auth gate can reuse populateAclUi() with the details it
+     already fetched during verification, and loadGeoserversAndCsp() returns a
+     promise the gate can await (resolve = authenticated, reject = bad creds). */
+  function populateAclUi(details) {
     var geoSel  = document.getElementById('geoserverSelect');
     var geoInfo = document.getElementById('geoserverInfo');
     var cspSel  = document.getElementById('cspSelect');
     var cspInfo = document.getElementById('cspInfo');
     var saved    = localStorage.getItem('bemap-geoserver');
     var savedCsp = localStorage.getItem('bemap-csp') || '';
+    var geoservers = details.getGeoservers();
+    var csps = details.getChargingStationProviders();
+    window._geoserverLabels = {};
+    window._cspLabels = {};
 
-    new bemap.AclService(bemapMainCtx).getCurrentUserDetails()
+    if (details.hasRight('ROLE_ADMIN_ACCESS')) document.body.classList.add('is-admin');
+
+    geoSel.innerHTML = '';
+    if (!geoservers.length) {
+      geoSel.innerHTML = '<option value="default">default</option>';
+      geoInfo.textContent = 'No geoservers exposed by your account — using "default".';
+    } else {
+      var defaultKey = null;
+      geoservers.forEach(function (gs) {
+        var opt = document.createElement('option');
+        opt.value = gs.getKey();
+        opt.textContent = gs.getValue() + (gs.isDefault() ? ' (default)' : '');
+        window._geoserverLabels[gs.getKey()] = gs.getValue();
+        if (gs.isDefault()) defaultKey = gs.getKey();
+        geoSel.appendChild(opt);
+      });
+      var initial = (saved && window._geoserverLabels[saved]) ? saved
+                   : (defaultKey || geoservers[0].getKey());
+      geoSel.value = initial;
+      switchGeoserver(initial);
+    }
+
+    cspSel.innerHTML = '';
+    if (!csps.length) {
+      cspSel.innerHTML = '<option value="">(none available)</option>';
+      cspInfo.textContent = 'No charging-station provider exposed by your account.';
+      applyCspGate(false);
+    } else {
+      csps.forEach(function (p) {
+        var opt = document.createElement('option');
+        opt.value = p.getKey();
+        opt.textContent = p.getValue();
+        window._cspLabels[p.getKey()] = p.getValue();
+        cspSel.appendChild(opt);
+      });
+      var initialCsp = (savedCsp && window._cspLabels[savedCsp]) ? savedCsp : csps[0].getKey();
+      cspSel.value = initialCsp;
+      switchCsp(initialCsp);
+      applyCspGate(true);
+    }
+  }
+  function loadGeoserversAndCsp(ctx) {
+    if (typeof bemap === 'undefined' || !bemap.AclService) return Promise.reject(new Error('AclService unavailable'));
+    return new bemap.AclService(ctx || bemapMainCtx).getCurrentUserDetails()
+      .then(function (details) { populateAclUi(details); return details; });
+  }
+
+  /* ---- Authentication gate (pav-style "false login") ----
+     Verifies the BeMap account by probing the ACL endpoint
+     (AclService.getCurrentUserDetails — 200 = valid, 401/403 = wrong creds),
+     shows a loader while the geoservers/CSP load, and only reveals the
+     dashboard once that succeeds. */
+  var authState = { gate: null, form: null, loading: null, err: null, login: null, pass: null, env: null, btn: null, loadMsg: null };
+
+  function withTimeout(promise, ms) {
+    return new Promise(function (resolve, reject) {
+      var t = setTimeout(function () { reject({ code: 'timeout', message: 'timeout' }); }, ms || 20000);
+      promise.then(function (v) { clearTimeout(t); resolve(v); }, function (e) { clearTimeout(t); reject(e); });
+    });
+  }
+  function authReason(err) {
+    if (err && err.code === 'timeout') return 'Timed out reaching the server — check your connection.';
+    var s = (err && (err.status || err.code)) || 0;
+    var m = ((err && (err.message || ('' + err))) || '').toLowerCase();
+    if (s === 401 || s === 403 || /401|403|unauthor|forbidden|invalid cred/.test(m)) return 'Wrong credentials — check your login and password.';
+    if (s >= 500 || /50\d/.test(m)) return 'Server error — please try again shortly.';
+    return 'Could not sign in. Check your credentials and your connection.';
+  }
+
+  function buildAuthGate() {
+    if (authState.gate) return;
+    var logo = el('img', { class: 'bn-auth__logo', src: 'https://benomad.com/assets/benomad-logo.svg', alt: 'BeNomad',
+      on: { error: function (e) { var i = e.target || e.srcElement; if (i && !i._fb) { i._fb = 1; i.src = 'benomad-logo.png'; } } } });
+    var envSel = el('select', { class: 'bn-auth__input', id: 'authEnv' });
+    var envs = window.bemapEnvironments || {};
+    for (var k in envs) if (Object.prototype.hasOwnProperty.call(envs, k)) {
+      envSel.appendChild(el('option', { value: k, text: (envs[k].label || k) + ' — ' + envs[k].host }));
+    }
+    envSel.value = window.bemapActiveEnvKey || 'beta';
+    var loginInp = el('input', { class: 'bn-auth__input', id: 'authLogin', type: 'text', placeholder: 'your BeMap login', autocomplete: 'username' });
+    var passInp  = el('input', { class: 'bn-auth__input', id: 'authPass', type: 'password', placeholder: 'your BeMap password', autocomplete: 'current-password' });
+    var errEl = el('div', { class: 'bn-auth__err', id: 'authErr' });
+    var btn   = el('button', { class: 'bn-btn bn-btn--accent bn-auth__btn', type: 'submit', text: 'Connect' });
+
+    function prefill(envKey) {
+      var c = (window.bn && bn.creds && bn.creds.forEnv) ? bn.creds.forEnv(envKey) : { login: '', password: '' };
+      if (!c.login && envKey === (window.bemapActiveEnvKey || 'beta') && bemap.RuntimeConfig) {
+        var cfg = bemap.RuntimeConfig.toJSON() || {}; c = { login: cfg.login || '', password: cfg.password || '' };
+      }
+      loginInp.value = c.login || ''; passInp.value = c.password || '';
+    }
+    prefill(envSel.value);
+    envSel.addEventListener('change', function () { prefill(envSel.value); });
+
+    var form = el('form', { class: 'bn-auth__form' }, [
+      el('label', { text: 'Environment' }), envSel,
+      el('label', { text: 'Login' }),       loginInp,
+      el('label', { text: 'Password' }),     passInp,
+      errEl, btn,
+      el('div', { class: 'bn-auth__hint', text: 'Verified against the selected environment. Credentials are stored locally, per environment.' })
+    ]);
+    form.addEventListener('submit', function (e) {
+      e.preventDefault();
+      verifyAndLoad(envSel.value, (loginInp.value || '').trim(), passInp.value || '');
+    });
+
+    var loadMsg = el('div', { class: 'bn-auth__loadmsg', text: 'Loading…' });
+    var loading = el('div', { class: 'bn-auth__loading' }, [el('div', { class: 'bn-auth__spin' }), loadMsg]);
+    loading.style.display = 'none';
+
+    var card = el('div', { class: 'bn-auth__card' }, [
+      logo,
+      el('h1', { class: 'bn-auth__title', text: 'Sign in to BeMap' }),
+      el('p',  { class: 'bn-auth__sub', text: 'Connect your BeMap account to load the dashboard.' }),
+      loading, form
+    ]);
+    var gate = el('div', { class: 'bn-auth-gate', id: 'bnAuthGate' }, [card]);
+    document.body.appendChild(gate);
+
+    authState.gate = gate; authState.form = form; authState.loading = loading;
+    authState.err = errEl; authState.login = loginInp; authState.pass = passInp;
+    authState.env = envSel; authState.btn = btn; authState.loadMsg = loadMsg;
+  }
+  function authShowLoading(msg) {
+    if (!authState.gate) buildAuthGate();
+    authState.form.style.display = 'none';
+    authState.loading.style.display = '';
+    authState.loadMsg.textContent = msg || 'Loading…';
+  }
+  function authShowLogin(errMsg) {
+    if (!authState.gate) buildAuthGate();
+    authState.loading.style.display = 'none';
+    authState.form.style.display = '';
+    authState.err.textContent = errMsg || '';
+    authState.btn.disabled = false;
+    try { authState.login.focus(); } catch (e) {}
+  }
+  function authHide() {
+    if (authState.gate && authState.gate.parentNode) authState.gate.parentNode.removeChild(authState.gate);
+    authState.gate = null;
+  }
+
+  function verifyAndLoad(envKey, login, password) {
+    var envs = window.bemapEnvironments || {};
+    var env = envs[envKey];
+    if (!login || !password) { authShowLogin('Enter both your login and password.'); return; }
+    if (!env) { authShowLogin('Please choose an environment.'); return; }
+    authShowLoading('Authenticating & loading your account…');
+    var probeCtx;
+    try {
+      probeCtx = new bemap.Context({ host: env.host, secure: true, login: login, password: password, authInPost: false });
+    } catch (e) { authShowLogin('Could not build a Context: ' + e.message); return; }
+
+    withTimeout(new bemap.AclService(probeCtx).getCurrentUserDetails(), 20000)
       .then(function (details) {
-        var geoservers = details.getGeoservers();
-        var csps = details.getChargingStationProviders();
-        window._geoserverLabels = {};
-        window._cspLabels = {};
-
-        if (details.hasRight('ROLE_ADMIN_ACCESS')) document.body.classList.add('is-admin');
-
-        geoSel.innerHTML = '';
-        if (!geoservers.length) {
-          geoSel.innerHTML = '<option value="default">default</option>';
-          geoInfo.textContent = 'No geoservers exposed by your account — using "default".';
+        // Verified. Remember the creds for this env + the active env.
+        try { if (window.bn && bn.creds && bn.creds.persist) bn.creds.persist(login, password, envKey); } catch (e) {}
+        if (envKey === (window.bemapActiveEnvKey || 'beta')) {
+          // Same env → apply to the live Context AND refresh the topbar
+          // credentials badge / banner (bn.creds.applyLive), populate the UI,
+          // reveal. Falls back to a manual apply if the hook is unavailable.
+          try {
+            if (window.bn && bn.creds && bn.creds.applyLive) {
+              bn.creds.applyLive(login, password);
+            } else {
+              bemapMainCtx.login = login; bemapMainCtx.password = password;
+              bemapMainCtx.cacheBaseUrl = null; bemapMainCtx.cacheUrlAuthParams = null; bemapMainCtx.cacheBase64Auth = null;
+              window.bemapCredentialsAreEmpty = false; window.bemapCredentialsAreDemo = false;
+            }
+          } catch (e) {}
+          try { populateAclUi(details); } catch (e) {}
+          try { refreshContextSnippet(); } catch (e) {}
+          authHide();
         } else {
-          var defaultKey = null;
-          geoservers.forEach(function (gs) {
-            var opt = document.createElement('option');
-            opt.value = gs.getKey();
-            opt.textContent = gs.getValue() + (gs.isDefault() ? ' (default)' : '');
-            window._geoserverLabels[gs.getKey()] = gs.getValue();
-            if (gs.isDefault()) defaultKey = gs.getKey();
-            geoSel.appendChild(opt);
-          });
-          var initial = (saved && window._geoserverLabels[saved]) ? saved
-                       : (defaultKey || geoservers[0].getKey());
-          geoSel.value = initial;
-          switchGeoserver(initial);
-        }
-
-        cspSel.innerHTML = '';
-        if (!csps.length) {
-          cspSel.innerHTML = '<option value="">(none available)</option>';
-          cspInfo.textContent = 'No charging-station provider exposed by your account.';
-          applyCspGate(false);
-        } else {
-          csps.forEach(function (p) {
-            var opt = document.createElement('option');
-            opt.value = p.getKey();
-            opt.textContent = p.getValue();
-            window._cspLabels[p.getKey()] = p.getValue();
-            cspSel.appendChild(opt);
-          });
-          var initialCsp = (savedCsp && window._cspLabels[savedCsp]) ? savedCsp : csps[0].getKey();
-          cspSel.value = initialCsp;
-          switchCsp(initialCsp);
-          applyCspGate(true);
+          // Different env → API + tiles host change → clean reload so context.js
+          // rebuilds the Context; the saved creds then verify automatically.
+          window.location.reload();
         }
       })
-      .catch(function (err) {
-        console.warn('Could not load ACL details:', err);
-        geoSel.innerHTML = '<option value="default">default</option>';
-        geoInfo.textContent = 'Geoserver list unavailable — using "default".';
-        cspSel.innerHTML = '<option value="">(unavailable)</option>';
-        applyCspGate(false);
-      });
+      .catch(function (err) { authShowLogin(authReason(err)); });
   }
 
   /* ---- Boot the SPA shell ---- */
@@ -418,7 +579,25 @@
     switchServiceVersion(savedVersion);
 
     refreshContextSnippet();
-    loadGeoserversAndCsp();
+
+    // Auth gate: verify the account + load its geoservers/CSP before revealing
+    // the dashboard. Wrong creds -> error in the gate; no creds -> login form.
+    try {
+      buildAuthGate();
+      var cfg0 = (bemap.RuntimeConfig && bemap.RuntimeConfig.toJSON()) || {};
+      if (cfg0.login && cfg0.password) {
+        authShowLoading('Loading your account…');
+        withTimeout(loadGeoserversAndCsp(), 20000)
+          .then(function () { authHide(); })
+          .catch(function (err) { authShowLogin(authReason(err)); });
+      } else {
+        authShowLogin('');   // first visit — no credentials yet
+      }
+    } catch (e) {
+      // Fail-safe: never let a gate bug permanently hide the dashboard.
+      try { authHide(); } catch (e2) {}
+      if (window.console) window.console.warn('auth gate error:', e);
+    }
   });
 
   /* ---- Expose miniweb for legacy markdown links ---- */

@@ -759,6 +759,17 @@
       text: 'Cancel',
       on: { click: closeCredentialsPopover }
     });
+    // Log out — clear creds + tiles token, reload to the sign-in screen.
+    var logoutBtn = el('button', {
+      type: 'button',
+      class: 'bn-btn bn-btn--ghost bn-btn--sm bn-cred__logout',
+      text: 'Log out',
+      title: 'Sign out: clear stored credentials and return to the sign-in screen',
+      on: { click: function () {
+        closeCredentialsPopover();
+        logoutCredentials();
+      }}
+    });
 
     var popover = el('div', { class: 'bn-cred__popover', role: 'dialog', 'aria-label': 'BeMap credentials' }, [
       el('div', { class: 'bn-cred__title', text: 'BeMap account credentials' }),
@@ -769,7 +780,7 @@
       el('label', { class: 'bn-cred__label', text: 'Password' }),
       passInput,
       hint,
-      el('div', { class: 'bn-cred__actions' }, [resetBtn, cancelBtn, saveBtn])
+      el('div', { class: 'bn-cred__actions' }, [logoutBtn, resetBtn, cancelBtn, saveBtn])
     ]);
     credentialsState.popover = popover;
 
@@ -872,6 +883,19 @@
     log(hasDemo
       ? 'Credentials reset to the bundled demo account for "' + envKey + '"'
       : 'Credentials cleared for "' + envKey + '" — service calls will 401 until you save new ones');
+  }
+
+  // Sign out: clear the active env's stored credentials + the cached tiles JWT,
+  // then reload — the dashboard's auth gate comes back up on the sign-in screen.
+  function logoutCredentials() {
+    var envKey = global.bemapActiveEnvKey || 'beta';
+    _clearCredsForEnv(envKey);
+    try {
+      var tkey = (global.bemap && global.bemap.TilesAuth && global.bemap.TilesAuth.STORAGE_KEY) || 'bemap_tiles_token';
+      localStorage.removeItem(tkey);
+    } catch (e) { /* ignore */ }
+    log('Logged out — reloading to the sign-in screen.');
+    global.location.reload();
   }
 
   function applyCredentialsLive(login, password, isDemo) {
@@ -1949,6 +1973,10 @@
       forEnv:        credsForEnv,
       persist:       _persistCredsForEnv,
       clearEnv:      _clearCredsForEnv,
+      // Apply creds to the live Context + refresh the topbar badge / banner /
+      // iframe — same path the Credentials popover uses. Lets the auth gate
+      // flip the "Not set" badge to "User" after a successful sign-in.
+      applyLive:     function (login, password) { applyCredentialsLive(login, password, false); },
       // Pure mirror of context.js's boot-time migration: a legacy flat
       // {login,password} becomes { <envKey>: {login,password} } (empty login →
       // no entry); an existing per-env map is returned unchanged.

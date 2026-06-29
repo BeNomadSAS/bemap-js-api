@@ -501,6 +501,14 @@ body.bn-embedded .bn-topbar__back { display: none; }
 .bn-panel .bn-btn--accent  { background: var(--bn-accent); color: #fff; }
 .bn-panel .bn-btn--accent:hover  { background: #c0392b; }
 
+/* The Credentials popover sits on a light (paper) background like .bn-panel, so
+   its buttons (Log out / Clear / Cancel) need dark text — the default ghost
+   colour is light and was almost invisible on white. */
+.bn-cred__popover .bn-btn--ghost { border-color: var(--bn-line-light); color: var(--bn-text-dark); }
+.bn-cred__popover .bn-btn--ghost:hover { background: var(--bn-paper-2); }
+.bn-cred__popover .bn-btn { background: var(--bn-paper-2); color: var(--bn-text-dark); }
+.bn-cred__popover .bn-btn--accent { background: var(--bn-accent); color: #fff; }
+
 .bn-btn--sm { height: 22px; padding: 0 8px; font-size: 10px; }
 .bn-btn--icon { width: 28px; padding: 0; }
 

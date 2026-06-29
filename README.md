@@ -4,6 +4,9 @@
 
 ### One SDK · three map engines · maps, routing, geocoding & EV — by [BeNomad](https://www.benomad.com)
 
+### 🌐 **[▶ Open the live demo →](https://benomadsas.github.io/bemap-js-api/)**
+
+[![live demo](https://img.shields.io/badge/▶_live_demo-online-2ea44f?style=flat-square)](https://benomadsas.github.io/bemap-js-api/)
 ![version](https://img.shields.io/badge/version-2.0.0-2ea44f?style=flat-square)
 ![engines](https://img.shields.io/badge/engines-MapLibre%20GL%20·%20Leaflet%20·%20OpenLayers-1f6feb?style=flat-square)
 ![tiles](https://img.shields.io/badge/BeNomad%20Tiles-PMTiles%20vector-8957e5?style=flat-square)
@@ -16,6 +19,10 @@
 ---
 
 ## ▶️ Try it in 10 seconds
+
+**Just want to look?** → open the **[live demo](https://benomadsas.github.io/bemap-js-api/)** — nothing to install.
+
+**To run it on your machine:**
 
 **1. Get the code** — [**Download ZIP**](https://github.com/BeNomadSAS/bemap-js-api/archive/refs/heads/main.zip) and unzip it, or `git clone https://github.com/BeNomadSAS/bemap-js-api.git`.
 

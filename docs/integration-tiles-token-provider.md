@@ -38,6 +38,16 @@ Browser                 Your backend             BeNomad Tiles Worker
 After the login, the browser talks directly to BeNomad for tiles — your
 backend is out of the loop, so you pay no bandwidth and add no latency.
 
+> **How the JWT rides the tile request.** The diagram shows the
+> `X-Session-Token` *header* variant. By **default** the SDK authenticates
+> tile requests with the Worker's **HttpOnly session cookie**
+> (`credentials:'include'`, no custom header → no CORS preflight), not a
+> header. The wire mode is configurable per Context / map via `tilesAuth`
+> (`'cookie'` default | `'header'` | `'query'`) — see
+> [Tile auth — pick your wire mechanism](browser-cache.md#tile-auth--pick-your-wire-mechanism-tilesauth).
+> This is orthogonal to the Direct-vs-Provider choice above (which is only
+> about *where the credentials live*).
+
 ---
 
 ## Backend — pick your language
@@ -280,7 +290,7 @@ module-level variable (single instance) or Redis (multi-instance).
 | `POST /tilesproxy/login` returns 401 from your endpoint | Your app's auth gate rejected the request — check session/cookie/CORS |
 | `POST /tilesproxy/login` returns 502 | Upstream rejected your credentials — check the env vars match what BeNomad gave you |
 | Network panel shows `POST mptiles-api-beta.benomad.net/api/login` from the browser | `tilesTokenProvider` is not configured — the lib fell back to direct mode. Verify the Context option is set and the provider is a function, not a string |
-| `GET …/world.pmtiles` returns 401 | The token reached the browser but isn't being attached. Open DevTools → check the `X-Session-Token` header on tile requests. If missing, file an issue. |
+| `GET …/world.pmtiles` returns 401 | The token reached the browser but auth isn't being attached. In the **default cookie mode**, verify the tile request is sent with `credentials:'include'` and that the Worker's `Set-Cookie` from `/api/login` was stored (DevTools → Application → Cookies). In `tilesAuth:'header'` mode, check the `X-Session-Token` header on tile requests instead. If still failing, file an issue. |
 | Frontend throws "tilesTokenProvider returned no token" | Your endpoint returned 200 but the JSON shape is wrong — must be `{ token: '<JWT>' }` (or `{ jwt }` / `{ accessToken }`) |
 | 60 min after page load, tiles fail | Token renewal failed. Check `map.on('error', …)` for the cause; usually a transient network error during the proactive refresh — reload the page to recover |
 

@@ -6,7 +6,7 @@ MapLibre GL JS is the BeMap v2.0 **default path**: GPU-rendered vector tiles ser
 
 ## 1. The canonical setup (v2.0 default)
 
-Set `tilesHost` on the Context, then instantiate `bemap.MapLibreMap`. The library does the rest — login, JWT, `X-Session-Token` injection, default style, and zero-config tile cache.
+Set `tilesHost` on the Context, then instantiate `bemap.MapLibreMap`. The library does the rest — login, JWT, tile auth (HttpOnly cookie by default), the live default style, and zero-config browser caching (200-slice by default; no Service Worker needed).
 
 ```
 {"bemap":{"language":"javascript"}}
@@ -42,10 +42,11 @@ var map = new bemap.MapLibreMap(ctx, 'map1').move(2.3412, 48.85693, 12);
 What happens behind the scenes:
 
 - The Context credentials are POSTed to `https://mptiles-api.benomad.net/api/login` and the resulting JWT is cached.
-- A `transformRequest` callback injects `X-Session-Token` on every PMTiles range request.
+- Tile auth rides the Worker's **HttpOnly session cookie** by default (`credentials:'include'`, no custom header → no CORS preflight). Set `tilesAuth:'header'` (or `'query'`) on the Context/options to use the `X-Session-Token` header or `?token=` param instead.
 - The token is renewed 5 minutes before expiry; on any `401` the next request transparently gets a fresh token.
 - A tiny font-free fallback paints instantly; then the **live default style loads from the Worker after login** (full charte with bilingual place labels + Worker fonts). Update the charte server-side and every app picks it up with no redeploy.
-- `dist/bemap-sw-tiles.js` is registered as a Service Worker at the page root — **you must copy that file to your site root once**. See [Browser cache](#page-../docs/browser-cache.md) for the one-step setup, verification, and the diagnostic console logs the library emits when the SW is unreachable.
+- Tiles are fetched as cacheable **HTTP 200 slices** (`tilesSliceMode:'200'`, the default) that the **browser HTTP cache stores natively** — repeat visits are free with **no Service Worker**. For classic HTTP Range (`tilesSliceMode:'range'`), `dist/bemap-sw-tiles.js` is auto-registered (copy it to your site root once). See [Browser cache](#page-../docs/browser-cache.md).
+- **Resilient by default**: `recoverableCache:true` self-heals a failed tile read (no permanent holes); the `RangeGate` adds a per-request timeout + one retry — all tunable (`tilesSliceTimeoutMs`, `tilesSliceMaxRetries`, `tilesSliceConcurrency`, `tileGate`) and live-toggleable. Explore every option in [`example-maplibre-tiles-perf.html`](#nav-example-maplibre-tiles-perf.html).
 
 > Never commit production credentials. The runnable demos on this site use the dashboard-loaded `bemapMainCtx` from `examples/context.js`.
 
@@ -89,7 +90,7 @@ See [Style customisation → Fonts](#page-../docs/style-customisation.md).
 
 ## 2. Override the default style
 
-The default style is the live BeNomad charte loaded from the Worker after login (with a tiny font-free fallback as the instant first paint). If you have your own MapLibre Style JSON (corporate charte, dark mode, day/night theming, …), pass it in `opts.style`. The library still injects `X-Session-Token` automatically for any URL that points at `ctx.tilesHost`.
+The default style is the live BeNomad charte loaded from the Worker after login (with a tiny font-free fallback as the instant first paint). If you have your own MapLibre Style JSON (corporate charte, dark mode, day/night theming, …), pass it in `opts.style`. The library still authenticates any URL that points at `ctx.tilesHost` automatically (the HttpOnly cookie by default; the `X-Session-Token` header or `?token=` param if `tilesAuth` is set).
 
 ```
 {"bemap":{"language":"javascript"}}
@@ -255,23 +256,30 @@ map.on(bemap.Map.EventType.CLICK, function(evt) {
 
 ---
 
-## 6. Browser cache (Service Worker)
+## 6. Tile caching & resilience
 
-When served over HTTPS, the library auto-registers `dist/bemap-sw-tiles.js` at the page root. PMTiles range requests are cached locally, giving a 60–80 % hit ratio after the first load and a 5 ms median latency on cache HIT.
+By **default** (`tilesSliceMode:'200'`), tiles are fetched as cacheable HTTP 200 slices that the **browser's own HTTP cache stores natively** — repeat tiles/visits are free with **zero Service Worker**. If you opt into classic HTTP Range (`tilesSliceMode:'range'`), the library auto-registers `dist/bemap-sw-tiles.js` at the page root (copy that file to your site root once) for a Service-Worker-backed cache (~60–80 % hit ratio, ~5 ms median on HIT).
 
 ```
 {"bemap":{"language":"javascript"}}
+// Service-Worker cache API (used on the 'range' path):
 map.enableBrowserCache();
 map.disableBrowserCache();
 map.getBrowserCacheStats();   // { enabled, hits, misses, entries, bytesEstimated }
 map.clearBrowserCache();
-
 map.on('cache:stats', function(stats) {
     console.log('cache:', stats.hits, 'hits /', stats.misses, 'misses');
 });
+
+// Tiles config + resilience gate (all live, no reload):
+map.getTilesConfig();               // { tilesSliceMode, recoverableCache, rangeCacheMode, tileGate, tilesAuth, serviceWorker }
+map.setTileGateActive(false);       // toggle timeout+retry(+cap) live
+map.getTileGateActive();            // → Boolean
+map.setTilesSliceMode('range');     // '200' | 'range' (applies to archives wired after)
+// opts.onTileGateChange(active) callback + ?noslice / ?nogate URL kill-switches.
 ```
 
-See [Browser cache](#page-../docs/browser-cache.md) for the full configuration matrix.
+See [Browser cache](#page-../docs/browser-cache.md) for the full configuration matrix, and the interactive [Tiles perf & robustness playground](#nav-example-maplibre-tiles-perf.html).
 
 ---
 

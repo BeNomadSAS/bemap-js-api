@@ -22,8 +22,9 @@ var ctx = new bemap.Context({
     "geoserver":  'default',
     // BeNomad Tiles v2.0 — when MapLibreMap sees tilesHost on the Context it
     // paints a tiny fallback, loads the live BeNomad charte from the Worker
-    // after login, and injects the JWT on every tile request. Leaflet / OL
-    // ignore tilesHost and stay on WMS.
+    // after login, and authenticates every tile request (HttpOnly session
+    // cookie by default; set tilesAuth:'header'/'query' to change the wire
+    // mode). Leaflet / OL ignore tilesHost and stay on WMS.
     "tilesHost":  'mptiles-api-beta.benomad.net'
 });
 ```
@@ -44,7 +45,7 @@ Load the engine + BeMap library. The `pmtiles.js` script is **required** when `t
 <link rel="stylesheet" href="dist/maplibre-gl.css">
 <script src="dist/maplibre-gl.js"></script>
 <script src="dist/pmtiles.js"></script>             <!-- required when ctx.tilesHost is set -->
-<!-- ALSO: cp dist/bemap-sw-tiles.js → your SITE ROOT (NOT a script tag) — required when ctx.tilesHost is set for tile caching -->
+<!-- OPTIONAL: cp dist/bemap-sw-tiles.js → your SITE ROOT (NOT a script tag) — only for tilesSliceMode:'range' (206). The default tilesSliceMode:'200' uses the browser HTTP cache, no Service Worker needed. -->
 
 <!-- (or) Leaflet -->
 <link rel="stylesheet" href="dist/leaflet.css">
@@ -60,7 +61,7 @@ Load the engine + BeMap library. The `pmtiles.js` script is **required** when `t
 <div id="map" style="width:100vw;height:100vh"></div>
 ```
 
-Full setup + four-channel verification (Console / SW panel / Cache Storage / Network) + troubleshooting: [Browser cache (Service Worker)](#page-../docs/browser-cache.md). Skipping the SW copy still works (the lib falls through to plain network), but every tile hits the network on every visit.
+With the default `tilesSliceMode:'200'`, tiles come back as cacheable HTTP 200s the **browser HTTP cache stores natively** — the Service Worker copy above is **not needed**. It is only required for the classic `tilesSliceMode:'range'` (206) path. Full setup + verification + troubleshooting: [Browser cache](#page-../docs/browser-cache.md).
 
 ---
 
@@ -87,10 +88,10 @@ var map = new bemap.MapLibreMap(bemapMainCtx, 'map1', {
 The library:
 
 - POSTs the Context credentials to `https://mptiles-api-beta.benomad.net/api/login` and caches the JWT.
-- Injects the `X-Session-Token` header on every tile request via `transformRequest`.
+- Authenticates every tile request via the Worker's **HttpOnly session cookie** by default (`credentials:'include'`, no custom header → no CORS preflight). Set `tilesAuth:'header'` / `'query'` on the Context/options to use the `X-Session-Token` header or `?token=` param instead.
 - Renews the token 5 minutes before expiry, and on every `401` the next request gets a fresh token transparently.
 - Paints a tiny font-free fallback instantly, then loads the **live default style from the Worker** after login (full charte with bilingual place labels + Worker fonts). Change the charte server-side and every app picks it up — no rebuild.
-- **Auto-registers `dist/bemap-sw-tiles.js` as a Service Worker** for tile caching — **you must copy that file to your site root once**. Tile caching is the difference between a sub-second second visit and a multi-second one — **don't skip this step**. Full setup, verification, and the diagnostic console logs the library emits on success or failure are documented in [Browser cache (Service Worker)](#page-../docs/browser-cache.md).
+- **Caches tiles for free.** By default (`tilesSliceMode:'200'`), tiles are fetched as HTTP 200 slices the **browser HTTP cache stores natively** — a sub-second second visit with **no Service Worker to deploy**. For the classic HTTP-Range path (`tilesSliceMode:'range'`), the library auto-registers `dist/bemap-sw-tiles.js` (copy it to your site root once). Adds self-healing (`recoverableCache`) + a timeout/retry gate (`RangeGate`), all tunable. See [Browser cache](#page-../docs/browser-cache.md) and the [tiles perf playground](#nav-example-maplibre-tiles-perf.html).
 
 ### Leaflet (WMS)
 
@@ -187,7 +188,7 @@ var map = new bemap.MapLibreMap(ctx, 'map', {
 });
 ```
 
-If the style references `tilesHost` URLs, the library still injects `X-Session-Token` automatically.
+If the style references `tilesHost` URLs, the library still authenticates them automatically (the HttpOnly cookie by default; the `X-Session-Token` header or `?token=` param if `tilesAuth` is set).
 
 See [Style customisation](#page-../docs/style-customisation.md) for the full guide.
 

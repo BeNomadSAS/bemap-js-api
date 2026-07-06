@@ -57,12 +57,15 @@ Open DevTools → **Console**. On a successful first load you will see:
 Then DevTools → **Application** → **Service Workers** — expect a row for
 `/bemap-sw-tiles.js` with status `activated and is running`.
 
-Then DevTools → **Application** → **Cache Storage** → `bemap-tiles-v2` —
+Then DevTools → **Application** → **Cache Storage** → `bemap-tiles-v3` —
 entries appear as you pan. Empty after pan = SW isn't intercepting.
 
 Then DevTools → **Network** — tile requests (`*.pmtiles` byte-range,
-`*.pbf`) should show **(ServiceWorker)** in the *Initiator* column and
-`X-SW-Cache: HIT` in response headers after the first miss.
+`*.pbf`) should show **(ServiceWorker)** in the *Initiator* column and an
+`X-SW-Cache` response header: `MISS` on the cold (network) fetch and
+`HIT` once the tile is served from Cache Storage. (The cold response
+keeps its real status — a 206 range read stays 206; only the cached
+copy is normalised to 200.)
 
 ## Diagnostic logs the library emits
 
@@ -118,6 +121,9 @@ If your legal team requires explicit consent, wire the consent banner to
 | `browserCache: false` | | Skip SW registration entirely |
 | `browserCache: 'auto'` | | Same as `true` — explicit shorthand |
 | `serviceWorkerPath: '/sw.js'` | `/bemap-sw-tiles.js` | Custom SW path |
+| `rangeCacheMode: 'auto'` | (default) | Desktop-Chromium PMTiles Range no-store fix — see below. `'auto'` applies it on desktop Chromium only |
+| `rangeCacheMode: 'default'` | | Opt out — never override the browser's default cache mode |
+| `rangeCacheMode: 'no-store'` | | Force `no-store` on every Range request in every browser |
 
 ## Where the file goes
 
@@ -143,3 +149,244 @@ map._onError('error', function (err) {
   }
 });
 ```
+
+## Desktop-Chromium Range performance (`rangeCacheMode`)
+
+PMTiles reads slices of one archive with HTTP **Range** requests (206
+responses). On **desktop Chromium** (Chrome / Edge / Brave / Opera on
+macOS, Windows, or Linux), Chromium's disk cache **serialises**
+concurrent same-URL range reads, which makes those reads **~3–5× slower**
+than the same reads issued with `cache: 'no-store'`. The upstream
+`pmtiles` library already forces `no-store` — but **only on Windows
+Chromium**. `bemap.RangeFetchPolicy` extends the same fix to **all**
+desktop Chromium.
+
+- **Auth-independent and worker-independent.** It is applied at the
+  `fetch()` layer, not gated on the Service Worker — PMTiles requests can
+  fire before the SW registers, and the fix helps against the BeNomad
+  Worker, raw R2/S3, and public/presigned URLs alike.
+- **Safari, iOS (including Chrome-on-iOS / CriOS), and Firefox are
+  unaffected and left completely untouched** — no `cache` override is
+  applied for them.
+- **Exactly one global `fetch` interceptor.** When `ctx.tilesHost` is set,
+  `bemap.TilesAuth` already patches `window.fetch` for tile auth (see the
+  cookie section below) and simply *reuses* this policy inside that single
+  patch. For a raw
+  `opts.tiles` PMTiles URL (an origin that bypasses TilesAuth), a
+  standalone installer patches `fetch` once — and no-ops if TilesAuth
+  already owns the patch. There is never a second global patch.
+- **Never mutates your `init`.** An explicit `cache` mode you pass
+  (`reload` / `force-cache` / `no-store` / `no-cache`) is always
+  preserved; the policy only ever fills in `no-store` when you left
+  `cache` unset.
+
+```js
+// Default — no action needed. 'auto' applies the fix on desktop Chromium.
+new bemap.MapLibreMap(ctx, 'map');
+
+// Opt out entirely (keep the browser's default cache behaviour):
+new bemap.MapLibreMap(ctx, 'map', { rangeCacheMode: 'default' });
+
+// Force no-store on every Range request, in every browser:
+new bemap.MapLibreMap(ctx, 'map', { rangeCacheMode: 'no-store' });
+```
+
+`rangeCacheMode` is a page-level default, read by **both** the
+BeNomad-Tiles path and the raw-`opts.tiles` path, so a single option
+covers every PMTiles fetch on the page.
+
+## Tile auth — pick your wire mechanism (`tilesAuth`)
+
+By **default** browser tile auth rides the Worker's **HttpOnly session
+cookie** (`credentials: 'include'`, no header → no CORS preflight — see
+below). You can change this per Context (or override per map) with a
+`tilesAuth` config, e.g. when a cross-site `SameSite=None` cookie is
+blocked (Safari ITP / Firefox TCP / Chrome tracking-protection) or your
+Worker isn't set up for credentialed CORS:
+
+```js
+new bemap.Context({
+  tilesHost: 'tiles.example.net',
+  tilesAuth: {
+    mode: 'cookie',                 // 'cookie' (default) | 'header' | 'query'
+    credentials: 'include',         // cookie mode: 'include' | 'same-origin' | 'omit'
+    tokenHeader: 'X-Session-Token', // header mode
+    tokenParam: 'token'             // query mode
+  }
+});
+
+new bemap.Context({ tilesHost: '...', tilesAuth: 'header' });        // string shorthand
+new bemap.MapLibreMap(ctx, 'map', { tilesAuth: { mode: 'query' } }); // per-map override
+```
+
+| `mode` | How tile/style requests authenticate |
+| --- | --- |
+| `cookie` *(default)* | `credentials: <credentials>`; no header, no query → **no CORS preflight**. Needs cookie-capable Worker CORS (below). |
+| `header` | `<tokenHeader>: <jwt>` on each request. Works without cookies, but a custom header forces a CORS preflight per request. |
+| `query` | `?<tokenParam>=<jwt>` on the URL. No header/cookie; the SW strips it from the cache key so caching still works. |
+
+Applies uniformly to the pmtiles Range interceptor, MapLibre's
+`transformRequest` (style/glyph/sprite/XYZ), `TilesStyle.fetch`, and
+`login`/`logout`. Unset ⇒ cookie. `rangeCacheMode` is a separate option
+(cache behaviour, not auth) and is unchanged.
+
+### Cookie mode details (the default)
+
+`bemap.TilesAuth` sends `credentials: 'include'` on
+tile requests (both the global `fetch` interceptor that pmtiles Range
+reads flow through, and MapLibre's `transformRequest` for
+style/glyph/sprite/XYZ) — and attaches **no** `X-Session-Token` header.
+
+Why it matters: a custom request header is **not** CORS-safelisted, so it
+forces a **preflight `OPTIONS`** on every cross-origin request. Combined
+with `cache: 'no-store'` (the desktop-Chromium Range fix above), Chromium
+bypasses its preflight cache and sends **one `OPTIONS` per Range request**
+— a preflight storm that starves the actual tile GETs. A Range GET
+carrying only the safelisted `Range` header sends **no preflight**, so the
+storm disappears while `no-store` stays.
+
+The cookie is set at login: `TilesAuth.login()` POSTs with
+`credentials: 'include'` so the browser stores the Worker's
+`Set-Cookie: session=…; HttpOnly; Secure; SameSite=None`, and the
+`whenTokenReady()` gate ensures login has completed before any tile
+request fires.
+
+**Deployment requirements** (the Worker side, not the SDK):
+
+- The Worker must return, on tile `200`/`206` **and** any `OPTIONS`,
+  `Access-Control-Allow-Credentials: true` and an
+  `Access-Control-Allow-Origin` that **echoes the exact request Origin**
+  (never `*` — credentialed responses with `*` are rejected by the
+  browser and the tile is dropped).
+- `SameSite=None; Secure` is a **cross-site** cookie. In a third-party
+  context (app origin ≠ tiles origin) it is subject to Safari ITP, Firefox
+  Total Cookie Protection, and Chrome tracking-protection blocking. Prefer
+  deploying the tiles host as a **first-party subdomain** of the app so
+  the cookie is same-site. If the cookie is blocked, tiles `401` — surface
+  a clear auth error rather than silently rendering holes.
+- Login and logout still send `Authorization: Basic` / `X-Session-Token`,
+  so they preflight **once per session** (not per tile) — the Worker
+  `OPTIONS` must list those headers, echo the Origin, and set
+  `Allow-Credentials: true` (a long `Max-Age` caches it).
+
+> **Mobile note.** MapLibre **Native** (Flutter) cannot set cookies or
+> custom headers and uses the Worker's `?token=` query param — a separate
+> stack (`bemap-flutter-api`), unaffected by this browser-SDK change.
+
+## Self-healing pmtiles cache (`recoverableCache`)
+
+pmtiles keeps an in-memory cache of the archive **header** and **directory**
+reads. The stock cache (`SharedPromiseCache`) caches the *promise* — and when a
+read fails (a timeout, a network blip, an aborted socket) it leaves the
+**rejected** promise cached forever. Every tile that depends on that
+directory then replays the same failure → a **permanent blank region until a
+full page reload**. (pmtiles only invalidates on an ETag mismatch, never on a
+timeout/error.)
+
+`bemap.RecoverablePromiseCache` fixes this: it evicts a cache entry the moment
+its promise rejects, so the **next** read re-fetches instead of replaying the
+failure. It is transparent — success caching, in-flight de-duplication, LRU
+pruning and `invalidate()` are all unchanged; only *failed* reads differ.
+
+`bemap.MapLibreMap` wires it into the tiles archive automatically:
+
+```js
+new bemap.MapLibreMap(ctx, 'map');                              // recoverableCache: true (default)
+new bemap.MapLibreMap(ctx, 'map', { recoverableCache: false }); // opt out → pmtiles' stock cache
+```
+
+| Option | Default | Effect |
+| --- | --- | --- |
+| `recoverableCache: true` | (default) | Self-healing cache — a failed header/directory read recovers on the next read. |
+| `recoverableCache: false` | | Stock `SharedPromiseCache` (a failed read stays a hole until reload). |
+
+The wiring is defensive: if the archive URL can't be resolved to match what
+MapLibre requests, the pmtiles Protocol simply auto-creates its own default
+cache (exactly today's behaviour) — a mismatch can never break tile loading, it
+only means the fix doesn't apply. `map.getTilesConfig()` reports the resolved
+tiles config (`recoverableCache`, `rangeCacheMode`, `tilesAuth`, `serviceWorker`).
+
+> **Note.** This addresses *recoverable* freezes. A reload-proof freeze (survives
+> Ctrl+Shift+R) is usually a wedged HTTP/2 socket that outlives the reload — the
+> durable fix there is **HTTP/3** on the tile host + client (infrastructure, not
+> SDK code).
+
+## 200-slice mode (`tilesSliceMode`) — browser-cached tiles, often no SW
+
+**This is the biggest tile perf lever.** pmtiles normally reads the archive with
+HTTP **Range → 206 Partial Content**, which browsers do **not** reliably store in
+their HTTP cache — that's the whole reason the Service Worker exists on the Range
+path. In **200-slice** mode the SDK reads the archive as `<archive>?r=<start>-<end>`
+GETs (inclusive offsets, **no** `Range` header); the Worker returns a plain **HTTP
+200** with `Cache-Control: public, max-age=2592000, immutable`, which the
+**browser's native HTTP cache stores** at a stable URL. Repeat tiles and repeat
+visits are then served from disk **with zero Service Worker**.
+
+```js
+new bemap.MapLibreMap(ctx, 'map');                              // tilesSliceMode: '200' (default)
+new bemap.MapLibreMap(ctx, 'map', { tilesSliceMode: 'range' }); // classic HTTP Range (206)
+```
+
+| Option | Default | Effect |
+| --- | --- | --- |
+| `tilesSliceMode: '200'` | (default) | `?r=` slices → cacheable 200s (browser HTTP cache). **Requires a Worker that serves the `?r=` route** — BeNomad Tiles does on all envs. |
+| `tilesSliceMode: 'range'` | | Classic HTTP Range (206) via pmtiles' stock source — byte-for-byte today's path. `'206'` is accepted as an alias. |
+| `serviceWorker: true \| false` | auto | Auto = SW **off** under `'200'` (browser cache replaces it), **on** under `'range'`. Force either way. Legacy `browserCache:false` still opts out. |
+
+Auth composes for free: slice reads go through `window.fetch`, so `bemap.TilesAuth`
+injects the configured auth (cookie / header / `?token=`); and a 200-slice has no
+`Range` header, so `rangeCacheMode`'s `no-store` correctly does **not** apply — the
+200 stays cacheable.
+
+> **Worker dependency.** `'200'` only works against a Worker that serves the `?r=`
+> slice route (returns 200 + `immutable`). If yours doesn't, set
+> `tilesSliceMode: 'range'`. A slice read against a non-slicing Worker fails with
+> a clear `HTTP <status>` error (it does not silently corrupt tiles).
+
+### Resilience gate (`tileGate`) — timeout + retry (+ optional cap)
+
+Slice reads run through `bemap.RangeGate`: a per-request `AbortController` timeout
+that spans the body read, and one retry on a transient failure (429 / 5xx /
+network) — **never** on a caller cancel (pan/zoom). An optional concurrency cap is
+**off by default** (the origin is fast, so uncapped is smoother; the cap is a
+tradeoff you opt into).
+
+| Option | Default | Effect |
+| --- | --- | --- |
+| `tileGate` | `true` | Master switch for timeout+retry(+cap). `false` → raw fetch. |
+| `tilesSliceTimeoutMs` | `3500` | Per-request timeout (spans the body read). `0` = none. |
+| `tilesSliceMaxRetries` | `1` | Retries on a transient failure; never on a pan/zoom cancel. |
+| `tilesSliceConcurrency` | `0` | In-flight cap. `0` = uncapped. `>0` caps concurrent reads (FIFO). |
+
+### Runtime toggles + config readout
+
+The SDK ships no UI (embedders build it — see the playground example). Live methods:
+
+```js
+map.setTileGateActive(false);        // flip the gate live — no reload
+map.getTileGateActive();             // → Boolean
+map.setTilesSliceMode('range');      // applies to archives wired AFTER this (reload for a full A/B)
+map.getTilesConfig();                // resolved: { tilesSliceMode, recoverableCache, rangeCacheMode, tileGate, tilesAuth, serviceWorker }
+new bemap.MapLibreMap(ctx, 'map', { onTileGateChange: function (active) { /* update your button */ } });
+```
+
+URL kill-switches (handy for demos/diagnostics): `?noslice` forces `range`,
+`?nogate` disables the gate — both without touching code.
+
+**Try every combination** in `examples/example-maplibre-tiles-perf.html` (the
+"Tiles perf & robustness playground") — it exposes every option above as a
+control, shows `getTilesConfig()` live, and measures cache-served % so you can see
+200-slice warm-cache hits vs range.
+
+## Recovering an uncontrolled worker (no reload)
+
+A Service Worker that installs on the very first visit activates **after**
+the page has already loaded, so it does not control that first page load
+(the classic "empty Cache Storage until you refresh" symptom). The
+library now recovers this automatically: on registration, if the worker
+is active but not yet controlling the page, `bemap.BrowserCache` posts a
+`CLAIM` message straight to the active worker (`clients.claim()`), so
+caching starts working **without a manual refresh**. The `INIT` / `CLAIM`
+handshake is non-blocking — it can never delay your map's first paint; if
+the worker is slow to acknowledge, the library logs a one-line console
+warning and carries on.

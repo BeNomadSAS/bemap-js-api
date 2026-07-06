@@ -1,0 +1,353 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>BeMap JS API — Tiles performance & robustness playground</title>
+
+  <link rel="stylesheet" href="../dist/maplibre-gl.css">
+  <link rel="stylesheet" href="bn-2026.css">
+
+  <script src="../dist/maplibre-gl.js"></script>
+  <script src="../dist/pmtiles.js"></script>
+  <script src="../dist/bemap-js-api.js"></script>
+  <script src="effect-bridge.js"></script>
+  <script src="context.js"></script>
+  <script src="bn-2026.js"></script>
+
+  <style>
+    /* Fill the dashboard stage (a flex ROW): without flex:1 the sole child
+       sizes to content, collapsing the map's width → a stretched canvas. */
+    .tp-wrap { flex: 1 1 auto; display: flex; gap: 12px; min-width: 0; min-height: 0; height: 100%; }
+    .tp-panel { flex: 0 0 340px; overflow-y: auto; padding: 12px 14px; background: var(--bn-surface, #12151c);
+                border: 1px solid var(--bn-border, #262b36); border-radius: 10px; font-size: 13px; }
+    .tp-stage { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 8px; }
+    .tp-map { flex: 1 1 auto; min-height: 320px; border-radius: 10px; overflow: hidden; }
+    .tp-panel h3 { margin: 14px 0 6px; font-size: 12px; text-transform: uppercase; letter-spacing: .06em; opacity: .7; }
+    .tp-panel h3:first-child { margin-top: 0; }
+    .tp-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 6px 0; }
+    .tp-row label { flex: 1 1 auto; }
+    .tp-row select, .tp-row input[type="number"], .tp-row input[type="text"] {
+      flex: 0 0 130px; background: #0c0e13; color: inherit; border: 1px solid #2c3340; border-radius: 6px; padding: 4px 6px; }
+    .tp-hint { opacity: .6; font-size: 11.5px; margin: 2px 0 8px; line-height: 1.4; }
+    .tp-btns { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+    .tp-btns button { cursor: pointer; border: 1px solid #2c3340; background: #1a1f29; color: inherit;
+                      border-radius: 7px; padding: 7px 10px; font-size: 12.5px; }
+    .tp-btns button.tp-primary { background: #2563eb; border-color: #2563eb; color: #fff; font-weight: 600; }
+    .tp-btns button.tp-live { background: #0f2f22; border-color: #1f6f4f; }
+    .tp-out { white-space: pre-wrap; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 11.5px;
+              background: #0c0e13; border: 1px solid #262b36; border-radius: 8px; padding: 8px; max-height: 220px; overflow: auto; }
+    .tp-stat { display: grid; grid-template-columns: auto 1fr; gap: 2px 10px; font-size: 12px; }
+    .tp-stat b { font-family: ui-monospace, monospace; }
+    .tp-badge { display: inline-block; padding: 1px 7px; border-radius: 999px; font-size: 11px; font-weight: 600; }
+    .tp-badge.on { background: #14532d; color: #86efac; }
+    .tp-badge.off { background: #4c1d1d; color: #fca5a5; }
+  </style>
+</head>
+<body data-bn-page
+      data-bn-title="Tiles performance & robustness playground"
+      data-bn-subtitle="Turn every BeNomad-Tiles knob on/off and see the effect: <code>tilesSliceMode</code> (200-slice vs 206-range), the self-healing cache, the resilience gate, auth mode, and the Service Worker. Change settings → <b>Apply &amp; reload</b>; toggle the gate live."
+      data-bn-chips="MapLibre:ml,PERF:accent,v2.0:brand">
+  <div class="bn-shell">
+    <div class="bn-stage">
+      <div class="tp-wrap">
+        <!-- ── Control panel: every option, parametrable ───────────────── -->
+        <div class="tp-panel">
+          <h3>Tile fetch mode</h3>
+          <div class="tp-row">
+            <label for="tp-sliceMode">tilesSliceMode</label>
+            <select id="tp-sliceMode">
+              <option value="200">200-slice (cacheable)</option>
+              <option value="range">range / 206 (classic)</option>
+            </select>
+          </div>
+          <div class="tp-hint">200-slice = <code>?r=</code> GETs → HTTP 200 the browser HTTP-caches natively (needs a Worker that serves the slice route — BeNomad Tiles does). range = classic 206 (needs the Service Worker to cache).</div>
+
+          <h3>Caches</h3>
+          <div class="tp-row">
+            <label for="tp-recoverable">recoverableCache</label>
+            <select id="tp-recoverable"><option value="true">on</option><option value="false">off</option></select>
+          </div>
+          <div class="tp-hint">Self-heals a failed header/directory read (evicts the rejected promise) instead of a permanent hole.</div>
+          <div class="tp-row">
+            <label for="tp-sw">serviceWorker</label>
+            <select id="tp-sw"><option value="auto">auto</option><option value="true">on</option><option value="false">off</option></select>
+          </div>
+          <div class="tp-hint">auto = OFF under 200-slice (browser HTTP cache replaces it), ON under range.</div>
+          <div class="tp-row">
+            <label for="tp-rangeCache">rangeCacheMode</label>
+            <select id="tp-rangeCache"><option value="auto">auto</option><option value="default">default</option><option value="no-store">no-store</option></select>
+          </div>
+          <div class="tp-hint">Desktop-Chromium 206 no-store fix. (No effect under 200-slice — a slice has no Range header.)</div>
+
+          <h3>Resilience gate</h3>
+          <div class="tp-row">
+            <label for="tp-gate">tileGate (cap+timeout+retry)</label>
+            <select id="tp-gate"><option value="true">on</option><option value="false">off</option></select>
+          </div>
+          <div class="tp-row">
+            <label for="tp-conc">tilesSliceConcurrency</label>
+            <input type="number" id="tp-conc" min="0" step="1" value="0">
+          </div>
+          <div class="tp-hint">0 = uncapped (recommended — the origin is fast). &gt;0 caps in-flight reads.</div>
+          <div class="tp-row">
+            <label for="tp-timeout">tilesSliceTimeoutMs</label>
+            <input type="number" id="tp-timeout" min="0" step="100" value="3500">
+          </div>
+          <div class="tp-row">
+            <label for="tp-retries">tilesSliceMaxRetries</label>
+            <input type="number" id="tp-retries" min="0" step="1" value="1">
+          </div>
+
+          <h3>Auth</h3>
+          <div class="tp-row">
+            <label for="tp-authMode">tilesAuth.mode</label>
+            <select id="tp-authMode"><option value="cookie">cookie</option><option value="header">header</option><option value="query">query</option></select>
+          </div>
+          <div class="tp-row">
+            <label for="tp-cred">credentials</label>
+            <select id="tp-cred"><option value="include">include</option><option value="same-origin">same-origin</option><option value="omit">omit</option></select>
+          </div>
+          <div class="tp-hint">cookie = credentials:'include', no header → no CORS preflight. header/query carry the JWT.</div>
+
+          <h3>Map</h3>
+          <div class="tp-row">
+            <label for="tp-tilesFile">tilesFile</label>
+            <input type="text" id="tp-tilesFile" placeholder="default" value="">
+          </div>
+
+          <div class="tp-btns">
+            <button class="tp-primary" id="tp-apply">Apply &amp; reload</button>
+            <button id="tp-reset">Reset defaults</button>
+          </div>
+          <div class="tp-btns">
+            <button class="tp-live" id="tp-gateToggle">Gate: <span id="tp-gateState">…</span> (live)</button>
+            <button id="tp-clear">Clear SW cache</button>
+            <button id="tp-showcfg">Show resolved config</button>
+          </div>
+          <div class="tp-hint">"Apply &amp; reload" persists these to <code>localStorage</code> and reloads (mode/cache/auth are page-level). The gate toggle is live — no reload.</div>
+        </div>
+
+        <!-- ── Map + live readouts ─────────────────────────────────────── -->
+        <div class="tp-stage">
+          <div id="map" class="tp-map bn-map"></div>
+          <div class="tp-panel" style="flex:0 0 auto;">
+            <h3>Resolved config <span id="tp-gateBadge"></span></h3>
+            <div id="tp-cfg" class="tp-out">…</div>
+            <h3>Tile network (this session) — <button id="tp-statReset" style="font-size:11px;padding:2px 6px;">reset</button></h3>
+            <div class="tp-stat" id="tp-stats"></div>
+            <div class="tp-hint">Reload once to warm the cache: under <b>200-slice</b> the 2nd load serves tiles from the browser cache (cache-served climbs, bytes drop). Under <b>range</b> without the SW, every load hits the network.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+<script>
+(function () {
+  'use strict';
+  var SETTINGS_KEY = 'bemap.tilesperf.settings.v1';
+  var DEFAULTS = {
+    tilesSliceMode: '200', recoverableCache: 'true', serviceWorker: 'auto', rangeCacheMode: 'auto',
+    tileGate: 'true', tilesSliceConcurrency: 0, tilesSliceTimeoutMs: 3500, tilesSliceMaxRetries: 1,
+    authMode: 'cookie', credentials: 'include', tilesFile: ''
+  };
+
+  function loadSettings() {
+    try {
+      var raw = localStorage.getItem(SETTINGS_KEY);
+      if (!raw) return Object.assign({}, DEFAULTS);
+      var s = JSON.parse(raw);
+      return Object.assign({}, DEFAULTS, (s && typeof s === 'object') ? s : {});
+    } catch (e) { return Object.assign({}, DEFAULTS); }
+  }
+  function saveSettings(s) {
+    try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(s)); } catch (e) {}
+  }
+
+  var S = loadSettings();
+
+  // ── Reflect settings into the form ──────────────────────────────────
+  function $(id) { return document.getElementById(id); }
+  function setForm() {
+    $('tp-sliceMode').value = S.tilesSliceMode;
+    $('tp-recoverable').value = S.recoverableCache;
+    $('tp-sw').value = S.serviceWorker;
+    $('tp-rangeCache').value = S.rangeCacheMode;
+    $('tp-gate').value = S.tileGate;
+    $('tp-conc').value = S.tilesSliceConcurrency;
+    $('tp-timeout').value = S.tilesSliceTimeoutMs;
+    $('tp-retries').value = S.tilesSliceMaxRetries;
+    $('tp-authMode').value = S.authMode;
+    $('tp-cred').value = S.credentials;
+    $('tp-tilesFile').value = S.tilesFile;
+  }
+  function readForm() {
+    return {
+      tilesSliceMode: $('tp-sliceMode').value,
+      recoverableCache: $('tp-recoverable').value,
+      serviceWorker: $('tp-sw').value,
+      rangeCacheMode: $('tp-rangeCache').value,
+      tileGate: $('tp-gate').value,
+      tilesSliceConcurrency: parseInt($('tp-conc').value, 10) || 0,
+      tilesSliceTimeoutMs: parseInt($('tp-timeout').value, 10) || 0,
+      tilesSliceMaxRetries: parseInt($('tp-retries').value, 10) || 0,
+      authMode: $('tp-authMode').value,
+      credentials: $('tp-cred').value,
+      tilesFile: ($('tp-tilesFile').value || '').trim()
+    };
+  }
+  setForm();
+
+  // ── Build the MapLibreMap opts + Context from settings ──────────────
+  // Booleans: recoverableCache/tileGate are 'true'/'false' strings; serviceWorker
+  // is 'auto'|'true'|'false'. Only pass serviceWorker when the user pinned it.
+  function buildOpts() {
+    var o = {
+      zoom: 5,
+      tilesSliceMode: S.tilesSliceMode,
+      recoverableCache: (S.recoverableCache !== 'false'),
+      rangeCacheMode: S.rangeCacheMode,
+      tileGate: (S.tileGate !== 'false'),
+      tilesSliceConcurrency: S.tilesSliceConcurrency,
+      tilesSliceTimeoutMs: S.tilesSliceTimeoutMs,
+      tilesSliceMaxRetries: S.tilesSliceMaxRetries
+    };
+    if (S.serviceWorker === 'true') o.serviceWorker = true;
+    else if (S.serviceWorker === 'false') o.serviceWorker = false;   // 'auto' → omit (SDK decides)
+    if (S.tilesFile) o.tilesFile = S.tilesFile;
+    return o;
+  }
+  function buildCtx() {
+    // Reuse the dashboard credentials/host/tilesHost from context.js; layer the
+    // chosen tilesAuth mode on top. Never hardcode credentials here.
+    return new bemap.Context({
+      host:      bemapMainCtx.host,
+      secure:    bemapMainCtx.protocol === 'https',
+      login:     bemapMainCtx.login,
+      password:  bemapMainCtx.password,
+      tilesHost: bemapMainCtx.tilesHost,
+      tilesFile: S.tilesFile || undefined,
+      tilesAuth: { mode: S.authMode, credentials: S.credentials }
+    });
+  }
+
+  var map = null;
+  // Recompute the GL canvas size from the (flex-settled) container. MapLibre v5
+  // self-resizes via a ResizeObserver, but calling it on ready + on window
+  // resize guarantees no stretched first frame if layout settled after init.
+  function resizeMap() {
+    try {
+      if (map && map.native && typeof map.native.resize === 'function') map.native.resize();
+      else if (map && typeof map.refresh === 'function') map.refresh();
+    } catch (e) { /* ignore */ }
+  }
+  window.addEventListener('resize', resizeMap);
+  function construct() {
+    var ctx = buildCtx();
+    map = new bemap.MapLibreMap(ctx, 'map', buildOpts());
+    map.move(2.35, 48.85, 5);
+    if (typeof map._onError === 'function') {
+      map._onError('error', function (err) {
+        bn.log('Error ' + err.code + ' (' + (err.status || 'n/a') + '): ' + (err.message || ''), 'err');
+      });
+    }
+    bn.onMapReady(map, function () {
+      bn.log('Map ready — mode=' + S.tilesSliceMode + ', auth=' + S.authMode + '. Watch Network for ' +
+             (S.tilesSliceMode === '200' ? '"?r=" 200 slices' : 'Range 206 requests') + '.', 'ok');
+      resizeMap();   // ensure the GL canvas matches the flex-settled container
+      renderConfig();
+      renderGate();
+    });
+    renderConfig();
+    renderGate();
+  }
+
+  // ── Resolved config readout (map.getTilesConfig) ────────────────────
+  function renderConfig() {
+    if (!map || typeof map.getTilesConfig !== 'function') { $('tp-cfg').textContent = '(getTilesConfig unavailable)'; return; }
+    try { $('tp-cfg').textContent = JSON.stringify(map.getTilesConfig(), null, 2); }
+    catch (e) { $('tp-cfg').textContent = '(error: ' + e.message + ')'; }
+  }
+  function renderGate() {
+    var active = map && typeof map.getTileGateActive === 'function' ? map.getTileGateActive() : false;
+    $('tp-gateState').textContent = active ? 'ON' : 'OFF';
+    $('tp-gateBadge').innerHTML = '<span class="tp-badge ' + (active ? 'on' : 'off') + '">gate ' + (active ? 'ON' : 'OFF') + '</span>';
+  }
+
+  // ── Tile network stats via Resource Timing ──────────────────────────
+  var stats = { total: 0, cached: 0, bytes: 0, durSum: 0, slices: 0, ranges: 0 };
+  function isTileEntry(e) {
+    var host = bemapMainCtx.tilesHost || '';
+    return host && e.name.indexOf(host) !== -1 && !/\/api\//.test(e.name);
+  }
+  function recordEntry(e) {
+    if (!isTileEntry(e)) return;
+    stats.total++;
+    stats.durSum += (e.duration || 0);
+    // transferSize 0 (with a non-zero encoded/decoded size) ⇒ served from cache.
+    if (e.transferSize === 0 && (e.decodedBodySize || e.encodedBodySize)) stats.cached++;
+    stats.bytes += (e.transferSize || 0);
+    if (/[?&]r=\d+-\d+/.test(e.name)) stats.slices++;
+    else if (/\.pmtiles/.test(e.name) || /\.pbf/.test(e.name)) stats.ranges++;
+    renderStats();
+  }
+  function renderStats() {
+    var pct = stats.total ? Math.round(100 * stats.cached / stats.total) : 0;
+    var avg = stats.total ? Math.round(stats.durSum / stats.total) : 0;
+    $('tp-stats').innerHTML =
+      '<span>tile requests</span><b>' + stats.total + '</b>' +
+      '<span>cache-served</span><b>' + stats.cached + ' (' + pct + '%)</b>' +
+      '<span>avg duration</span><b>' + avg + ' ms</b>' +
+      '<span>bytes over network</span><b>' + Math.round(stats.bytes / 1024) + ' KB</b>' +
+      '<span>200-slice / 206-range</span><b>' + stats.slices + ' / ' + stats.ranges + '</b>';
+  }
+  if (typeof PerformanceObserver === 'function') {
+    try {
+      var po = new PerformanceObserver(function (list) { list.getEntries().forEach(recordEntry); });
+      po.observe({ type: 'resource', buffered: true });
+    } catch (e) { /* older browsers */ }
+  }
+  renderStats();
+
+  // ── Controls ────────────────────────────────────────────────────────
+  $('tp-apply').addEventListener('click', function () {
+    saveSettings(readForm());
+    location.reload();
+  });
+  $('tp-reset').addEventListener('click', function () {
+    saveSettings(Object.assign({}, DEFAULTS));
+    location.reload();
+  });
+  $('tp-gateToggle').addEventListener('click', function () {
+    if (!map || typeof map.setTileGateActive !== 'function') return;
+    map.setTileGateActive(!map.getTileGateActive());   // LIVE — no reload
+    renderGate(); renderConfig();
+    bn.log('Gate toggled live → ' + (map.getTileGateActive() ? 'ON' : 'OFF'), 'info');
+  });
+  $('tp-clear').addEventListener('click', function () {
+    if (map && typeof map.clearBrowserCache === 'function') {
+      map.clearBrowserCache();
+      bn.log('SW cache cleared. (The browser HTTP cache used by 200-slice is cleared via DevTools → Empty cache & hard reload.)', 'info');
+    } else {
+      bn.log('No Service Worker cache active (expected under 200-slice).', 'info');
+    }
+  });
+  $('tp-showcfg').addEventListener('click', renderConfig);
+  $('tp-statReset').addEventListener('click', function () {
+    stats = { total: 0, cached: 0, bytes: 0, durSum: 0, slices: 0, ranges: 0 };
+    renderStats();
+  });
+
+  // ── Go ──────────────────────────────────────────────────────────────
+  if (typeof bemap === 'undefined' || typeof bemap.MapLibreMap !== 'function') {
+    bn.log('bemap.MapLibreMap not available — is dist/bemap-js-api.js built?', 'err');
+    return;
+  }
+  construct();
+  bn.log('Playground ready. Current: mode=' + S.tilesSliceMode + ', recoverableCache=' + S.recoverableCache +
+         ', gate=' + S.tileGate + ', SW=' + S.serviceWorker + ', auth=' + S.authMode + '.', 'info');
+})();
+</script>
+</body>
+</html>

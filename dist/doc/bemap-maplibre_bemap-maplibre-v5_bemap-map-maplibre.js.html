@@ -70,6 +70,33 @@ bemap.MapLibreMap = function(context, target, options) {
   // explicit, surfaced through `ctx.hasTilesConfig()` so consumers can read it.
   this._hasTilesConfig = !!(context &amp;&amp; typeof context.hasTilesConfig === 'function' &amp;&amp; context.hasTilesConfig());
   this._hasCustomStyle = !!(opts.style || opts.tiles);
+  // Desktop-Chromium PMTiles Range no-store policy (bemap.RangeFetchPolicy).
+  // `rangeCacheMode` ('auto' | 'default' | 'no-store', default 'auto') is a
+  // page-level default read by BOTH the BeNomad-Tiles path (TilesAuth's shared
+  // policy) and the raw opts.tiles standalone installer. Set it BEFORE the
+  // TilesAuth interceptor below so its lazily-created policy picks it up.
+  if (opts.rangeCacheMode &amp;&amp; typeof bemap.RangeFetchPolicy === 'function') {
+    bemap.RangeFetchPolicy.defaultMode = opts.rangeCacheMode;
+  }
+  // Self-healing pmtiles header/directory cache (bemap.RecoverablePromiseCache).
+  // `recoverableCache` (default true) is a page-level default: when on, the tiles
+  // archive is wired through a cache that evicts REJECTED header/dir promises so a
+  // failed read self-heals instead of leaving a permanent hole. `false` → pmtiles'
+  // stock (poisoning) SharedPromiseCache. Transparent: only failed reads differ.
+  if (opts.recoverableCache != null &amp;&amp; typeof bemap.RecoverablePromiseCache === 'function') {
+    bemap.RecoverablePromiseCache.enabled = (opts.recoverableCache !== false);
+  }
+  // PMTiles fetch mode + resilience gate (bemap.PMTilesSliceSource / bemap.RangeGate).
+  // `tilesSliceMode` ('200' default | 'range'/'206') picks HOW the archive is read:
+  //   '200'  → `?r=` slices; the Worker returns cacheable 200s (browser HTTP cache;
+  //            needs a Worker that serves the slice route — BeNomad Tiles does).
+  //   'range'→ classic HTTP Range (206) via pmtiles' stock source (today's path).
+  // `tilesSliceTimeoutMs` / `tilesSliceMaxRetries` / `tilesSliceConcurrency` tune the
+  // shared gate. All page-level defaults, applied here BEFORE the archive is wired.
+  bemap.MapLibreMap._applyTilesSliceOpts(opts);
+  // Optional callback fired by setTileGateActive() so an embedder's UI can
+  // reflect the live gate state (the SDK ships no UI — see the example page).
+  this._onTileGateChange = (typeof opts.onTileGateChange === 'function') ? opts.onTileGateChange : null;
   this._featureRegistry = {};   // _bemapId → bemap object
   this._markerElements = {};    // _bemapId → { element, bemapObject }
   this._geoJsonLayerIds = [];   // track all GeoJSON layer IDs for hit-testing
@@ -85,6 +112,9 @@ bemap.MapLibreMap = function(context, target, options) {
   if (typeof pmtiles !== 'undefined' &amp;&amp; !bemap.MapLibreMap._pmtilesRegistered) {
     var _proto = new pmtiles.Protocol();
     maplibregl.addProtocol('pmtiles', _proto.tile);
+    // Retain the (page-global) Protocol so the recoverable cache can be wired
+    // in per archive via `_proto.add(new pmtiles.PMTiles(url, cache))`.
+    bemap.MapLibreMap._pmtilesProtocol = _proto;
     bemap.MapLibreMap._pmtilesRegistered = true;
   }
 
@@ -96,6 +126,9 @@ bemap.MapLibreMap = function(context, target, options) {
   this._currentStyleSpec = null;
   if (this._hasTilesConfig &amp;&amp; typeof bemap.TilesAuth === 'function') {
     this._tilesAuth = new bemap.TilesAuth(context, {
+      // Per-map auth override — merged field-by-field over context.tilesAuth,
+      // both normalised to a full { mode, credentials, tokenHeader, tokenParam }.
+      tilesAuth: opts.tilesAuth,
       onError: function (err) { _self._fireError(err); },
       onToken: function (info) {
         // Only reload the style when the new token has actually been
@@ -114,8 +147,10 @@ bemap.MapLibreMap = function(context, target, options) {
     // Install the scoped fetch interceptor BEFORE the native MapLibre
     // map is constructed — pmtiles.js issues range requests via
     // `fetch()` directly, bypassing MapLibre's `transformRequest`. The
-    // interceptor awaits the in-flight login and attaches
-    // X-Session-Token on every request to ctx.tilesHost.
+    // interceptor awaits the in-flight login (which stores the Worker's
+    // HttpOnly session cookie) and sends every ctx.tilesHost request with
+    // `credentials:'include'` — cookie auth, no X-Session-Token header, so
+    // Range GETs carry only the safelisted `Range` header → no CORS preflight.
     bemap.TilesAuth.installFetchInterceptor(this._tilesAuth, context.tilesHost);
     // Kick off login if no valid token is in storage. The interceptor
     // is what actually waits for it — the constructor stays sync.
@@ -137,6 +172,17 @@ bemap.MapLibreMap = function(context, target, options) {
   if (_explicitStyle) {
     style = opts.style;
   } else if (opts.tiles) {
+    // Raw PMTiles URL — this origin bypasses TilesAuth's interceptor (TilesAuth
+    // only patches for registered tilesHost origins). Install the standalone
+    // RangeFetchPolicy ONCE per page so these Range requests also get the
+    // desktop-Chromium no-store fix. Gated on !_hasTilesConfig so it never
+    // stacks a SECOND global fetch patch on top of TilesAuth's (exactly one
+    // interceptor); the installer itself also no-ops if TilesAuth already owns
+    // the patch.
+    if (!this._hasTilesConfig &amp;&amp; typeof bemap.RangeFetchPolicy === 'function' &amp;&amp; !bemap.MapLibreMap._rangePolicyInstalled) {
+      new bemap.RangeFetchPolicy({ rangeCacheMode: (opts.rangeCacheMode || bemap.RangeFetchPolicy.defaultMode || 'auto') }).installFetchInterceptor();
+      bemap.MapLibreMap._rangePolicyInstalled = true;
+    }
     // PMTiles URL — build a minimal style, then load real style async
     var tilesUrl = opts.tiles.indexOf('pmtiles://') === 0 ? opts.tiles : 'pmtiles://' + opts.tiles;
     style = {
@@ -147,6 +193,14 @@ bemap.MapLibreMap = function(context, target, options) {
     };
     this._pendingTilesStyle = opts.tilesStyle || null;
     this._pendingTilesUrl = tilesUrl;
+    // Raw opts.tiles is an ARBITRARY origin (S3/R2/presigned) that may not serve
+    // the Worker's ?r= slice route — default it to the always-safe Range path
+    // unless the caller EXPLICITLY opts into '200'. (200-slice is only assumed
+    // for the BeNomad-Tiles ctx.tilesHost path below, where the Worker serves it.)
+    bemap.MapLibreMap._addTilesArchive(
+      tilesUrl.replace('pmtiles://', ''),
+      opts.tilesSliceMode === '200' ? '200' : 'range'
+    );
   } else if (this._hasTilesConfig &amp;&amp; typeof bemap.fallbackStyle !== 'undefined' &amp;&amp; typeof bemap.TilesStyle !== 'undefined') {
     // BeNomad Tiles — clone the tiny font-free fallback style then resolve
     // placeholders against the configured ctx/tilesFile. Precedence is
@@ -160,6 +214,13 @@ bemap.MapLibreMap = function(context, target, options) {
     style = JSON.parse(JSON.stringify(bemap.fallbackStyle));
     var _tilesFile = context.resolveTilesFile(opts.tilesFile);
     bemap.TilesStyle.resolvePlaceholders(style, context, _tilesFile);
+    // Wire the self-healing cache for the BeNomad-Tiles archive. The URL is the
+    // SAME derivation resolvePlaceholders uses for the source (`pmtiles://` +
+    // getTilesFileUrl), so the Protocol will use this cache; a mismatch is a
+    // harmless no-op (Protocol auto-creates its default cache, as today).
+    if (context.getTilesFileUrl) {
+      bemap.MapLibreMap._addTilesArchive(context.getTilesFileUrl(_tilesFile));
+    }
     if (typeof bemap.TilesStyle.hardenSymbolCollisions === 'function') {
       bemap.TilesStyle.hardenSymbolCollisions(style);
     }
@@ -273,9 +334,35 @@ bemap.MapLibreMap = function(context, target, options) {
   //   - tilesHost set + bemap.BrowserCache class missing (script not loaded) → console.warn
   // No tilesHost: silent — non-tiles consumers don't care.
   this._browserCache = null;
+  // Under `tilesSliceMode:'200'` the browser HTTP cache stores the 200-slices
+  // natively, so the tile Service Worker is redundant → default it OFF on the
+  // slice path (kept for the 206-Range path, where it is the only client-side
+  // cache). Parametrable: `opts.serviceWorker` (true/false) forces it either way;
+  // legacy `opts.browserCache:false` still opts out everywhere.
+  var _swExplicit = (opts.serviceWorker != null) ? (opts.serviceWorker !== false)
+    : (opts.browserCache != null ? (opts.browserCache !== false) : null);
+  var _swWanted = (_swExplicit != null) ? _swExplicit : (bemap.MapLibreMap._tilesSliceMode !== '200');
   if (this._hasTilesConfig) {
-    if (opts.browserCache === false) {
-      console.info('[bemap] BeNomad Tiles: browser cache disabled by opts.browserCache:false — every tile will hit the network');
+    if (!_swWanted) {
+      var _swWhy;
+      if (bemap.MapLibreMap._tilesSliceMode === '200') {
+        // Under 200-slice the browser HTTP cache stores tiles natively, so the SW
+        // is redundant EITHER way — make that clear so a consumer carrying a
+        // legacy browserCache:false doesn't think caching is broken.
+        _swWhy = (_swExplicit == null)
+          ? '200-slice mode uses the browser HTTP cache instead (SW not needed). Pass serviceWorker:true to force it on.'
+          : 'you set serviceWorker/browserCache off — but 200-slice mode still caches tiles via the browser HTTP cache.';
+      } else {
+        _swWhy = 'disabled by option — tiles will hit the network (206-Range is not browser-cached without the SW).';
+      }
+      console.info('[bemap] BeNomad Tiles: tile Service Worker OFF — ' + _swWhy);
+      // Remove any bemap tile SW left controlling this origin by a PRIOR deploy
+      // (e.g. an app upgraded from 206-range to the 200-slice default) — otherwise
+      // a stale worker keeps intercepting/serving 206 range data. Safe no-op if
+      // none exist.
+      if (typeof bemap.BrowserCache === 'function' &amp;&amp; typeof bemap.BrowserCache.unregisterStale === 'function') {
+        bemap.BrowserCache.unregisterStale();
+      }
     } else if (typeof bemap.BrowserCache !== 'function') {
       console.warn('[bemap] BeNomad Tiles: bemap.BrowserCache is not loaded — tile caching is OFF. Verify dist/bemap-js-api.js is up to date.');
     } else {
@@ -548,12 +635,21 @@ bemap.MapLibreMap.prototype._whenStyleReady = function(fn) {
   var inFlight = this._setStyleInFlight === true;
   if (!inFlight &amp;&amp; this.native.isStyleLoaded()) { fn(); return; }
   var fired = false;
-  var done = function () { if (fired) return; fired = true; fn(); };
+  // After a setStyle, MapLibre fires 'style.load' once the new stylesheet is
+  // parsed but BEFORE everything is settled — chain to a fresh 'idle' after it.
+  // Guard on `fired`: if 'idle' already fired first, this must NOT register a
+  // second 'idle' listener (which would never fire and leak). Named so `done`
+  // can remove it up-front.
+  var onStyleLoad = function () { if (!fired) _this.native.once('idle', done); };
+  var done = function () {
+    if (fired) return;
+    fired = true;
+    try { _this.native.off('style.load', onStyleLoad); } catch (e) { /* ignore */ }
+    fn();
+  };
 
   this.native.once('idle', done);
-  // After a setStyle, MapLibre fires 'style.load' once the new stylesheet
-  // is parsed but BEFORE everything is settled. Chain to 'idle' after that.
-  this.native.once('style.load', function () { _this.native.once('idle', done); });
+  this.native.once('style.load', onStyleLoad);
   // Single safety net for cached / synchronously-resolved styles where the
   // events never fire (rare). Cut from 4 staggered polls to 1 — 33 polylines
   // each with 4 timers = 132 timers, which felt "heavy" in the consumer app.
@@ -1029,8 +1125,14 @@ bemap.MapLibreMap.prototype.loadPMTiles = function(layer, callback) {
   if (!bemap.MapLibreMap._pmtilesRegistered) {
     var protocol = new pmtiles.Protocol();
     maplibregl.addProtocol('pmtiles', protocol.tile);
+    bemap.MapLibreMap._pmtilesProtocol = protocol;
     bemap.MapLibreMap._pmtilesRegistered = true;
   }
+
+  // Self-healing cache for this archive (no-op if disabled / URL unresolvable).
+  // layer.url is an arbitrary origin → keep it on the always-safe Range path
+  // unless the layer explicitly asks for 200-slice.
+  bemap.MapLibreMap._addTilesArchive(layer.url, layer.sliceMode === '200' ? '200' : 'range');
 
   // Set up token injection for authenticated PMTiles
   if (layer.token) {
@@ -1100,8 +1202,172 @@ bemap.MapLibreMap.prototype.loadPMTiles = function(layer, callback) {
   return this;
 };
 bemap.MapLibreMap._pmtilesRegistered = false;
+bemap.MapLibreMap._pmtilesProtocol = null;      // retained pmtiles.Protocol (page-global)
+bemap.MapLibreMap._tilesArchives = {};          // archiveUrl → true (added once)
 bemap.MapLibreMap._fetchIntercepted = false;
 bemap.MapLibreMap._tokenMap = {};
+
+/**
+ * Page-level tile fetch mode: `'200'` (default) reads the archive as
+ * browser-cacheable 200-slices via `bemap.PMTilesSliceSource`; `'range'` uses
+ * pmtiles' stock HTTP-Range (206) source (today's path). `?noslice` forces
+ * `'range'`. Set from `opts.tilesSliceMode` by `_applyTilesSliceOpts`.
+ * @private
+ */
+bemap.MapLibreMap._tilesSliceMode = (typeof location !== 'undefined' &amp;&amp; location.search &amp;&amp; /[?&amp;]noslice\b/.test(location.search)) ? 'range' : '200';
+
+/**
+ * Apply `opts.tilesSlice*` to the page-level slice mode + the shared RangeGate.
+ * Everything is read from `opts` with a default; nothing is hardcoded downstream.
+ * @private
+ */
+bemap.MapLibreMap._applyTilesSliceOpts = function (opts) {
+  opts = opts || {};
+  if (opts.tilesSliceMode === '200' || opts.tilesSliceMode === 'range' || opts.tilesSliceMode === '206') {
+    bemap.MapLibreMap._tilesSliceMode = (opts.tilesSliceMode === '206') ? 'range' : opts.tilesSliceMode;
+  }
+  if (typeof bemap.PMTilesSliceSource === 'function' &amp;&amp; bemap.PMTilesSliceSource.defaultGate) {
+    var g = bemap.PMTilesSliceSource.defaultGate;
+    if (opts.tilesSliceTimeoutMs != null) g.timeoutMs = opts.tilesSliceTimeoutMs;
+    if (opts.tilesSliceMaxRetries != null) g.maxRetries = opts.tilesSliceMaxRetries;
+    if (opts.tilesSliceConcurrency != null) g.concurrency = (opts.tilesSliceConcurrency > 0 ? opts.tilesSliceConcurrency : 0);
+    if (opts.tileGate != null) g.setActive(opts.tileGate !== false);
+  }
+};
+
+/**
+ * Wire one tiles archive URL into the (page-global) pmtiles Protocol, choosing
+ * the source by `_tilesSliceMode` and wrapping it in the self-healing
+ * `bemap.RecoverablePromiseCache` when enabled:
+ *   - `'200'` → `bemap.PMTilesSliceSource` (browser-cacheable 200-slices).
+ *   - `'range'` → stock source (HTTP Range 206), pmtiles' default.
+ * Idempotent per URL.
+ *
+ * Fully guarded — a no-op (leaving pmtiles' stock auto-create, i.e. today's
+ * behaviour) when there is nothing custom to add, pmtiles/the classes are
+ * absent, the Protocol wasn't retained, the URL is empty, or anything throws.
+ * The archive is `protocol.add`-ed under its exact URL key; a key mismatch just
+ * means the Protocol auto-creates its own default for the real URL — a mismatch
+ * cannot break tile loading. Construction is lazy (no eager fetch).
+ * @private
+ * @param {String} archiveUrl the pmtiles archive URL (no `pmtiles://` prefix).
+ * @param {String} [forceMode] override the page-level `_tilesSliceMode` for THIS
+ *   archive (`'200'` | `'range'`). Used by the raw-`opts.tiles` / `loadPMTiles`
+ *   paths to keep arbitrary origins (S3/R2/presigned that don't serve `?r=`) on
+ *   the always-safe Range path unless the caller explicitly opts into `'200'`.
+ * @return {Boolean} true if a custom source/cache was wired for this URL.
+ */
+bemap.MapLibreMap._addTilesArchive = function (archiveUrl, forceMode) {
+  if (!archiveUrl) return false;
+  if (typeof pmtiles === 'undefined' || typeof pmtiles.PMTiles !== 'function') return false;
+  var proto = bemap.MapLibreMap._pmtilesProtocol;
+  if (!proto || typeof proto.add !== 'function') return false;
+  if (!bemap.MapLibreMap._tilesArchives) bemap.MapLibreMap._tilesArchives = {};
+  if (bemap.MapLibreMap._tilesArchives[archiveUrl]) return true;   // already wired
+
+  var mode = forceMode || bemap.MapLibreMap._tilesSliceMode;
+  var useSlice = (mode === '200') &amp;&amp; (typeof bemap.PMTilesSliceSource === 'function');
+  var cache;
+  if (typeof bemap.RecoverablePromiseCache === 'function' &amp;&amp; bemap.RecoverablePromiseCache.enabled !== false
+      &amp;&amp; typeof pmtiles.SharedPromiseCache === 'function') {
+    cache = new bemap.RecoverablePromiseCache();
+  }
+  // Nothing custom to wire (stock range + stock cache) → let the Protocol
+  // auto-create exactly as today (avoids a redundant explicit instance).
+  if (!useSlice &amp;&amp; !cache) return false;
+
+  // Mark BEFORE proto.add so a throwing/duplicate add is not re-attempted on
+  // every construction — a failed add safely falls back to the Protocol's own
+  // auto-create for that URL (today's behaviour), keeping the guard effective.
+  bemap.MapLibreMap._tilesArchives[archiveUrl] = true;
+  try {
+    var source = useSlice ? new bemap.PMTilesSliceSource(archiveUrl) : archiveUrl;
+    proto.add(new pmtiles.PMTiles(source, cache));   // cache undefined → pmtiles default
+    return true;
+  } catch (e) {
+    return false;   // fell back to Protocol auto-create (no regression); stays marked
+  }
+};
+
+/**
+ * Return the resolved BeNomad-Tiles configuration for this map — the effective
+ * values after opts + Context + page-level defaults are merged. Useful for
+ * debugging ("what is actually in effect?"). All fields are read-only snapshots.
+ * @public
+ * @since 2.0.0
+ * @return {{tilesHost:(String|null), tilesSliceMode:String, recoverableCache:Boolean, rangeCacheMode:(String|null), tileGate:(Object|null), tilesAuth:(Object|null), serviceWorker:{enabled:Boolean, path:(String|null)}}}
+ */
+bemap.MapLibreMap.prototype.getTilesConfig = function () {
+  var gate = (typeof bemap.PMTilesSliceSource === 'function') ? bemap.PMTilesSliceSource.defaultGate : null;
+  var cfg = {
+    tilesHost: (this.ctx &amp;&amp; this.ctx.tilesHost) || null,
+    tilesSliceMode: bemap.MapLibreMap._tilesSliceMode,
+    recoverableCache: (typeof bemap.RecoverablePromiseCache === 'function') ? (bemap.RecoverablePromiseCache.enabled !== false) : false,
+    rangeCacheMode: (typeof bemap.RangeFetchPolicy === 'function') ? (bemap.RangeFetchPolicy.defaultMode || 'auto') : null,
+    tileGate: gate ? {
+      active: gate.isActive(),
+      concurrency: gate.concurrency,      // 0 = uncapped
+      timeoutMs: gate.timeoutMs,
+      maxRetries: gate.maxRetries
+    } : null,
+    tilesAuth: null,
+    serviceWorker: { enabled: false, path: null }
+  };
+  if (this._tilesAuth &amp;&amp; this._tilesAuth._authConfig) {
+    cfg.tilesAuth = this._tilesAuth._authConfig;
+  } else if (this.ctx &amp;&amp; typeof this.ctx.getTilesAuth === 'function') {
+    cfg.tilesAuth = this.ctx.getTilesAuth();
+  }
+  if (this._browserCache) {
+    cfg.serviceWorker = {
+      enabled: (typeof this._browserCache.isEnabled === 'function') ? this._browserCache.isEnabled() : true,
+      path: this._browserCache.swPath || null
+    };
+  }
+  return cfg;
+};
+
+/**
+ * Live-toggle the resilience gate (concurrency cap + timeout + retry) WITHOUT a
+ * reload — the slice source reads it per request. Fires `onTileGateChange` and
+ * any `'tilegatechange'` listeners. This is the SDK-supported way to build a
+ * diagnostic on/off button (the demo/bemaputnik call this).
+ * @public
+ * @since 2.0.0
+ * @param {Boolean} active
+ * @return {bemap.MapLibreMap} this
+ */
+bemap.MapLibreMap.prototype.setTileGateActive = function (active) {
+  var state = (active !== false);
+  if (typeof bemap.PMTilesSliceSource === 'function' &amp;&amp; bemap.PMTilesSliceSource.defaultGate) {
+    bemap.PMTilesSliceSource.defaultGate.setActive(state);
+    state = bemap.PMTilesSliceSource.defaultGate.isActive();
+  }
+  if (typeof this._onTileGateChange === 'function') { try { this._onTileGateChange(state); } catch (e) {} }
+  return this;
+};
+
+/** @public @since 2.0.0 @return {Boolean} */
+bemap.MapLibreMap.prototype.getTileGateActive = function () {
+  return (typeof bemap.PMTilesSliceSource === 'function' &amp;&amp; bemap.PMTilesSliceSource.defaultGate)
+    ? bemap.PMTilesSliceSource.defaultGate.isActive() : false;
+};
+
+/**
+ * Set the tile fetch mode (`'200'` | `'range'`) for archives wired AFTER this
+ * call. Archives already registered keep their source; call before loading a
+ * style, or reload the style, for a live A/B. Returns this.
+ * @public
+ * @since 2.0.0
+ * @param {String} mode `'200'` or `'range'` (`'206'` accepted as an alias for `'range'`)
+ * @return {bemap.MapLibreMap} this
+ */
+bemap.MapLibreMap.prototype.setTilesSliceMode = function (mode) {
+  if (mode === '200' || mode === 'range' || mode === '206') {
+    bemap.MapLibreMap._tilesSliceMode = (mode === '206') ? 'range' : mode;
+  }
+  return this;
+};
 
 /**
  * Load BeMap PMTiles vector tiles. Auto-authenticates using bemap.Context credentials.
@@ -1747,8 +2013,9 @@ bemap.MapLibreMap.prototype._fetchTilesApi = function(url, label) {
   if (typeof fetch !== 'function') {
     return Promise.reject(new Error('bemap.MapLibreMap.' + label + ': fetch is not available in this environment.'));
   }
-  // Wait for the JWT so the first call after construction isn't unauthenticated;
-  // the fetch interceptor injects X-Session-Token on the request itself.
+  // Wait for login so the first call after construction isn't unauthenticated;
+  // auth rides the Worker's HttpOnly session cookie (credentials:'include' below),
+  // not a header — no X-Session-Token means no CORS preflight.
   var auth = this._tilesAuth;
   var ready = (auth &amp;&amp; typeof auth.whenTokenReady === 'function') ? auth.whenTokenReady() : Promise.resolve();
   return ready.then(function() {
@@ -2037,7 +2304,12 @@ bemap.MapLibreMap.prototype.setStyle = function (urlOrObject, options) {
   // method chaining works. Errors flow to the map's error channel.
   var getToken = this._tilesAuth ? function () { return self._tilesAuth.getToken(); } : null;
   if (typeof bemap.TilesStyle !== 'undefined') {
-    bemap.TilesStyle.fetch(this.ctx, styleUrl, { getToken: getToken })
+    bemap.TilesStyle.fetch(this.ctx, styleUrl, {
+      getToken: getToken,
+      // Use the auth's RESOLVED config so a per-map tilesAuth override applies to
+      // the style/glyph JSON fetch too (falls back to ctx.getTilesAuth()).
+      tilesAuth: self._tilesAuth ? self._tilesAuth._authConfig : null
+    })
       .then(function (style) {
         bemap.TilesStyle.resolvePlaceholders(style, self.ctx, tilesFile);
         bemap.TilesStyle.hardenSymbolCollisions(style);
@@ -2270,13 +2542,13 @@ bemap.MapLibreMap.prototype.remove = function () {
 </div>
 
 <nav>
-    <h2><a href="index.html">Home</a></h2><h3>Classes</h3><ul><li><a href="bemap.AclDetailsResponse.html">AclDetailsResponse</a></li><li><a href="bemap.AclLabel.html">AclLabel</a></li><li><a href="bemap.AclService.html">AclService</a></li><li><a href="bemap.Address.html">Address</a></li><li><a href="bemap.AttributionWidget.html">AttributionWidget</a></li><li><a href="bemap.Autocomplete.html">Autocomplete</a></li><li><a href="bemap.AutocompleteElement.html">AutocompleteElement</a></li><li><a href="bemap.AutocompleteGeocodingRequest.html">AutocompleteGeocodingRequest</a></li><li><a href="bemap.AutocompleteGeocodingResponse.html">AutocompleteGeocodingResponse</a></li><li><a href="bemap.BemapLayer.html">BemapLayer</a></li><li><a href="bemap.BoundingBox.html">BoundingBox</a></li><li><a href="bemap.BrowserCache.html">BrowserCache</a></li><li><a href="bemap.BuildingsLayer.html">BuildingsLayer</a></li><li><a href="bemap.ChargingPoint.html">ChargingPoint</a></li><li><a href="bemap.ChargingStation.html">ChargingStation</a></li><li><a href="bemap.ChargingStationPool.html">ChargingStationPool</a></li><li><a href="bemap.ChargingStations.html">ChargingStations</a></li><li><a href="bemap.ChargingStationSearchRequest.html">ChargingStationSearchRequest</a></li><li><a href="bemap.ChargingStationSearchResponse.html">ChargingStationSearchResponse</a></li><li><a href="bemap.ChargingStationStep.html">ChargingStationStep</a></li><li><a href="bemap.ChargingTime.html">ChargingTime</a></li><li><a href="bemap.ChargingTimeRequest.html">ChargingTimeRequest</a></li><li><a href="bemap.ChargingTimeResponse.html">ChargingTimeResponse</a></li><li><a href="bemap.Circle.html">Circle</a></li><li><a href="bemap.CircleStyle.html">CircleStyle</a></li><li><a href="bemap.clusterStyle.html">clusterStyle</a></li><li><a href="bemap.Color.html">Color</a></li><li><a href="bemap.CondMaxSpeed.html">CondMaxSpeed</a></li><li><a href="bemap.Context.html">Context</a></li><li><a href="bemap.Coordinate.html">Coordinate</a></li><li><a href="bemap.CoordinateSat.html">CoordinateSat</a></li><li><a href="bemap.Destination.html">Destination</a></li><li><a href="bemap.Error.html">Error</a></li><li><a href="bemap.EvBrand.html">EvBrand</a></li><li><a href="bemap.EvReachableArea.html">EvReachableArea</a></li><li><a href="bemap.EvReachableAreaRequest.html">EvReachableAreaRequest</a></li><li><a href="bemap.EvReachableAreaResponse.html">EvReachableAreaResponse</a></li><li><a href="bemap.EvseRouting.html">EvseRouting</a></li><li><a href="bemap.EvSmartRouting.html">EvSmartRouting</a></li><li><a href="bemap.EvSmartRoutingRequest.html">EvSmartRoutingRequest</a></li><li><a href="bemap.EvSmartRoutingResponse.html">EvSmartRoutingResponse</a></li><li><a href="bemap.EvStepPoint.html">EvStepPoint</a></li><li><a href="bemap.EvVehicle.html">EvVehicle</a></li><li><a href="bemap.EvVehicles.html">EvVehicles</a></li><li><a href="bemap.Exception.html">Exception</a></li><li><a href="bemap.GeoAutocomplete.html">GeoAutocomplete</a></li><li><a href="bemap.Geocoder.html">Geocoder</a></li><li><a href="bemap.GeocodingItem.html">GeocodingItem</a></li><li><a href="bemap.GeocodingRequest.html">GeocodingRequest</a></li><li><a href="bemap.GeocodingResponse.html">GeocodingResponse</a></li><li><a href="bemap.GeoSearchInfo.html">GeoSearchInfo</a></li><li><a href="bemap.GeoServerInfoResponse.html">GeoServerInfoResponse</a></li><li><a href="bemap.GeoServerInfoService.html">GeoServerInfoService</a></li><li><a href="bemap.GeoServerServiceInfo.html">GeoServerServiceInfo</a></li><li><a href="bemap.GeoServerServiceLimit.html">GeoServerServiceLimit</a></li><li><a href="bemap.HeatmapLayer.html">HeatmapLayer</a></li><li><a href="bemap.Icon.html">Icon</a></li><li><a href="bemap.Isochrone.html">Isochrone</a></li><li><a href="bemap.Layer.html">Layer</a></li><li><a href="bemap.LeafletMap.html">LeafletMap</a></li><li><a href="bemap.LineStyle.html">LineStyle</a></li><li><a href="bemap.Listener.html">Listener</a></li><li><a href="bemap.Map.html">Map</a></li><li><a href="bemap.MapEvent.html">MapEvent</a></li><li><a href="bemap.MapLibreMap.html">MapLibreMap</a></li><li><a href="bemap.Marker.html">Marker</a></li><li><a href="bemap.MultiMarker.html">MultiMarker</a></li><li><a href="bemap.NearPoint.html">NearPoint</a></li><li><a href="bemap.NearPoiRequest.html">NearPoiRequest</a></li><li><a href="bemap.NearPoiResponse.html">NearPoiResponse</a></li><li><a href="bemap.NearPoiSearch.html">NearPoiSearch</a></li><li><a href="bemap.Object.html">Object</a></li><li><a href="bemap.Ol3Map.html">Ol3Map</a></li><li><a href="bemap.OlMap.html">OlMap</a></li><li><a href="bemap.OsmLayer.html">OsmLayer</a></li><li><a href="bemap.PMTilesLayer.html">PMTilesLayer</a></li><li><a href="bemap.Polygon.html">Polygon</a></li><li><a href="bemap.PolygonStyle.html">PolygonStyle</a></li><li><a href="bemap.Polyline.html">Polyline</a></li><li><a href="bemap.Popup.html">Popup</a></li><li><a href="bemap.PostalAddress.html">PostalAddress</a></li><li><a href="bemap.RasterLayer.html">RasterLayer</a></li><li><a href="bemap.ReverseGeocoder.html">ReverseGeocoder</a></li><li><a href="bemap.ReverseGeocodingRequest.html">ReverseGeocodingRequest</a></li><li><a href="bemap.RevGeoSearchInfo.html">RevGeoSearchInfo</a></li><li><a href="bemap.RoadFeature.html">RoadFeature</a></li><li><a href="bemap.Route.html">Route</a></li><li><a href="bemap.Route.Event.html">Event</a></li><li><a href="bemap.Route.RoutesheetInstruction.html">RoutesheetInstruction</a></li><li><a href="bemap.Routing.html">Routing</a></li><li><a href="bemap.RoutingDestination.html">RoutingDestination</a></li><li><a href="bemap.RoutingInstruction.html">RoutingInstruction</a></li><li><a href="bemap.RoutingRequest.html">RoutingRequest</a></li><li><a href="bemap.RoutingResponse.html">RoutingResponse</a></li><li><a href="bemap.RoutingRoute.html">RoutingRoute</a></li><li><a href="bemap.RoutingSummary.html">RoutingSummary</a></li><li><a href="bemap.RoutingV2.html">RoutingV2</a></li><li><a href="bemap.RoutingVehicleProfile.html">RoutingVehicleProfile</a></li><li><a href="bemap.RoutingWaypoint.html">RoutingWaypoint</a></li><li><a href="bemap.Service.html">Service</a></li><li><a href="bemap.TextStyle.html">TextStyle</a></li><li><a href="bemap.TilesAuth.html">TilesAuth</a></li><li><a href="bemap.TilesOverlayCatalog.html">TilesOverlayCatalog</a></li><li><a href="global.html#bemap#.TraceRoute">TraceRoute</a></li><li><a href="bemap.TraceRouteDestination.html">TraceRouteDestination</a></li><li><a href="bemap.TraceRouteRequest.html">TraceRouteRequest</a></li><li><a href="bemap.VectorLayer.html">VectorLayer</a></li><li><a href="bemap.VectorTileLayer.html">VectorTileLayer</a></li><li><a href="bemap.WmsLayer.html">WmsLayer</a></li></ul><h3>Global</h3><ul><li><a href="global.html#AC">AC</a></li><li><a href="global.html#AC_SINGLE_PHASE">AC_SINGLE_PHASE</a></li><li><a href="global.html#AC_THREE_PHASES">AC_THREE_PHASES</a></li><li><a href="global.html#bemap">bemap</a></li><li><a href="global.html#DC">DC</a></li><li><a href="global.html#NA">NA</a></li></ul>
+    <h2><a href="index.html">Home</a></h2><h3>Classes</h3><ul><li><a href="bemap.AclDetailsResponse.html">AclDetailsResponse</a></li><li><a href="bemap.AclLabel.html">AclLabel</a></li><li><a href="bemap.AclService.html">AclService</a></li><li><a href="bemap.Address.html">Address</a></li><li><a href="bemap.AttributionWidget.html">AttributionWidget</a></li><li><a href="bemap.Autocomplete.html">Autocomplete</a></li><li><a href="bemap.AutocompleteElement.html">AutocompleteElement</a></li><li><a href="bemap.AutocompleteGeocodingRequest.html">AutocompleteGeocodingRequest</a></li><li><a href="bemap.AutocompleteGeocodingResponse.html">AutocompleteGeocodingResponse</a></li><li><a href="bemap.BemapLayer.html">BemapLayer</a></li><li><a href="bemap.BoundingBox.html">BoundingBox</a></li><li><a href="bemap.BrowserCache.html">BrowserCache</a></li><li><a href="bemap.BuildingsLayer.html">BuildingsLayer</a></li><li><a href="bemap.ChargingPoint.html">ChargingPoint</a></li><li><a href="bemap.ChargingStation.html">ChargingStation</a></li><li><a href="bemap.ChargingStationPool.html">ChargingStationPool</a></li><li><a href="bemap.ChargingStations.html">ChargingStations</a></li><li><a href="bemap.ChargingStationSearchRequest.html">ChargingStationSearchRequest</a></li><li><a href="bemap.ChargingStationSearchResponse.html">ChargingStationSearchResponse</a></li><li><a href="bemap.ChargingStationStep.html">ChargingStationStep</a></li><li><a href="bemap.ChargingTime.html">ChargingTime</a></li><li><a href="bemap.ChargingTimeRequest.html">ChargingTimeRequest</a></li><li><a href="bemap.ChargingTimeResponse.html">ChargingTimeResponse</a></li><li><a href="bemap.Circle.html">Circle</a></li><li><a href="bemap.CircleStyle.html">CircleStyle</a></li><li><a href="bemap.clusterStyle.html">clusterStyle</a></li><li><a href="bemap.Color.html">Color</a></li><li><a href="bemap.CondMaxSpeed.html">CondMaxSpeed</a></li><li><a href="bemap.Context.html">Context</a></li><li><a href="bemap.Coordinate.html">Coordinate</a></li><li><a href="bemap.CoordinateSat.html">CoordinateSat</a></li><li><a href="bemap.Destination.html">Destination</a></li><li><a href="bemap.Error.html">Error</a></li><li><a href="bemap.EvBrand.html">EvBrand</a></li><li><a href="bemap.EvReachableArea.html">EvReachableArea</a></li><li><a href="bemap.EvReachableAreaRequest.html">EvReachableAreaRequest</a></li><li><a href="bemap.EvReachableAreaResponse.html">EvReachableAreaResponse</a></li><li><a href="bemap.EvseRouting.html">EvseRouting</a></li><li><a href="bemap.EvSmartRouting.html">EvSmartRouting</a></li><li><a href="bemap.EvSmartRoutingRequest.html">EvSmartRoutingRequest</a></li><li><a href="bemap.EvSmartRoutingResponse.html">EvSmartRoutingResponse</a></li><li><a href="bemap.EvStepPoint.html">EvStepPoint</a></li><li><a href="bemap.EvVehicle.html">EvVehicle</a></li><li><a href="bemap.EvVehicles.html">EvVehicles</a></li><li><a href="bemap.Exception.html">Exception</a></li><li><a href="bemap.GeoAutocomplete.html">GeoAutocomplete</a></li><li><a href="bemap.Geocoder.html">Geocoder</a></li><li><a href="bemap.GeocodingItem.html">GeocodingItem</a></li><li><a href="bemap.GeocodingRequest.html">GeocodingRequest</a></li><li><a href="bemap.GeocodingResponse.html">GeocodingResponse</a></li><li><a href="bemap.GeoSearchInfo.html">GeoSearchInfo</a></li><li><a href="bemap.GeoServerInfoResponse.html">GeoServerInfoResponse</a></li><li><a href="bemap.GeoServerInfoService.html">GeoServerInfoService</a></li><li><a href="bemap.GeoServerServiceInfo.html">GeoServerServiceInfo</a></li><li><a href="bemap.GeoServerServiceLimit.html">GeoServerServiceLimit</a></li><li><a href="bemap.HeatmapLayer.html">HeatmapLayer</a></li><li><a href="bemap.Icon.html">Icon</a></li><li><a href="bemap.Isochrone.html">Isochrone</a></li><li><a href="bemap.Layer.html">Layer</a></li><li><a href="bemap.LeafletMap.html">LeafletMap</a></li><li><a href="bemap.LineStyle.html">LineStyle</a></li><li><a href="bemap.Listener.html">Listener</a></li><li><a href="bemap.Map.html">Map</a></li><li><a href="bemap.MapEvent.html">MapEvent</a></li><li><a href="bemap.MapLibreMap.html">MapLibreMap</a></li><li><a href="bemap.Marker.html">Marker</a></li><li><a href="bemap.MultiMarker.html">MultiMarker</a></li><li><a href="bemap.NearPoint.html">NearPoint</a></li><li><a href="bemap.NearPoiRequest.html">NearPoiRequest</a></li><li><a href="bemap.NearPoiResponse.html">NearPoiResponse</a></li><li><a href="bemap.NearPoiSearch.html">NearPoiSearch</a></li><li><a href="bemap.Object.html">Object</a></li><li><a href="bemap.Ol3Map.html">Ol3Map</a></li><li><a href="bemap.OlMap.html">OlMap</a></li><li><a href="bemap.OsmLayer.html">OsmLayer</a></li><li><a href="bemap.PMTilesLayer.html">PMTilesLayer</a></li><li><a href="bemap.PMTilesSliceSource.html">PMTilesSliceSource</a></li><li><a href="bemap.Polygon.html">Polygon</a></li><li><a href="bemap.PolygonStyle.html">PolygonStyle</a></li><li><a href="bemap.Polyline.html">Polyline</a></li><li><a href="bemap.Popup.html">Popup</a></li><li><a href="bemap.PostalAddress.html">PostalAddress</a></li><li><a href="bemap.RangeGate.html">RangeGate</a></li><li><a href="bemap.RasterLayer.html">RasterLayer</a></li><li><a href="bemap.RecoverablePromiseCache.html">RecoverablePromiseCache</a></li><li><a href="bemap.ReverseGeocoder.html">ReverseGeocoder</a></li><li><a href="bemap.ReverseGeocodingRequest.html">ReverseGeocodingRequest</a></li><li><a href="bemap.RevGeoSearchInfo.html">RevGeoSearchInfo</a></li><li><a href="bemap.RoadFeature.html">RoadFeature</a></li><li><a href="bemap.Route.html">Route</a></li><li><a href="bemap.Route.Event.html">Event</a></li><li><a href="bemap.Route.RoutesheetInstruction.html">RoutesheetInstruction</a></li><li><a href="bemap.Routing.html">Routing</a></li><li><a href="bemap.RoutingDestination.html">RoutingDestination</a></li><li><a href="bemap.RoutingInstruction.html">RoutingInstruction</a></li><li><a href="bemap.RoutingRequest.html">RoutingRequest</a></li><li><a href="bemap.RoutingResponse.html">RoutingResponse</a></li><li><a href="bemap.RoutingRoute.html">RoutingRoute</a></li><li><a href="bemap.RoutingSummary.html">RoutingSummary</a></li><li><a href="bemap.RoutingV2.html">RoutingV2</a></li><li><a href="bemap.RoutingVehicleProfile.html">RoutingVehicleProfile</a></li><li><a href="bemap.RoutingWaypoint.html">RoutingWaypoint</a></li><li><a href="bemap.Service.html">Service</a></li><li><a href="bemap.TextStyle.html">TextStyle</a></li><li><a href="bemap.TilesAuth.html">TilesAuth</a></li><li><a href="bemap.TilesOverlayCatalog.html">TilesOverlayCatalog</a></li><li><a href="global.html#bemap#.TraceRoute">TraceRoute</a></li><li><a href="bemap.TraceRouteDestination.html">TraceRouteDestination</a></li><li><a href="bemap.TraceRouteRequest.html">TraceRouteRequest</a></li><li><a href="bemap.VectorLayer.html">VectorLayer</a></li><li><a href="bemap.VectorTileLayer.html">VectorTileLayer</a></li><li><a href="bemap.WmsLayer.html">WmsLayer</a></li></ul><h3>Global</h3><ul><li><a href="global.html#_bemapNoop">_bemapNoop</a></li><li><a href="global.html#AC">AC</a></li><li><a href="global.html#AC_SINGLE_PHASE">AC_SINGLE_PHASE</a></li><li><a href="global.html#AC_THREE_PHASES">AC_THREE_PHASES</a></li><li><a href="global.html#bemap">bemap</a></li><li><a href="global.html#DC">DC</a></li><li><a href="global.html#NA">NA</a></li></ul>
 </nav>
 
 <br class="clear">
 
 <footer>
-    Documentation generated by <a href="https://github.com/jsdoc/jsdoc">JSDoc 3.6.3</a> on Mon Jun 29 2026 10:53:21 GMT+0200 (heure d’été d’Europe centrale)
+    Documentation generated by <a href="https://github.com/jsdoc/jsdoc">JSDoc 3.6.3</a> on Mon Jul 06 2026 15:00:37 GMT+0200 (heure d’été d’Europe centrale)
 </footer>
 
 <script> prettyPrint(); </script>

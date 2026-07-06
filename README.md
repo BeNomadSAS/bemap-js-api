@@ -81,7 +81,7 @@ The **same code runs on all three engines** — switch the constructor, switch t
 - 🧭 **Routing** — multi-stop, alternatives, route sheets, trace-route
 - 🔌 **EV** — smart routing, charging stations, reachable area, charging-time, vehicle catalogue
 - 🔎 **Geocoding** — forward, reverse, address autocomplete, isochrones / reachable zones
-- ⚡ **BeNomad Tiles** — JWT-secured PMTiles + a zero-config Service-Worker tile cache
+- ⚡ **BeNomad Tiles** — JWT-secured PMTiles with configurable auth (cookie / header / query); 200-slice reads the browser HTTP-caches natively (Service Worker optional, only for classic 206-range); self-healing cache + timeout/retry gate
 - 🧱 **One API, three engines** — same `Context`, same calls, just change the map class
 
 ---

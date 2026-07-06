@@ -189,7 +189,17 @@ self.addEventListener('fetch', function (event) {
           } else {
             dbg('network status ' + response.status + ' — not cached', request.url.slice(0, 100));
           }
-          return response;
+          // Tag the network response `X-SW-Cache: MISS` so cold interception is
+          // provable in a bench (HIT branch above already tags 'HIT'). Preserve
+          // the REAL status — a 206 stays 206; only the CACHED copy above is
+          // normalised to 200. Reuse response.body so we stream (no buffering).
+          var missHeaders = new Headers(response.headers);
+          missHeaders.set('X-SW-Cache', 'MISS');
+          return new Response(response.body, {
+            status: response.status,
+            statusText: response.statusText,
+            headers: missHeaders
+          });
         });
       });
     });
@@ -224,6 +234,17 @@ self.addEventListener('message', function (event) {
     return;
   }
 
+  // CLAIM — let an active-but-uncontrolled tab (SW activated after the page
+  // loaded) take control WITHOUT a page reload. Acks with { type: 'CLAIMED' }.
+  if (type === 'CLAIM') {
+    if (self.clients && typeof self.clients.claim === 'function') {
+      self.clients.claim().then(function () { postToClient(event.source, { type: 'CLAIMED' }); });
+    } else {
+      postToClient(event.source, { type: 'CLAIMED' });
+    }
+    return;
+  }
+
   if (type === 'ENABLE') { state.enabled = true; postToClient(event.source, { type: 'STATE', enabled: true }); return; }
   if (type === 'DISABLE') { state.enabled = false; postToClient(event.source, { type: 'STATE', enabled: false }); return; }
 
@@ -251,7 +272,13 @@ self.addEventListener('message', function (event) {
             }
           };
           var port = event.ports && event.ports[0];
-          if (port) { try { port.postMessage(msg); } catch (e) {} return; }
+          if (port) {
+            try { port.postMessage(msg); } catch (e) {}
+            // Release the SW-side port so the MessageChannel doesn't dangle if
+            // the worker is replaced mid-flight (page side closes port1 too).
+            try { port.close(); } catch (e) {}
+            return;
+          }
           postToClient(event.source, msg);
         });
       });

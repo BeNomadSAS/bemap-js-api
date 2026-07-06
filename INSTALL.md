@@ -19,7 +19,7 @@ bemap-js-api/
 │   ├── bemap-js-api.js           # full bundle (development)
 │   ├── bemap-js-api.min.js       # minified bundle (production)
 │   ├── bemap-js-api.css          # required stylesheet
-│   ├── bemap-sw-tiles.js         # Service Worker (BeNomad Tiles cache)
+│   ├── bemap-sw-tiles.js         # Service Worker — optional (only for tilesSliceMode:'range'; the '200' default uses the browser HTTP cache)
 │   ├── doc/                      # JSDoc API reference — open dist/doc/index.html
 │   ├── ol.js, ol.css             # OpenLayers v10 (only if you use Ol3Map)
 │   ├── leaflet.js, leaflet.css   # Leaflet 1.9 (only if you use LeafletMap)
@@ -86,30 +86,32 @@ the exact tag to add. Same for `maplibre-gl.js` / `maplibre-gl.css`.
 
 ---
 
-## 3. **Mandatory** — copy the Service Worker to your site root
+## 3. **Optional** — Service Worker (only for classic 206-range mode)
 
-When `ctx.tilesHost` is set, the library auto-registers
-`/bemap-sw-tiles.js` as a Service Worker for tile caching. The file MUST
-be served from your **site root** (not from `/bemap/`) so its scope
-covers the whole origin:
+By **default** (`tilesSliceMode: '200'`), tiles are fetched as cacheable
+HTTP 200 slices that the **browser's own HTTP cache stores natively** —
+repeat visits are free with **no Service Worker to deploy**. Most
+integrators can skip this section entirely.
+
+You only need the Service Worker if you opt into the classic HTTP-Range
+path (`tilesSliceMode: 'range'`) or force `serviceWorker: true`. In that
+case the library auto-registers `/bemap-sw-tiles.js`, which MUST be served
+from your **site root** (not `/bemap/`) so its scope covers the origin:
 
 ```sh
 cp bemap-js-api/dist/bemap-sw-tiles.js public/bemap-sw-tiles.js
 ```
 
-Verify: open your app in a browser → DevTools → Console. On a working
-setup you will see:
+Verify: open your app → DevTools → Console. On a working setup you'll see:
 
 ```
 [bemap] BeNomad Tiles: browser cache active (Service Worker registered at /bemap-sw-tiles.js)
 ```
 
-Six different log lines cover the failure cases (HTTP page, missing file,
-stale bundle, etc.) and each names the fix. Full tutorial in
+Several log lines cover the failure cases (HTTP page, missing file, stale
+bundle, etc.) and each names the fix. Full tutorial — including the
+200-slice vs range trade-off and the resilience knobs — in
 [`docs/browser-cache.md`](docs/browser-cache.md).
-
-**Skipping this step is not fatal** — tiles still load — but every tile
-hits the network on every visit. Hit-ratio target with the SW is 60-80%.
 
 ---
 

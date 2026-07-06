@@ -14,7 +14,7 @@ v1.0 app keeps working without code changes.
 | Multilingual labels | static | per-browser-language at runtime |
 | Custom branding | server-side style only | client style swap at runtime |
 | Network | bgis WMS server | dedicated Worker, near-CDN latency |
-| Caching | browser default | Service Worker — 60-80% hit ratio typical |
+| Caching | browser default | Browser HTTP cache (default, via 200-slice reads) — or Service Worker (classic 206-range mode) |
 
 ## What you load on the page
 
@@ -72,6 +72,13 @@ inside `MapLibreMap.defaultLayers()` when `ctx.tilesHost` is set: the
 background is supplied by the BeNomad Tiles vector charte instead (a tiny
 font-free fallback first, then the live charte loaded from the Worker).
 
+**Auth** rides the Worker's HttpOnly session cookie by default
+(`credentials:'include'`, no custom header → no CORS preflight); switch to
+the `X-Session-Token` header or `?token=` query with the `tilesAuth`
+option (`'cookie'` | `'header'` | `'query'`). To keep credentials
+server-side, use `tilesTokenProvider` instead of `login`/`password` — see
+[Backend token provider](integration-tiles-token-provider.md).
+
 ## What about Leaflet and OpenLayers?
 
 Both engines **stay on WMS** for v2.0. Adding `tilesHost` to a Context
@@ -80,12 +87,19 @@ is the explicit switch.
 
 ## What you get for free
 
-- **Service Worker caching** — `dist/bemap-sw-tiles.js` is auto-registered;
-  the live HIT/MISS counter is exposed via `map.onCacheStats(fn)` and
-  `map.getBrowserCacheStats()`. **You must copy that file to your site
-  root once** — see [Browser cache](#page-../docs/browser-cache.md) for the
-  one-line copy step, verification steps, and the diagnostic console
-  logs the library emits when the SW is not reachable.
+- **Browser tile caching** — by **default** (`tilesSliceMode:'200'`), tiles
+  are fetched as cacheable HTTP 200 slices that the **browser HTTP cache
+  stores natively** → repeat visits are free with **no Service Worker**. If
+  you opt into classic HTTP Range (`tilesSliceMode:'range'`), the library
+  auto-registers `dist/bemap-sw-tiles.js` (copy it to your site root once);
+  the live HIT/MISS counter is then exposed via `map.onCacheStats(fn)` /
+  `map.getBrowserCacheStats()`. See [Browser cache](#page-../docs/browser-cache.md).
+- **Self-healing + resilient reads** — `recoverableCache:true` (default)
+  recovers a failed header/directory read instead of a permanent hole; the
+  `RangeGate` adds a per-request timeout + one retry (tunable via
+  `tilesSliceTimeoutMs`, `tilesSliceMaxRetries`, `tilesSliceConcurrency`,
+  `tileGate`). Try every knob in
+  [`examples/example-maplibre-tiles-perf.html`](#nav-example-maplibre-tiles-perf.html).
 - **MapLibre-only methods** — call them directly on the map:
   `setProjection('globe')`, `setPitch(60)`, `setBearing(45)`,
   `easeTo({...})`, `setStyle({...})`, `setPaintProperty(...)`,

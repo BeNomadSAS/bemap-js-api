@@ -8,7 +8,7 @@
 | --- | --- |
 | *omitted* or `'default'` | **tiny fallback → live server default.** Paints the tiny font-free `bemap.fallbackStyle` instantly, then — once login completes — fetches the Worker's default style (`/api/default-style` → `/styles/<name>`) and swaps it in. No first-paint cost; the charte stays current with **no library rebuild**. |
 | `'<name>'` (bare, e.g. `'style_liberty'`) | tiny fallback, then loads that named style from `<tilesHost>/styles/<name>`. Names come from `map.fetchAvailableStyles()`. |
-| `'<url>'` | fetches that URL (the `X-Session-Token` is injected for `ctx.tilesHost` URLs). |
+| `'<url>'` | fetches that URL (auth is injected for `ctx.tilesHost` URLs per the configured `tilesAuth` mode — cookie by default, `X-Session-Token` header or `?token=` if set). |
 | `{ …json… }` | uses the inline object directly. |
 
 ## 1. The default — server-loaded after login
@@ -57,8 +57,10 @@ var map = new bemap.MapLibreMap(ctx, 'map', {
 });
 ```
 
-URLs that match `ctx.tilesHost` go through the same auth path (the
-`X-Session-Token` header is injected by `transformRequest`).
+URLs that match `ctx.tilesHost` go through the same auth path — the
+Worker's HttpOnly session cookie by default (`credentials:'include'`), or
+the `X-Session-Token` header / `?token=` query if `tilesAuth` is set to
+`'header'` / `'query'`.
 
 ## 3. An inline style object
 
@@ -100,7 +102,7 @@ come from the **Worker**, not the bundle:
   `glyphs`. A root-relative one (e.g. the charte's `/fonts/{fontstack}/{range}.pbf`)
   is **absolutised against the tilesHost** by `resolvePlaceholders` →
   `<tilesHost>/fonts/{fontstack}/{range}.pbf`, and the fetch interceptor attaches
-  the `X-Session-Token`. So the Worker serves the fonts, gated and cached.
+  the configured auth (the session cookie by default). So the Worker serves the fonts, gated and cached.
 
 To point glyphs somewhere else, set **`ctx.glyphsUrl`** — it overrides every
 style's `glyphs`:

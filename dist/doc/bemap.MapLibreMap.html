@@ -558,7 +558,12 @@ accurate before any runtime toggle.
 
 
 <div class="description">
-    Normalize a bounds-shaped input into MapLibre's `[[west, south], [east, north]]`.Accepts MapLibre's own forms (passthrough), Leaflet LatLngBounds(getSouthWest/getNorthEast → {lat,lng}), bemap.BoundingBox({minLon,minLat,maxLon,maxLat}), and `[west,south,east,north]` flat arrays.Returns the original value when it can't be classified — let MapLibre throwits own error rather than swallow a genuinely bad input.
+    Normalize a bounds-shaped input into MapLibre's `[[west, south], [east, north]]`.
+Accepts MapLibre's own forms (passthrough), Leaflet LatLngBounds
+(getSouthWest/getNorthEast → {lat,lng}), bemap.BoundingBox
+({minLon,minLat,maxLon,maxLat}), and `[west,south,east,north]` flat arrays.
+Returns the original value when it can't be classified — let MapLibre throw
+its own error rather than swallow a genuinely bad input.
 </div>
 
 
@@ -602,7 +607,7 @@ accurate before any runtime toggle.
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html">bemap-maplibre/bemap-maplibre-v5/bemap-map-maplibre.js</a>, <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html#line445">line 445</a>
+        <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html">bemap-maplibre/bemap-maplibre-v5/bemap-map-maplibre.js</a>, <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html#line532">line 532</a>
     </li></ul></dd>
     
 
@@ -1348,7 +1353,10 @@ the hint; dev console gets a one-time `console.info`.
 
 
 <div class="description">
-    Legacy auth path for the `opts.tiles` + `opts.tilesToken` usage shape.**Deprecated** in v2.0 — prefer `ctx.tilesHost` + `bemap.TilesAuth` (thev2 path uses MapLibre's `transformRequest` instead of patching the global`window.fetch`). Kept callable for backwards compatibility.
+    Legacy auth path for the `opts.tiles` + `opts.tilesToken` usage shape.
+**Deprecated** in v2.0 — prefer `ctx.tilesHost` + `bemap.TilesAuth` (the
+v2 path uses MapLibre's `transformRequest` instead of patching the global
+`window.fetch`). Kept callable for backwards compatibility.
 </div>
 
 
@@ -1394,7 +1402,7 @@ the hint; dev console gets a one-time `console.info`.
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html">bemap-maplibre/bemap-maplibre-v5/bemap-map-maplibre.js</a>, <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html#line596">line 596</a>
+        <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html">bemap-maplibre/bemap-maplibre-v5/bemap-map-maplibre.js</a>, <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html#line692">line 692</a>
     </li></ul></dd>
     
 
@@ -1614,7 +1622,9 @@ the hint; dev console gets a one-time `console.info`.
 
 
 <div class="description">
-    Run a callback when the map style is ready.If the style is already loaded, executes immediately; otherwise waits for the 'load' eventwith a safety timeout fallback.
+    Run a callback when the map style is ready.
+If the style is already loaded, executes immediately; otherwise waits for the 'load' event
+with a safety timeout fallback.
 </div>
 
 
@@ -1658,7 +1668,7 @@ the hint; dev console gets a one-time `console.info`.
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html">bemap-maplibre/bemap-maplibre-v5/bemap-map-maplibre.js</a>, <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html#line507">line 507</a>
+        <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html">bemap-maplibre/bemap-maplibre-v5/bemap-map-maplibre.js</a>, <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html#line594">line 594</a>
     </li></ul></dd>
     
 
@@ -5460,7 +5470,8 @@ the registry is cleared at the end regardless.
 
 
 <div class="description">
-    Add default layers. If no custom style was provided, adds WMS backgroundfrom the BeMap server (same as OlMap). Always adds overlay layers.
+    Add default layers. If no custom style was provided, adds WMS background
+from the BeMap server (same as OlMap). Always adds overlay layers.
 </div>
 
 
@@ -5509,7 +5520,7 @@ the registry is cleared at the end regardless.
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html">bemap-maplibre/bemap-maplibre-v5/bemap-map-maplibre.js</a>, <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html#line645">line 645</a>
+        <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html">bemap-maplibre/bemap-maplibre-v5/bemap-map-maplibre.js</a>, <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html#line741">line 741</a>
     </li></ul></dd>
     
 
@@ -7250,7 +7261,10 @@ Manual implementation using GeoJSON sources + mouse events.
 
 
 <div class="description">
-    Fetch the Worker's map config — `GET /api/maps` — resolving with`{ default, aliases, tilesets }` so an app can build a map-picker. Requires`ctx.tilesHost`; the session token is attached automatically by the TilesAuthfetch interceptor (it waits for login to complete first).
+    Fetch the Worker's map config — `GET /api/maps` — resolving with
+`{ default, aliases, tilesets }` so an app can build a map-picker. Requires
+`ctx.tilesHost`; the session token is attached automatically by the TilesAuth
+fetch interceptor (it waits for login to complete first).
 </div>
 
 
@@ -7297,7 +7311,7 @@ Manual implementation using GeoJSON sources + mouse events.
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html">bemap-maplibre/bemap-maplibre-v5/bemap-map-maplibre.js</a>, <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html#line1649">line 1649</a>
+        <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html">bemap-maplibre/bemap-maplibre-v5/bemap-map-maplibre.js</a>, <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html#line1915">line 1915</a>
     </li></ul></dd>
     
 
@@ -7359,7 +7373,8 @@ Manual implementation using GeoJSON sources + mouse events.
 
 
 <div class="description">
-    Fetch the Worker's allow-listed styles — `GET /api/styles` — resolving with`{ styles: [...] }`. See <a href="bemap.MapLibreMap.html#fetchAvailableMaps">bemap.MapLibreMap#fetchAvailableMaps</a>.
+    Fetch the Worker's allow-listed styles — `GET /api/styles` — resolving with
+`{ styles: [...] }`. See <a href="bemap.MapLibreMap.html#fetchAvailableMaps">bemap.MapLibreMap#fetchAvailableMaps</a>.
 </div>
 
 
@@ -7406,7 +7421,7 @@ Manual implementation using GeoJSON sources + mouse events.
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html">bemap-maplibre/bemap-maplibre-v5/bemap-map-maplibre.js</a>, <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html#line1660">line 1660</a>
+        <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html">bemap-maplibre/bemap-maplibre-v5/bemap-map-maplibre.js</a>, <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html#line1926">line 1926</a>
     </li></ul></dd>
     
 
@@ -7468,7 +7483,8 @@ Manual implementation using GeoJSON sources + mouse events.
 
 
 <div class="description">
-    Fetch the filename the `default` alias currently resolves to —`GET /api/default` — resolving with `{ default: '<file>'|null }`.
+    Fetch the filename the `default` alias currently resolves to —
+`GET /api/default` — resolving with `{ default: '<file>'|null }`.
 </div>
 
 
@@ -7515,7 +7531,7 @@ Manual implementation using GeoJSON sources + mouse events.
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html">bemap-maplibre/bemap-maplibre-v5/bemap-map-maplibre.js</a>, <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html#line1671">line 1671</a>
+        <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html">bemap-maplibre/bemap-maplibre-v5/bemap-map-maplibre.js</a>, <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html#line1937">line 1937</a>
     </li></ul></dd>
     
 
@@ -7577,7 +7593,9 @@ Manual implementation using GeoJSON sources + mouse events.
 
 
 <div class="description">
-    Fetch the name of the Worker's default MapLibre style — `GET /api/default-style`— resolving with `{ default: '<style-name>'|null }`. This is the style appliedwhen the developer pins none; see <a href="bemap.MapLibreMap.html#fetchAvailableStyles">bemap.MapLibreMap#fetchAvailableStyles</a>.
+    Fetch the name of the Worker's default MapLibre style — `GET /api/default-style`
+— resolving with `{ default: '<style-name>'|null }`. This is the style applied
+when the developer pins none; see <a href="bemap.MapLibreMap.html#fetchAvailableStyles">bemap.MapLibreMap#fetchAvailableStyles</a>.
 </div>
 
 
@@ -7624,7 +7642,7 @@ Manual implementation using GeoJSON sources + mouse events.
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html">bemap-maplibre/bemap-maplibre-v5/bemap-map-maplibre.js</a>, <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html#line1683">line 1683</a>
+        <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html">bemap-maplibre/bemap-maplibre-v5/bemap-map-maplibre.js</a>, <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html#line1949">line 1949</a>
     </li></ul></dd>
     
 
@@ -8397,7 +8415,7 @@ update; subscribe via `onEffectChange` for live notification.
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html">bemap-maplibre/bemap-maplibre-v5/bemap-map-maplibre.js</a>, <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html#line435">line 435</a>
+        <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html">bemap-maplibre/bemap-maplibre-v5/bemap-map-maplibre.js</a>, <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html#line522">line 522</a>
     </li></ul></dd>
     
 
@@ -8835,7 +8853,8 @@ update; subscribe via `onEffectChange` for live notification.
 
 
 <div class="description">
-    Get the current MapLibre style spec (the one resolved and applied by thelibrary — same shape `getStyle()` would return).
+    Get the current MapLibre style spec (the one resolved and applied by the
+library — same shape `getStyle()` would return).
 </div>
 
 
@@ -8882,7 +8901,202 @@ update; subscribe via `onEffectChange` for live notification.
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html">bemap-maplibre/bemap-maplibre-v5/bemap-map-maplibre.js</a>, <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html#line2043">line 2043</a>
+        <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html">bemap-maplibre/bemap-maplibre-v5/bemap-map-maplibre.js</a>, <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html#line2315">line 2315</a>
+    </li></ul></dd>
+    
+
+    
+
+    
+
+    
+</dl>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<h5>Returns:</h5>
+
+        
+
+
+<dl>
+    <dt>
+        Type
+    </dt>
+    <dd>
+        
+<span class="param-type">Object</span>
+
+
+    </dd>
+</dl>
+
+    
+
+
+
+
+
+        
+            
+
+    
+
+    
+    <h4 class="name" id="getTileGateActive"><span class="type-signature"></span>getTileGateActive<span class="signature">()</span><span class="type-signature"></span></h4>
+    
+
+    
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<dl class="details">
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+    <dt class="tag-source">Source:</dt>
+    <dd class="tag-source"><ul class="dummy"><li>
+        <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html">bemap-maplibre/bemap-maplibre-v5/bemap-map-maplibre.js</a>, <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html#line1323">line 1323</a>
+    </li></ul></dd>
+    
+
+    
+
+    
+
+    
+</dl>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+        
+            
+
+    
+
+    
+    <h4 class="name" id="getTilesConfig"><span class="type-signature"></span>getTilesConfig<span class="signature">()</span><span class="type-signature"> &rarr; {Object}</span></h4>
+    
+
+    
+
+
+
+<div class="description">
+    Return the resolved BeNomad-Tiles configuration for this map — the effective
+values after opts + Context + page-level defaults are merged. Useful for
+debugging ("what is actually in effect?"). All fields are read-only snapshots.
+</div>
+
+
+
+
+
+
+
+
+
+
+
+
+
+<dl class="details">
+
+    
+
+    
+    <dt class="tag-since">Since:</dt>
+    <dd class="tag-since"><ul class="dummy"><li>2.0.0</li></ul></dd>
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+    <dt class="tag-source">Source:</dt>
+    <dd class="tag-source"><ul class="dummy"><li>
+        <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html">bemap-maplibre/bemap-maplibre-v5/bemap-map-maplibre.js</a>, <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html#line1272">line 1272</a>
     </li></ul></dd>
     
 
@@ -9476,7 +9690,12 @@ update; subscribe via `onEffectChange` for live notification.
 
 
 <div class="description">
-    Load BeMap PMTiles vector tiles. Auto-authenticates using bemap.Context credentials.Usage:  map.loadBeMapTiles();  // uses defaults + context credentials  map.loadBeMapTiles({ url: 'https://mptiles-api-beta.benomad.net', tilesFile: 'Europe.pmtiles', style: 'style_liberty.json' });  map.loadBeMapTiles({ token: 'existing-jwt' });  // skip login
+    Load BeMap PMTiles vector tiles. Auto-authenticates using bemap.Context credentials.
+
+Usage:
+  map.loadBeMapTiles();  // uses defaults + context credentials
+  map.loadBeMapTiles({ url: 'https://mptiles-api-beta.benomad.net', tilesFile: 'Europe.pmtiles', style: 'style_liberty.json' });
+  map.loadBeMapTiles({ token: 'existing-jwt' });  // skip login
 </div>
 
 
@@ -9767,7 +9986,9 @@ update; subscribe via `onEffectChange` for live notification.
     
 
     
-        <dt class="important tag-deprecated">Deprecated:</dt><dd><ul class="dummy"><li>Since 2.0.0 — prefer `ctx.tilesHost` on the Context, which            routes through `bemap.TilesAuth` + the fetch interceptor            instead of a one-shot login + setStyle.</li></ul></dd>
+        <dt class="important tag-deprecated">Deprecated:</dt><dd><ul class="dummy"><li>Since 2.0.0 — prefer `ctx.tilesHost` on the Context, which
+            routes through `bemap.TilesAuth` + the fetch interceptor
+            instead of a one-shot login + setStyle.</li></ul></dd>
     
 
     
@@ -9781,7 +10002,7 @@ update; subscribe via `onEffectChange` for live notification.
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html">bemap-maplibre/bemap-maplibre-v5/bemap-map-maplibre.js</a>, <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html#line1101">line 1101</a>
+        <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html">bemap-maplibre/bemap-maplibre-v5/bemap-map-maplibre.js</a>, <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html#line1367">line 1367</a>
     </li></ul></dd>
     
 
@@ -9847,7 +10068,9 @@ update; subscribe via `onEffectChange` for live notification.
 
 
 <div class="description">
-    Load PMTiles vector tiles with optional style and authentication.Registers the pmtiles:// protocol, sets up token injection, loads style,and applies it to the map. Requires pmtiles.js library.
+    Load PMTiles vector tiles with optional style and authentication.
+Registers the pmtiles:// protocol, sets up token injection, loads style,
+and applies it to the map. Requires pmtiles.js library.
 </div>
 
 
@@ -9963,7 +10186,7 @@ update; subscribe via `onEffectChange` for live notification.
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html">bemap-maplibre/bemap-maplibre-v5/bemap-map-maplibre.js</a>, <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html#line982">line 982</a>
+        <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html">bemap-maplibre/bemap-maplibre-v5/bemap-map-maplibre.js</a>, <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html#line1078">line 1078</a>
     </li></ul></dd>
     
 
@@ -14274,7 +14497,9 @@ false`). The dashboard's active-effects bar consumes this.
     
 
     
-        <dt class="important tag-deprecated">Deprecated:</dt><dd><ul class="dummy"><li>Since 2.0 — use setBearing(deg) for a cross-engine API.            rotation() stays callable but emits a one-time warn so            customer code can migrate without surprises.</li></ul></dd>
+        <dt class="important tag-deprecated">Deprecated:</dt><dd><ul class="dummy"><li>Since 2.0 — use setBearing(deg) for a cross-engine API.
+            rotation() stays callable but emits a one-time warn so
+            customer code can migrate without surprises.</li></ul></dd>
     
 
     
@@ -14288,7 +14513,7 @@ false`). The dashboard's active-effects bar consumes this.
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html">bemap-maplibre/bemap-maplibre-v5/bemap-map-maplibre.js</a>, <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html#line1619">line 1619</a>
+        <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html">bemap-maplibre/bemap-maplibre-v5/bemap-map-maplibre.js</a>, <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html#line1885">line 1885</a>
     </li></ul></dd>
     
 
@@ -14942,7 +15167,8 @@ false`). The dashboard's active-effects bar consumes this.
 
 
 <div class="description">
-    Toggle keyboard navigation (arrow-pan + `=`/`-` zoom + `Shift+arrow`rotate/tilt — MapLibre's `KeyboardHandler` is one bundle) at runtime.
+    Toggle keyboard navigation (arrow-pan + `=`/`-` zoom + `Shift+arrow`
+rotate/tilt — MapLibre's `KeyboardHandler` is one bundle) at runtime.
 </div>
 
 
@@ -15035,7 +15261,7 @@ false`). The dashboard's active-effects bar consumes this.
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html">bemap-maplibre/bemap-maplibre-v5/bemap-map-maplibre.js</a>, <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html#line425">line 425</a>
+        <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html">bemap-maplibre/bemap-maplibre-v5/bemap-map-maplibre.js</a>, <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html#line512">line 512</a>
     </li></ul></dd>
     
 
@@ -15753,7 +15979,10 @@ false`). The dashboard's active-effects bar consumes this.
 
 
 <div class="description">
-    Replace `bemap.Map.prototype.setStyle` for MapLibre — accepts either aURL or an inline style object, fetches + resolves placeholders via`bemap.TilesStyle`, calls native `setStyle`, and **replays the overlaycatalogue** so user markers / polylines / polygons survive the swap.
+    Replace `bemap.Map.prototype.setStyle` for MapLibre — accepts either a
+URL or an inline style object, fetches + resolves placeholders via
+`bemap.TilesStyle`, calls native `setStyle`, and **replays the overlay
+catalogue** so user markers / polylines / polygons survive the swap.
 </div>
 
 
@@ -15805,7 +16034,7 @@ false`). The dashboard's active-effects bar consumes this.
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html">bemap-maplibre/bemap-maplibre-v5/bemap-map-maplibre.js</a>, <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html#line1958">line 1958</a>
+        <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html">bemap-maplibre/bemap-maplibre-v5/bemap-map-maplibre.js</a>, <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html#line2225">line 2225</a>
     </li></ul></dd>
     
 
@@ -15988,6 +16217,335 @@ false`). The dashboard's active-effects bar consumes this.
     <dd>
         
 <span class="param-type"><a href="bemap.Map.html">bemap.Map</a></span>
+
+
+    </dd>
+</dl>
+
+    
+
+
+
+
+
+        
+            
+
+    
+
+    
+    <h4 class="name" id="setTileGateActive"><span class="type-signature"></span>setTileGateActive<span class="signature">(active)</span><span class="type-signature"> &rarr; {<a href="bemap.MapLibreMap.html">bemap.MapLibreMap</a>}</span></h4>
+    
+
+    
+
+
+
+<div class="description">
+    Live-toggle the resilience gate (concurrency cap + timeout + retry) WITHOUT a
+reload — the slice source reads it per request. Fires `onTileGateChange` and
+any `'tilegatechange'` listeners. This is the SDK-supported way to build a
+diagnostic on/off button (the demo/bemaputnik call this).
+</div>
+
+
+
+
+
+
+
+
+
+    <h5>Parameters:</h5>
+    
+
+<table class="params">
+    <thead>
+    <tr>
+        
+        <th>Name</th>
+        
+
+        <th>Type</th>
+
+        
+
+        
+
+        <th class="last">Description</th>
+    </tr>
+    </thead>
+
+    <tbody>
+    
+
+        <tr>
+            
+                <td class="name"><code>active</code></td>
+            
+
+            <td class="type">
+            
+                
+<span class="param-type">Boolean</span>
+
+
+            
+            </td>
+
+            
+
+            
+
+            <td class="description last"></td>
+        </tr>
+
+    
+    </tbody>
+</table>
+
+
+
+
+
+
+<dl class="details">
+
+    
+
+    
+    <dt class="tag-since">Since:</dt>
+    <dd class="tag-since"><ul class="dummy"><li>2.0.0</li></ul></dd>
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+    <dt class="tag-source">Source:</dt>
+    <dd class="tag-source"><ul class="dummy"><li>
+        <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html">bemap-maplibre/bemap-maplibre-v5/bemap-map-maplibre.js</a>, <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html#line1312">line 1312</a>
+    </li></ul></dd>
+    
+
+    
+
+    
+
+    
+</dl>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<h5>Returns:</h5>
+
+        
+<div class="param-desc">
+    this
+</div>
+
+
+
+<dl>
+    <dt>
+        Type
+    </dt>
+    <dd>
+        
+<span class="param-type"><a href="bemap.MapLibreMap.html">bemap.MapLibreMap</a></span>
+
+
+    </dd>
+</dl>
+
+    
+
+
+
+
+
+        
+            
+
+    
+
+    
+    <h4 class="name" id="setTilesSliceMode"><span class="type-signature"></span>setTilesSliceMode<span class="signature">(mode)</span><span class="type-signature"> &rarr; {<a href="bemap.MapLibreMap.html">bemap.MapLibreMap</a>}</span></h4>
+    
+
+    
+
+
+
+<div class="description">
+    Set the tile fetch mode (`'200'` | `'range'`) for archives wired AFTER this
+call. Archives already registered keep their source; call before loading a
+style, or reload the style, for a live A/B. Returns this.
+</div>
+
+
+
+
+
+
+
+
+
+    <h5>Parameters:</h5>
+    
+
+<table class="params">
+    <thead>
+    <tr>
+        
+        <th>Name</th>
+        
+
+        <th>Type</th>
+
+        
+
+        
+
+        <th class="last">Description</th>
+    </tr>
+    </thead>
+
+    <tbody>
+    
+
+        <tr>
+            
+                <td class="name"><code>mode</code></td>
+            
+
+            <td class="type">
+            
+                
+<span class="param-type">String</span>
+
+
+            
+            </td>
+
+            
+
+            
+
+            <td class="description last">`'200'` or `'range'` (`'206'` accepted as an alias for `'range'`)</td>
+        </tr>
+
+    
+    </tbody>
+</table>
+
+
+
+
+
+
+<dl class="details">
+
+    
+
+    
+    <dt class="tag-since">Since:</dt>
+    <dd class="tag-since"><ul class="dummy"><li>2.0.0</li></ul></dd>
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+    <dt class="tag-source">Source:</dt>
+    <dd class="tag-source"><ul class="dummy"><li>
+        <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html">bemap-maplibre/bemap-maplibre-v5/bemap-map-maplibre.js</a>, <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html#line1337">line 1337</a>
+    </li></ul></dd>
+    
+
+    
+
+    
+
+    
+</dl>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<h5>Returns:</h5>
+
+        
+<div class="param-desc">
+    this
+</div>
+
+
+
+<dl>
+    <dt>
+        Type
+    </dt>
+    <dd>
+        
+<span class="param-type"><a href="bemap.MapLibreMap.html">bemap.MapLibreMap</a></span>
 
 
     </dd>
@@ -17115,7 +17673,14 @@ the map container so the engine-specific selectors all hit at once.
 
 
 <div class="description">
-    Re-stack a layer relative to the others. MapLibre keeps layers in anordered array on the native style; later entries paint on top of earlierones. To raise a bemap Layer, walk its tracked sub-layers (`geoJsonIds`)and `moveLayer` each to the top. To lower, move them before the firstnon-base layer. HTML markers (DOM elements, no style-array entry) get amatching CSS `z-index` so DOM stacking follows the same intent.Threshold: zIndex ≥ 50 counts as "on top", everything else "behind".
+    Re-stack a layer relative to the others. MapLibre keeps layers in an
+ordered array on the native style; later entries paint on top of earlier
+ones. To raise a bemap Layer, walk its tracked sub-layers (`geoJsonIds`)
+and `moveLayer` each to the top. To lower, move them before the first
+non-base layer. HTML markers (DOM elements, no style-array entry) get a
+matching CSS `z-index` so DOM stacking follows the same intent.
+
+Threshold: zIndex ≥ 50 counts as "on top", everything else "behind".
 </div>
 
 
@@ -17236,7 +17801,7 @@ the map container so the engine-specific selectors all hit at once.
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html">bemap-maplibre/bemap-maplibre-v5/bemap-map-maplibre.js</a>, <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html#line1336">line 1336</a>
+        <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html">bemap-maplibre/bemap-maplibre-v5/bemap-map-maplibre.js</a>, <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html#line1602">line 1602</a>
     </li></ul></dd>
     
 
@@ -17491,13 +18056,13 @@ the map container so the engine-specific selectors all hit at once.
 </div>
 
 <nav>
-    <h2><a href="index.html">Home</a></h2><h3>Classes</h3><ul><li><a href="bemap.AclDetailsResponse.html">AclDetailsResponse</a></li><li><a href="bemap.AclLabel.html">AclLabel</a></li><li><a href="bemap.AclService.html">AclService</a></li><li><a href="bemap.Address.html">Address</a></li><li><a href="bemap.AttributionWidget.html">AttributionWidget</a></li><li><a href="bemap.Autocomplete.html">Autocomplete</a></li><li><a href="bemap.AutocompleteElement.html">AutocompleteElement</a></li><li><a href="bemap.AutocompleteGeocodingRequest.html">AutocompleteGeocodingRequest</a></li><li><a href="bemap.AutocompleteGeocodingResponse.html">AutocompleteGeocodingResponse</a></li><li><a href="bemap.BemapLayer.html">BemapLayer</a></li><li><a href="bemap.BoundingBox.html">BoundingBox</a></li><li><a href="bemap.BrowserCache.html">BrowserCache</a></li><li><a href="bemap.BuildingsLayer.html">BuildingsLayer</a></li><li><a href="bemap.ChargingPoint.html">ChargingPoint</a></li><li><a href="bemap.ChargingStation.html">ChargingStation</a></li><li><a href="bemap.ChargingStationPool.html">ChargingStationPool</a></li><li><a href="bemap.ChargingStations.html">ChargingStations</a></li><li><a href="bemap.ChargingStationSearchRequest.html">ChargingStationSearchRequest</a></li><li><a href="bemap.ChargingStationSearchResponse.html">ChargingStationSearchResponse</a></li><li><a href="bemap.ChargingStationStep.html">ChargingStationStep</a></li><li><a href="bemap.ChargingTime.html">ChargingTime</a></li><li><a href="bemap.ChargingTimeRequest.html">ChargingTimeRequest</a></li><li><a href="bemap.ChargingTimeResponse.html">ChargingTimeResponse</a></li><li><a href="bemap.Circle.html">Circle</a></li><li><a href="bemap.CircleStyle.html">CircleStyle</a></li><li><a href="bemap.clusterStyle.html">clusterStyle</a></li><li><a href="bemap.Color.html">Color</a></li><li><a href="bemap.CondMaxSpeed.html">CondMaxSpeed</a></li><li><a href="bemap.Context.html">Context</a></li><li><a href="bemap.Coordinate.html">Coordinate</a></li><li><a href="bemap.CoordinateSat.html">CoordinateSat</a></li><li><a href="bemap.Destination.html">Destination</a></li><li><a href="bemap.Error.html">Error</a></li><li><a href="bemap.EvBrand.html">EvBrand</a></li><li><a href="bemap.EvReachableArea.html">EvReachableArea</a></li><li><a href="bemap.EvReachableAreaRequest.html">EvReachableAreaRequest</a></li><li><a href="bemap.EvReachableAreaResponse.html">EvReachableAreaResponse</a></li><li><a href="bemap.EvseRouting.html">EvseRouting</a></li><li><a href="bemap.EvSmartRouting.html">EvSmartRouting</a></li><li><a href="bemap.EvSmartRoutingRequest.html">EvSmartRoutingRequest</a></li><li><a href="bemap.EvSmartRoutingResponse.html">EvSmartRoutingResponse</a></li><li><a href="bemap.EvStepPoint.html">EvStepPoint</a></li><li><a href="bemap.EvVehicle.html">EvVehicle</a></li><li><a href="bemap.EvVehicles.html">EvVehicles</a></li><li><a href="bemap.Exception.html">Exception</a></li><li><a href="bemap.GeoAutocomplete.html">GeoAutocomplete</a></li><li><a href="bemap.Geocoder.html">Geocoder</a></li><li><a href="bemap.GeocodingItem.html">GeocodingItem</a></li><li><a href="bemap.GeocodingRequest.html">GeocodingRequest</a></li><li><a href="bemap.GeocodingResponse.html">GeocodingResponse</a></li><li><a href="bemap.GeoSearchInfo.html">GeoSearchInfo</a></li><li><a href="bemap.GeoServerInfoResponse.html">GeoServerInfoResponse</a></li><li><a href="bemap.GeoServerInfoService.html">GeoServerInfoService</a></li><li><a href="bemap.GeoServerServiceInfo.html">GeoServerServiceInfo</a></li><li><a href="bemap.GeoServerServiceLimit.html">GeoServerServiceLimit</a></li><li><a href="bemap.HeatmapLayer.html">HeatmapLayer</a></li><li><a href="bemap.Icon.html">Icon</a></li><li><a href="bemap.Isochrone.html">Isochrone</a></li><li><a href="bemap.Layer.html">Layer</a></li><li><a href="bemap.LeafletMap.html">LeafletMap</a></li><li><a href="bemap.LineStyle.html">LineStyle</a></li><li><a href="bemap.Listener.html">Listener</a></li><li><a href="bemap.Map.html">Map</a></li><li><a href="bemap.MapEvent.html">MapEvent</a></li><li><a href="bemap.MapLibreMap.html">MapLibreMap</a></li><li><a href="bemap.Marker.html">Marker</a></li><li><a href="bemap.MultiMarker.html">MultiMarker</a></li><li><a href="bemap.NearPoint.html">NearPoint</a></li><li><a href="bemap.NearPoiRequest.html">NearPoiRequest</a></li><li><a href="bemap.NearPoiResponse.html">NearPoiResponse</a></li><li><a href="bemap.NearPoiSearch.html">NearPoiSearch</a></li><li><a href="bemap.Object.html">Object</a></li><li><a href="bemap.Ol3Map.html">Ol3Map</a></li><li><a href="bemap.OlMap.html">OlMap</a></li><li><a href="bemap.OsmLayer.html">OsmLayer</a></li><li><a href="bemap.PMTilesLayer.html">PMTilesLayer</a></li><li><a href="bemap.Polygon.html">Polygon</a></li><li><a href="bemap.PolygonStyle.html">PolygonStyle</a></li><li><a href="bemap.Polyline.html">Polyline</a></li><li><a href="bemap.Popup.html">Popup</a></li><li><a href="bemap.PostalAddress.html">PostalAddress</a></li><li><a href="bemap.RasterLayer.html">RasterLayer</a></li><li><a href="bemap.ReverseGeocoder.html">ReverseGeocoder</a></li><li><a href="bemap.ReverseGeocodingRequest.html">ReverseGeocodingRequest</a></li><li><a href="bemap.RevGeoSearchInfo.html">RevGeoSearchInfo</a></li><li><a href="bemap.RoadFeature.html">RoadFeature</a></li><li><a href="bemap.Route.html">Route</a></li><li><a href="bemap.Route.Event.html">Event</a></li><li><a href="bemap.Route.RoutesheetInstruction.html">RoutesheetInstruction</a></li><li><a href="bemap.Routing.html">Routing</a></li><li><a href="bemap.RoutingDestination.html">RoutingDestination</a></li><li><a href="bemap.RoutingInstruction.html">RoutingInstruction</a></li><li><a href="bemap.RoutingRequest.html">RoutingRequest</a></li><li><a href="bemap.RoutingResponse.html">RoutingResponse</a></li><li><a href="bemap.RoutingRoute.html">RoutingRoute</a></li><li><a href="bemap.RoutingSummary.html">RoutingSummary</a></li><li><a href="bemap.RoutingV2.html">RoutingV2</a></li><li><a href="bemap.RoutingVehicleProfile.html">RoutingVehicleProfile</a></li><li><a href="bemap.RoutingWaypoint.html">RoutingWaypoint</a></li><li><a href="bemap.Service.html">Service</a></li><li><a href="bemap.TextStyle.html">TextStyle</a></li><li><a href="bemap.TilesAuth.html">TilesAuth</a></li><li><a href="bemap.TilesOverlayCatalog.html">TilesOverlayCatalog</a></li><li><a href="global.html#bemap#.TraceRoute">TraceRoute</a></li><li><a href="bemap.TraceRouteDestination.html">TraceRouteDestination</a></li><li><a href="bemap.TraceRouteRequest.html">TraceRouteRequest</a></li><li><a href="bemap.VectorLayer.html">VectorLayer</a></li><li><a href="bemap.VectorTileLayer.html">VectorTileLayer</a></li><li><a href="bemap.WmsLayer.html">WmsLayer</a></li></ul><h3>Global</h3><ul><li><a href="global.html#AC">AC</a></li><li><a href="global.html#AC_SINGLE_PHASE">AC_SINGLE_PHASE</a></li><li><a href="global.html#AC_THREE_PHASES">AC_THREE_PHASES</a></li><li><a href="global.html#bemap">bemap</a></li><li><a href="global.html#DC">DC</a></li><li><a href="global.html#NA">NA</a></li></ul>
+    <h2><a href="index.html">Home</a></h2><h3>Classes</h3><ul><li><a href="bemap.AclDetailsResponse.html">AclDetailsResponse</a></li><li><a href="bemap.AclLabel.html">AclLabel</a></li><li><a href="bemap.AclService.html">AclService</a></li><li><a href="bemap.Address.html">Address</a></li><li><a href="bemap.AttributionWidget.html">AttributionWidget</a></li><li><a href="bemap.Autocomplete.html">Autocomplete</a></li><li><a href="bemap.AutocompleteElement.html">AutocompleteElement</a></li><li><a href="bemap.AutocompleteGeocodingRequest.html">AutocompleteGeocodingRequest</a></li><li><a href="bemap.AutocompleteGeocodingResponse.html">AutocompleteGeocodingResponse</a></li><li><a href="bemap.BemapLayer.html">BemapLayer</a></li><li><a href="bemap.BoundingBox.html">BoundingBox</a></li><li><a href="bemap.BrowserCache.html">BrowserCache</a></li><li><a href="bemap.BuildingsLayer.html">BuildingsLayer</a></li><li><a href="bemap.ChargingPoint.html">ChargingPoint</a></li><li><a href="bemap.ChargingStation.html">ChargingStation</a></li><li><a href="bemap.ChargingStationPool.html">ChargingStationPool</a></li><li><a href="bemap.ChargingStations.html">ChargingStations</a></li><li><a href="bemap.ChargingStationSearchRequest.html">ChargingStationSearchRequest</a></li><li><a href="bemap.ChargingStationSearchResponse.html">ChargingStationSearchResponse</a></li><li><a href="bemap.ChargingStationStep.html">ChargingStationStep</a></li><li><a href="bemap.ChargingTime.html">ChargingTime</a></li><li><a href="bemap.ChargingTimeRequest.html">ChargingTimeRequest</a></li><li><a href="bemap.ChargingTimeResponse.html">ChargingTimeResponse</a></li><li><a href="bemap.Circle.html">Circle</a></li><li><a href="bemap.CircleStyle.html">CircleStyle</a></li><li><a href="bemap.clusterStyle.html">clusterStyle</a></li><li><a href="bemap.Color.html">Color</a></li><li><a href="bemap.CondMaxSpeed.html">CondMaxSpeed</a></li><li><a href="bemap.Context.html">Context</a></li><li><a href="bemap.Coordinate.html">Coordinate</a></li><li><a href="bemap.CoordinateSat.html">CoordinateSat</a></li><li><a href="bemap.Destination.html">Destination</a></li><li><a href="bemap.Error.html">Error</a></li><li><a href="bemap.EvBrand.html">EvBrand</a></li><li><a href="bemap.EvReachableArea.html">EvReachableArea</a></li><li><a href="bemap.EvReachableAreaRequest.html">EvReachableAreaRequest</a></li><li><a href="bemap.EvReachableAreaResponse.html">EvReachableAreaResponse</a></li><li><a href="bemap.EvseRouting.html">EvseRouting</a></li><li><a href="bemap.EvSmartRouting.html">EvSmartRouting</a></li><li><a href="bemap.EvSmartRoutingRequest.html">EvSmartRoutingRequest</a></li><li><a href="bemap.EvSmartRoutingResponse.html">EvSmartRoutingResponse</a></li><li><a href="bemap.EvStepPoint.html">EvStepPoint</a></li><li><a href="bemap.EvVehicle.html">EvVehicle</a></li><li><a href="bemap.EvVehicles.html">EvVehicles</a></li><li><a href="bemap.Exception.html">Exception</a></li><li><a href="bemap.GeoAutocomplete.html">GeoAutocomplete</a></li><li><a href="bemap.Geocoder.html">Geocoder</a></li><li><a href="bemap.GeocodingItem.html">GeocodingItem</a></li><li><a href="bemap.GeocodingRequest.html">GeocodingRequest</a></li><li><a href="bemap.GeocodingResponse.html">GeocodingResponse</a></li><li><a href="bemap.GeoSearchInfo.html">GeoSearchInfo</a></li><li><a href="bemap.GeoServerInfoResponse.html">GeoServerInfoResponse</a></li><li><a href="bemap.GeoServerInfoService.html">GeoServerInfoService</a></li><li><a href="bemap.GeoServerServiceInfo.html">GeoServerServiceInfo</a></li><li><a href="bemap.GeoServerServiceLimit.html">GeoServerServiceLimit</a></li><li><a href="bemap.HeatmapLayer.html">HeatmapLayer</a></li><li><a href="bemap.Icon.html">Icon</a></li><li><a href="bemap.Isochrone.html">Isochrone</a></li><li><a href="bemap.Layer.html">Layer</a></li><li><a href="bemap.LeafletMap.html">LeafletMap</a></li><li><a href="bemap.LineStyle.html">LineStyle</a></li><li><a href="bemap.Listener.html">Listener</a></li><li><a href="bemap.Map.html">Map</a></li><li><a href="bemap.MapEvent.html">MapEvent</a></li><li><a href="bemap.MapLibreMap.html">MapLibreMap</a></li><li><a href="bemap.Marker.html">Marker</a></li><li><a href="bemap.MultiMarker.html">MultiMarker</a></li><li><a href="bemap.NearPoint.html">NearPoint</a></li><li><a href="bemap.NearPoiRequest.html">NearPoiRequest</a></li><li><a href="bemap.NearPoiResponse.html">NearPoiResponse</a></li><li><a href="bemap.NearPoiSearch.html">NearPoiSearch</a></li><li><a href="bemap.Object.html">Object</a></li><li><a href="bemap.Ol3Map.html">Ol3Map</a></li><li><a href="bemap.OlMap.html">OlMap</a></li><li><a href="bemap.OsmLayer.html">OsmLayer</a></li><li><a href="bemap.PMTilesLayer.html">PMTilesLayer</a></li><li><a href="bemap.PMTilesSliceSource.html">PMTilesSliceSource</a></li><li><a href="bemap.Polygon.html">Polygon</a></li><li><a href="bemap.PolygonStyle.html">PolygonStyle</a></li><li><a href="bemap.Polyline.html">Polyline</a></li><li><a href="bemap.Popup.html">Popup</a></li><li><a href="bemap.PostalAddress.html">PostalAddress</a></li><li><a href="bemap.RangeGate.html">RangeGate</a></li><li><a href="bemap.RasterLayer.html">RasterLayer</a></li><li><a href="bemap.RecoverablePromiseCache.html">RecoverablePromiseCache</a></li><li><a href="bemap.ReverseGeocoder.html">ReverseGeocoder</a></li><li><a href="bemap.ReverseGeocodingRequest.html">ReverseGeocodingRequest</a></li><li><a href="bemap.RevGeoSearchInfo.html">RevGeoSearchInfo</a></li><li><a href="bemap.RoadFeature.html">RoadFeature</a></li><li><a href="bemap.Route.html">Route</a></li><li><a href="bemap.Route.Event.html">Event</a></li><li><a href="bemap.Route.RoutesheetInstruction.html">RoutesheetInstruction</a></li><li><a href="bemap.Routing.html">Routing</a></li><li><a href="bemap.RoutingDestination.html">RoutingDestination</a></li><li><a href="bemap.RoutingInstruction.html">RoutingInstruction</a></li><li><a href="bemap.RoutingRequest.html">RoutingRequest</a></li><li><a href="bemap.RoutingResponse.html">RoutingResponse</a></li><li><a href="bemap.RoutingRoute.html">RoutingRoute</a></li><li><a href="bemap.RoutingSummary.html">RoutingSummary</a></li><li><a href="bemap.RoutingV2.html">RoutingV2</a></li><li><a href="bemap.RoutingVehicleProfile.html">RoutingVehicleProfile</a></li><li><a href="bemap.RoutingWaypoint.html">RoutingWaypoint</a></li><li><a href="bemap.Service.html">Service</a></li><li><a href="bemap.TextStyle.html">TextStyle</a></li><li><a href="bemap.TilesAuth.html">TilesAuth</a></li><li><a href="bemap.TilesOverlayCatalog.html">TilesOverlayCatalog</a></li><li><a href="global.html#bemap#.TraceRoute">TraceRoute</a></li><li><a href="bemap.TraceRouteDestination.html">TraceRouteDestination</a></li><li><a href="bemap.TraceRouteRequest.html">TraceRouteRequest</a></li><li><a href="bemap.VectorLayer.html">VectorLayer</a></li><li><a href="bemap.VectorTileLayer.html">VectorTileLayer</a></li><li><a href="bemap.WmsLayer.html">WmsLayer</a></li></ul><h3>Global</h3><ul><li><a href="global.html#_bemapNoop">_bemapNoop</a></li><li><a href="global.html#AC">AC</a></li><li><a href="global.html#AC_SINGLE_PHASE">AC_SINGLE_PHASE</a></li><li><a href="global.html#AC_THREE_PHASES">AC_THREE_PHASES</a></li><li><a href="global.html#bemap">bemap</a></li><li><a href="global.html#DC">DC</a></li><li><a href="global.html#NA">NA</a></li></ul>
 </nav>
 
 <br class="clear">
 
 <footer>
-    Documentation generated by <a href="https://github.com/jsdoc/jsdoc">JSDoc 3.6.3</a> on Mon Jun 29 2026 10:53:22 GMT+0200 (heure d’été d’Europe centrale)
+    Documentation generated by <a href="https://github.com/jsdoc/jsdoc">JSDoc 3.6.3</a> on Mon Jul 06 2026 15:00:38 GMT+0200 (heure d’été d’Europe centrale)
 </footer>
 
 <script> prettyPrint(); </script>

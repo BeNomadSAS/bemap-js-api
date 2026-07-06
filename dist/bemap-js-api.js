@@ -386,6 +386,66 @@ bemap.Context = function (options) {
    * @type {string}
    */
   this.tokenStorage = opts.tokenStorage || 'session';
+
+  /**
+   * Tile-auth wire configuration — HOW authenticated requests to `tilesHost`
+   * carry their auth. A grouped object
+   * `{ mode, credentials, tokenHeader, tokenParam }` (or the shorthand string
+   * `'cookie'|'header'|'query'`), normalised by `bemap.Context._resolveTilesAuth`.
+   * Unset ⇒ cookie auth (`credentials:'include'`) — the preflight-free default,
+   * so existing consumers are unaffected. Read via `getTilesAuth()`;
+   * `bemap.MapLibreMap` lets a per-map `tilesAuth` opt override it field-by-field.
+   * @public
+   * @since 2.0.0
+   * @type {Object|String|null}
+   */
+  this.tilesAuth = opts.tilesAuth || null;
+};
+
+/**
+ * Default tile-auth wire config: cookie mode (`credentials:'include'`) — the
+ * preflight-free default. Consumer-supplied fields are merged over these.
+ * @public
+ * @since 2.0.0
+ */
+bemap.Context.TILES_AUTH_DEFAULTS = {
+  mode: 'cookie',                 // 'cookie' | 'header' | 'query'
+  credentials: 'include',         // cookie mode: 'include' | 'same-origin' | 'omit'
+  tokenHeader: 'X-Session-Token', // header mode
+  tokenParam: 'token'             // query mode
+};
+
+/**
+ * Normalise a `tilesAuth` value into a fully-defaulted
+ * `{ mode, credentials, tokenHeader, tokenParam }`. Mirrors
+ * `bemap.Map._resolveControlOptions`: accepts `undefined` (→ defaults), a string
+ * shorthand (`'cookie'|'header'|'query'` → that mode + defaults), or a partial
+ * object (missing fields filled). An unrecognised `mode` falls back to
+ * `'cookie'`. `raw` fields win over `base` fields win over the defaults — so a
+ * per-map opt (`raw`) can override a Context config (`base`) field-by-field.
+ * @public
+ * @since 2.0.0
+ * @param {Object|String} [raw]
+ * @param {Object|String} [base]
+ * @return {{mode:String, credentials:String, tokenHeader:String, tokenParam:String}}
+ */
+bemap.Context._resolveTilesAuth = function (raw, base) {
+  var D = bemap.Context.TILES_AUTH_DEFAULTS;
+  function coerce(v) {
+    if (v == null) return {};
+    if (typeof v === 'string') return { mode: v };
+    return (typeof v === 'object') ? v : {};
+  }
+  var b = coerce(base);
+  var r = coerce(raw);
+  var mode = r.mode || b.mode || D.mode;
+  if (mode !== 'cookie' && mode !== 'header' && mode !== 'query') mode = D.mode;
+  return {
+    mode: mode,
+    credentials: r.credentials || b.credentials || D.credentials,
+    tokenHeader: r.tokenHeader || b.tokenHeader || D.tokenHeader,
+    tokenParam: r.tokenParam || b.tokenParam || D.tokenParam
+  };
 };
 
 /**
@@ -397,6 +457,17 @@ bemap.Context = function (options) {
  */
 bemap.Context.prototype.hasTilesConfig = function () {
   return !!this.tilesHost;
+};
+
+/**
+ * Resolved tile-auth wire config `{ mode, credentials, tokenHeader, tokenParam }`
+ * — always fully defaulted (cookie mode when unset). See `this.tilesAuth`.
+ * @public
+ * @since 2.0.0
+ * @return {{mode:String, credentials:String, tokenHeader:String, tokenParam:String}}
+ */
+bemap.Context.prototype.getTilesAuth = function () {
+  return bemap.Context._resolveTilesAuth(this.tilesAuth);
 };
 
 /**
@@ -5394,6 +5465,33 @@ bemap.MapLibreMap = function(context, target, options) {
   // explicit, surfaced through `ctx.hasTilesConfig()` so consumers can read it.
   this._hasTilesConfig = !!(context && typeof context.hasTilesConfig === 'function' && context.hasTilesConfig());
   this._hasCustomStyle = !!(opts.style || opts.tiles);
+  // Desktop-Chromium PMTiles Range no-store policy (bemap.RangeFetchPolicy).
+  // `rangeCacheMode` ('auto' | 'default' | 'no-store', default 'auto') is a
+  // page-level default read by BOTH the BeNomad-Tiles path (TilesAuth's shared
+  // policy) and the raw opts.tiles standalone installer. Set it BEFORE the
+  // TilesAuth interceptor below so its lazily-created policy picks it up.
+  if (opts.rangeCacheMode && typeof bemap.RangeFetchPolicy === 'function') {
+    bemap.RangeFetchPolicy.defaultMode = opts.rangeCacheMode;
+  }
+  // Self-healing pmtiles header/directory cache (bemap.RecoverablePromiseCache).
+  // `recoverableCache` (default true) is a page-level default: when on, the tiles
+  // archive is wired through a cache that evicts REJECTED header/dir promises so a
+  // failed read self-heals instead of leaving a permanent hole. `false` → pmtiles'
+  // stock (poisoning) SharedPromiseCache. Transparent: only failed reads differ.
+  if (opts.recoverableCache != null && typeof bemap.RecoverablePromiseCache === 'function') {
+    bemap.RecoverablePromiseCache.enabled = (opts.recoverableCache !== false);
+  }
+  // PMTiles fetch mode + resilience gate (bemap.PMTilesSliceSource / bemap.RangeGate).
+  // `tilesSliceMode` ('200' default | 'range'/'206') picks HOW the archive is read:
+  //   '200'  → `?r=` slices; the Worker returns cacheable 200s (browser HTTP cache;
+  //            needs a Worker that serves the slice route — BeNomad Tiles does).
+  //   'range'→ classic HTTP Range (206) via pmtiles' stock source (today's path).
+  // `tilesSliceTimeoutMs` / `tilesSliceMaxRetries` / `tilesSliceConcurrency` tune the
+  // shared gate. All page-level defaults, applied here BEFORE the archive is wired.
+  bemap.MapLibreMap._applyTilesSliceOpts(opts);
+  // Optional callback fired by setTileGateActive() so an embedder's UI can
+  // reflect the live gate state (the SDK ships no UI — see the example page).
+  this._onTileGateChange = (typeof opts.onTileGateChange === 'function') ? opts.onTileGateChange : null;
   this._featureRegistry = {};   // _bemapId → bemap object
   this._markerElements = {};    // _bemapId → { element, bemapObject }
   this._geoJsonLayerIds = [];   // track all GeoJSON layer IDs for hit-testing
@@ -5409,6 +5507,9 @@ bemap.MapLibreMap = function(context, target, options) {
   if (typeof pmtiles !== 'undefined' && !bemap.MapLibreMap._pmtilesRegistered) {
     var _proto = new pmtiles.Protocol();
     maplibregl.addProtocol('pmtiles', _proto.tile);
+    // Retain the (page-global) Protocol so the recoverable cache can be wired
+    // in per archive via `_proto.add(new pmtiles.PMTiles(url, cache))`.
+    bemap.MapLibreMap._pmtilesProtocol = _proto;
     bemap.MapLibreMap._pmtilesRegistered = true;
   }
 
@@ -5420,6 +5521,9 @@ bemap.MapLibreMap = function(context, target, options) {
   this._currentStyleSpec = null;
   if (this._hasTilesConfig && typeof bemap.TilesAuth === 'function') {
     this._tilesAuth = new bemap.TilesAuth(context, {
+      // Per-map auth override — merged field-by-field over context.tilesAuth,
+      // both normalised to a full { mode, credentials, tokenHeader, tokenParam }.
+      tilesAuth: opts.tilesAuth,
       onError: function (err) { _self._fireError(err); },
       onToken: function (info) {
         // Only reload the style when the new token has actually been
@@ -5438,8 +5542,10 @@ bemap.MapLibreMap = function(context, target, options) {
     // Install the scoped fetch interceptor BEFORE the native MapLibre
     // map is constructed — pmtiles.js issues range requests via
     // `fetch()` directly, bypassing MapLibre's `transformRequest`. The
-    // interceptor awaits the in-flight login and attaches
-    // X-Session-Token on every request to ctx.tilesHost.
+    // interceptor awaits the in-flight login (which stores the Worker's
+    // HttpOnly session cookie) and sends every ctx.tilesHost request with
+    // `credentials:'include'` — cookie auth, no X-Session-Token header, so
+    // Range GETs carry only the safelisted `Range` header → no CORS preflight.
     bemap.TilesAuth.installFetchInterceptor(this._tilesAuth, context.tilesHost);
     // Kick off login if no valid token is in storage. The interceptor
     // is what actually waits for it — the constructor stays sync.
@@ -5461,6 +5567,17 @@ bemap.MapLibreMap = function(context, target, options) {
   if (_explicitStyle) {
     style = opts.style;
   } else if (opts.tiles) {
+    // Raw PMTiles URL — this origin bypasses TilesAuth's interceptor (TilesAuth
+    // only patches for registered tilesHost origins). Install the standalone
+    // RangeFetchPolicy ONCE per page so these Range requests also get the
+    // desktop-Chromium no-store fix. Gated on !_hasTilesConfig so it never
+    // stacks a SECOND global fetch patch on top of TilesAuth's (exactly one
+    // interceptor); the installer itself also no-ops if TilesAuth already owns
+    // the patch.
+    if (!this._hasTilesConfig && typeof bemap.RangeFetchPolicy === 'function' && !bemap.MapLibreMap._rangePolicyInstalled) {
+      new bemap.RangeFetchPolicy({ rangeCacheMode: (opts.rangeCacheMode || bemap.RangeFetchPolicy.defaultMode || 'auto') }).installFetchInterceptor();
+      bemap.MapLibreMap._rangePolicyInstalled = true;
+    }
     // PMTiles URL — build a minimal style, then load real style async
     var tilesUrl = opts.tiles.indexOf('pmtiles://') === 0 ? opts.tiles : 'pmtiles://' + opts.tiles;
     style = {
@@ -5471,6 +5588,14 @@ bemap.MapLibreMap = function(context, target, options) {
     };
     this._pendingTilesStyle = opts.tilesStyle || null;
     this._pendingTilesUrl = tilesUrl;
+    // Raw opts.tiles is an ARBITRARY origin (S3/R2/presigned) that may not serve
+    // the Worker's ?r= slice route — default it to the always-safe Range path
+    // unless the caller EXPLICITLY opts into '200'. (200-slice is only assumed
+    // for the BeNomad-Tiles ctx.tilesHost path below, where the Worker serves it.)
+    bemap.MapLibreMap._addTilesArchive(
+      tilesUrl.replace('pmtiles://', ''),
+      opts.tilesSliceMode === '200' ? '200' : 'range'
+    );
   } else if (this._hasTilesConfig && typeof bemap.fallbackStyle !== 'undefined' && typeof bemap.TilesStyle !== 'undefined') {
     // BeNomad Tiles — clone the tiny font-free fallback style then resolve
     // placeholders against the configured ctx/tilesFile. Precedence is
@@ -5484,6 +5609,13 @@ bemap.MapLibreMap = function(context, target, options) {
     style = JSON.parse(JSON.stringify(bemap.fallbackStyle));
     var _tilesFile = context.resolveTilesFile(opts.tilesFile);
     bemap.TilesStyle.resolvePlaceholders(style, context, _tilesFile);
+    // Wire the self-healing cache for the BeNomad-Tiles archive. The URL is the
+    // SAME derivation resolvePlaceholders uses for the source (`pmtiles://` +
+    // getTilesFileUrl), so the Protocol will use this cache; a mismatch is a
+    // harmless no-op (Protocol auto-creates its default cache, as today).
+    if (context.getTilesFileUrl) {
+      bemap.MapLibreMap._addTilesArchive(context.getTilesFileUrl(_tilesFile));
+    }
     if (typeof bemap.TilesStyle.hardenSymbolCollisions === 'function') {
       bemap.TilesStyle.hardenSymbolCollisions(style);
     }
@@ -5597,9 +5729,35 @@ bemap.MapLibreMap = function(context, target, options) {
   //   - tilesHost set + bemap.BrowserCache class missing (script not loaded) → console.warn
   // No tilesHost: silent — non-tiles consumers don't care.
   this._browserCache = null;
+  // Under `tilesSliceMode:'200'` the browser HTTP cache stores the 200-slices
+  // natively, so the tile Service Worker is redundant → default it OFF on the
+  // slice path (kept for the 206-Range path, where it is the only client-side
+  // cache). Parametrable: `opts.serviceWorker` (true/false) forces it either way;
+  // legacy `opts.browserCache:false` still opts out everywhere.
+  var _swExplicit = (opts.serviceWorker != null) ? (opts.serviceWorker !== false)
+    : (opts.browserCache != null ? (opts.browserCache !== false) : null);
+  var _swWanted = (_swExplicit != null) ? _swExplicit : (bemap.MapLibreMap._tilesSliceMode !== '200');
   if (this._hasTilesConfig) {
-    if (opts.browserCache === false) {
-      console.info('[bemap] BeNomad Tiles: browser cache disabled by opts.browserCache:false — every tile will hit the network');
+    if (!_swWanted) {
+      var _swWhy;
+      if (bemap.MapLibreMap._tilesSliceMode === '200') {
+        // Under 200-slice the browser HTTP cache stores tiles natively, so the SW
+        // is redundant EITHER way — make that clear so a consumer carrying a
+        // legacy browserCache:false doesn't think caching is broken.
+        _swWhy = (_swExplicit == null)
+          ? '200-slice mode uses the browser HTTP cache instead (SW not needed). Pass serviceWorker:true to force it on.'
+          : 'you set serviceWorker/browserCache off — but 200-slice mode still caches tiles via the browser HTTP cache.';
+      } else {
+        _swWhy = 'disabled by option — tiles will hit the network (206-Range is not browser-cached without the SW).';
+      }
+      console.info('[bemap] BeNomad Tiles: tile Service Worker OFF — ' + _swWhy);
+      // Remove any bemap tile SW left controlling this origin by a PRIOR deploy
+      // (e.g. an app upgraded from 206-range to the 200-slice default) — otherwise
+      // a stale worker keeps intercepting/serving 206 range data. Safe no-op if
+      // none exist.
+      if (typeof bemap.BrowserCache === 'function' && typeof bemap.BrowserCache.unregisterStale === 'function') {
+        bemap.BrowserCache.unregisterStale();
+      }
     } else if (typeof bemap.BrowserCache !== 'function') {
       console.warn('[bemap] BeNomad Tiles: bemap.BrowserCache is not loaded — tile caching is OFF. Verify dist/bemap-js-api.js is up to date.');
     } else {
@@ -5872,12 +6030,21 @@ bemap.MapLibreMap.prototype._whenStyleReady = function(fn) {
   var inFlight = this._setStyleInFlight === true;
   if (!inFlight && this.native.isStyleLoaded()) { fn(); return; }
   var fired = false;
-  var done = function () { if (fired) return; fired = true; fn(); };
+  // After a setStyle, MapLibre fires 'style.load' once the new stylesheet is
+  // parsed but BEFORE everything is settled — chain to a fresh 'idle' after it.
+  // Guard on `fired`: if 'idle' already fired first, this must NOT register a
+  // second 'idle' listener (which would never fire and leak). Named so `done`
+  // can remove it up-front.
+  var onStyleLoad = function () { if (!fired) _this.native.once('idle', done); };
+  var done = function () {
+    if (fired) return;
+    fired = true;
+    try { _this.native.off('style.load', onStyleLoad); } catch (e) { /* ignore */ }
+    fn();
+  };
 
   this.native.once('idle', done);
-  // After a setStyle, MapLibre fires 'style.load' once the new stylesheet
-  // is parsed but BEFORE everything is settled. Chain to 'idle' after that.
-  this.native.once('style.load', function () { _this.native.once('idle', done); });
+  this.native.once('style.load', onStyleLoad);
   // Single safety net for cached / synchronously-resolved styles where the
   // events never fire (rare). Cut from 4 staggered polls to 1 — 33 polylines
   // each with 4 timers = 132 timers, which felt "heavy" in the consumer app.
@@ -6353,8 +6520,14 @@ bemap.MapLibreMap.prototype.loadPMTiles = function(layer, callback) {
   if (!bemap.MapLibreMap._pmtilesRegistered) {
     var protocol = new pmtiles.Protocol();
     maplibregl.addProtocol('pmtiles', protocol.tile);
+    bemap.MapLibreMap._pmtilesProtocol = protocol;
     bemap.MapLibreMap._pmtilesRegistered = true;
   }
+
+  // Self-healing cache for this archive (no-op if disabled / URL unresolvable).
+  // layer.url is an arbitrary origin → keep it on the always-safe Range path
+  // unless the layer explicitly asks for 200-slice.
+  bemap.MapLibreMap._addTilesArchive(layer.url, layer.sliceMode === '200' ? '200' : 'range');
 
   // Set up token injection for authenticated PMTiles
   if (layer.token) {
@@ -6424,8 +6597,172 @@ bemap.MapLibreMap.prototype.loadPMTiles = function(layer, callback) {
   return this;
 };
 bemap.MapLibreMap._pmtilesRegistered = false;
+bemap.MapLibreMap._pmtilesProtocol = null;      // retained pmtiles.Protocol (page-global)
+bemap.MapLibreMap._tilesArchives = {};          // archiveUrl → true (added once)
 bemap.MapLibreMap._fetchIntercepted = false;
 bemap.MapLibreMap._tokenMap = {};
+
+/**
+ * Page-level tile fetch mode: `'200'` (default) reads the archive as
+ * browser-cacheable 200-slices via `bemap.PMTilesSliceSource`; `'range'` uses
+ * pmtiles' stock HTTP-Range (206) source (today's path). `?noslice` forces
+ * `'range'`. Set from `opts.tilesSliceMode` by `_applyTilesSliceOpts`.
+ * @private
+ */
+bemap.MapLibreMap._tilesSliceMode = (typeof location !== 'undefined' && location.search && /[?&]noslice\b/.test(location.search)) ? 'range' : '200';
+
+/**
+ * Apply `opts.tilesSlice*` to the page-level slice mode + the shared RangeGate.
+ * Everything is read from `opts` with a default; nothing is hardcoded downstream.
+ * @private
+ */
+bemap.MapLibreMap._applyTilesSliceOpts = function (opts) {
+  opts = opts || {};
+  if (opts.tilesSliceMode === '200' || opts.tilesSliceMode === 'range' || opts.tilesSliceMode === '206') {
+    bemap.MapLibreMap._tilesSliceMode = (opts.tilesSliceMode === '206') ? 'range' : opts.tilesSliceMode;
+  }
+  if (typeof bemap.PMTilesSliceSource === 'function' && bemap.PMTilesSliceSource.defaultGate) {
+    var g = bemap.PMTilesSliceSource.defaultGate;
+    if (opts.tilesSliceTimeoutMs != null) g.timeoutMs = opts.tilesSliceTimeoutMs;
+    if (opts.tilesSliceMaxRetries != null) g.maxRetries = opts.tilesSliceMaxRetries;
+    if (opts.tilesSliceConcurrency != null) g.concurrency = (opts.tilesSliceConcurrency > 0 ? opts.tilesSliceConcurrency : 0);
+    if (opts.tileGate != null) g.setActive(opts.tileGate !== false);
+  }
+};
+
+/**
+ * Wire one tiles archive URL into the (page-global) pmtiles Protocol, choosing
+ * the source by `_tilesSliceMode` and wrapping it in the self-healing
+ * `bemap.RecoverablePromiseCache` when enabled:
+ *   - `'200'` → `bemap.PMTilesSliceSource` (browser-cacheable 200-slices).
+ *   - `'range'` → stock source (HTTP Range 206), pmtiles' default.
+ * Idempotent per URL.
+ *
+ * Fully guarded — a no-op (leaving pmtiles' stock auto-create, i.e. today's
+ * behaviour) when there is nothing custom to add, pmtiles/the classes are
+ * absent, the Protocol wasn't retained, the URL is empty, or anything throws.
+ * The archive is `protocol.add`-ed under its exact URL key; a key mismatch just
+ * means the Protocol auto-creates its own default for the real URL — a mismatch
+ * cannot break tile loading. Construction is lazy (no eager fetch).
+ * @private
+ * @param {String} archiveUrl the pmtiles archive URL (no `pmtiles://` prefix).
+ * @param {String} [forceMode] override the page-level `_tilesSliceMode` for THIS
+ *   archive (`'200'` | `'range'`). Used by the raw-`opts.tiles` / `loadPMTiles`
+ *   paths to keep arbitrary origins (S3/R2/presigned that don't serve `?r=`) on
+ *   the always-safe Range path unless the caller explicitly opts into `'200'`.
+ * @return {Boolean} true if a custom source/cache was wired for this URL.
+ */
+bemap.MapLibreMap._addTilesArchive = function (archiveUrl, forceMode) {
+  if (!archiveUrl) return false;
+  if (typeof pmtiles === 'undefined' || typeof pmtiles.PMTiles !== 'function') return false;
+  var proto = bemap.MapLibreMap._pmtilesProtocol;
+  if (!proto || typeof proto.add !== 'function') return false;
+  if (!bemap.MapLibreMap._tilesArchives) bemap.MapLibreMap._tilesArchives = {};
+  if (bemap.MapLibreMap._tilesArchives[archiveUrl]) return true;   // already wired
+
+  var mode = forceMode || bemap.MapLibreMap._tilesSliceMode;
+  var useSlice = (mode === '200') && (typeof bemap.PMTilesSliceSource === 'function');
+  var cache;
+  if (typeof bemap.RecoverablePromiseCache === 'function' && bemap.RecoverablePromiseCache.enabled !== false
+      && typeof pmtiles.SharedPromiseCache === 'function') {
+    cache = new bemap.RecoverablePromiseCache();
+  }
+  // Nothing custom to wire (stock range + stock cache) → let the Protocol
+  // auto-create exactly as today (avoids a redundant explicit instance).
+  if (!useSlice && !cache) return false;
+
+  // Mark BEFORE proto.add so a throwing/duplicate add is not re-attempted on
+  // every construction — a failed add safely falls back to the Protocol's own
+  // auto-create for that URL (today's behaviour), keeping the guard effective.
+  bemap.MapLibreMap._tilesArchives[archiveUrl] = true;
+  try {
+    var source = useSlice ? new bemap.PMTilesSliceSource(archiveUrl) : archiveUrl;
+    proto.add(new pmtiles.PMTiles(source, cache));   // cache undefined → pmtiles default
+    return true;
+  } catch (e) {
+    return false;   // fell back to Protocol auto-create (no regression); stays marked
+  }
+};
+
+/**
+ * Return the resolved BeNomad-Tiles configuration for this map — the effective
+ * values after opts + Context + page-level defaults are merged. Useful for
+ * debugging ("what is actually in effect?"). All fields are read-only snapshots.
+ * @public
+ * @since 2.0.0
+ * @return {{tilesHost:(String|null), tilesSliceMode:String, recoverableCache:Boolean, rangeCacheMode:(String|null), tileGate:(Object|null), tilesAuth:(Object|null), serviceWorker:{enabled:Boolean, path:(String|null)}}}
+ */
+bemap.MapLibreMap.prototype.getTilesConfig = function () {
+  var gate = (typeof bemap.PMTilesSliceSource === 'function') ? bemap.PMTilesSliceSource.defaultGate : null;
+  var cfg = {
+    tilesHost: (this.ctx && this.ctx.tilesHost) || null,
+    tilesSliceMode: bemap.MapLibreMap._tilesSliceMode,
+    recoverableCache: (typeof bemap.RecoverablePromiseCache === 'function') ? (bemap.RecoverablePromiseCache.enabled !== false) : false,
+    rangeCacheMode: (typeof bemap.RangeFetchPolicy === 'function') ? (bemap.RangeFetchPolicy.defaultMode || 'auto') : null,
+    tileGate: gate ? {
+      active: gate.isActive(),
+      concurrency: gate.concurrency,      // 0 = uncapped
+      timeoutMs: gate.timeoutMs,
+      maxRetries: gate.maxRetries
+    } : null,
+    tilesAuth: null,
+    serviceWorker: { enabled: false, path: null }
+  };
+  if (this._tilesAuth && this._tilesAuth._authConfig) {
+    cfg.tilesAuth = this._tilesAuth._authConfig;
+  } else if (this.ctx && typeof this.ctx.getTilesAuth === 'function') {
+    cfg.tilesAuth = this.ctx.getTilesAuth();
+  }
+  if (this._browserCache) {
+    cfg.serviceWorker = {
+      enabled: (typeof this._browserCache.isEnabled === 'function') ? this._browserCache.isEnabled() : true,
+      path: this._browserCache.swPath || null
+    };
+  }
+  return cfg;
+};
+
+/**
+ * Live-toggle the resilience gate (concurrency cap + timeout + retry) WITHOUT a
+ * reload — the slice source reads it per request. Fires `onTileGateChange` and
+ * any `'tilegatechange'` listeners. This is the SDK-supported way to build a
+ * diagnostic on/off button (the demo/bemaputnik call this).
+ * @public
+ * @since 2.0.0
+ * @param {Boolean} active
+ * @return {bemap.MapLibreMap} this
+ */
+bemap.MapLibreMap.prototype.setTileGateActive = function (active) {
+  var state = (active !== false);
+  if (typeof bemap.PMTilesSliceSource === 'function' && bemap.PMTilesSliceSource.defaultGate) {
+    bemap.PMTilesSliceSource.defaultGate.setActive(state);
+    state = bemap.PMTilesSliceSource.defaultGate.isActive();
+  }
+  if (typeof this._onTileGateChange === 'function') { try { this._onTileGateChange(state); } catch (e) {} }
+  return this;
+};
+
+/** @public @since 2.0.0 @return {Boolean} */
+bemap.MapLibreMap.prototype.getTileGateActive = function () {
+  return (typeof bemap.PMTilesSliceSource === 'function' && bemap.PMTilesSliceSource.defaultGate)
+    ? bemap.PMTilesSliceSource.defaultGate.isActive() : false;
+};
+
+/**
+ * Set the tile fetch mode (`'200'` | `'range'`) for archives wired AFTER this
+ * call. Archives already registered keep their source; call before loading a
+ * style, or reload the style, for a live A/B. Returns this.
+ * @public
+ * @since 2.0.0
+ * @param {String} mode `'200'` or `'range'` (`'206'` accepted as an alias for `'range'`)
+ * @return {bemap.MapLibreMap} this
+ */
+bemap.MapLibreMap.prototype.setTilesSliceMode = function (mode) {
+  if (mode === '200' || mode === 'range' || mode === '206') {
+    bemap.MapLibreMap._tilesSliceMode = (mode === '206') ? 'range' : mode;
+  }
+  return this;
+};
 
 /**
  * Load BeMap PMTiles vector tiles. Auto-authenticates using bemap.Context credentials.
@@ -7071,8 +7408,9 @@ bemap.MapLibreMap.prototype._fetchTilesApi = function(url, label) {
   if (typeof fetch !== 'function') {
     return Promise.reject(new Error('bemap.MapLibreMap.' + label + ': fetch is not available in this environment.'));
   }
-  // Wait for the JWT so the first call after construction isn't unauthenticated;
-  // the fetch interceptor injects X-Session-Token on the request itself.
+  // Wait for login so the first call after construction isn't unauthenticated;
+  // auth rides the Worker's HttpOnly session cookie (credentials:'include' below),
+  // not a header — no X-Session-Token means no CORS preflight.
   var auth = this._tilesAuth;
   var ready = (auth && typeof auth.whenTokenReady === 'function') ? auth.whenTokenReady() : Promise.resolve();
   return ready.then(function() {
@@ -7361,7 +7699,12 @@ bemap.MapLibreMap.prototype.setStyle = function (urlOrObject, options) {
   // method chaining works. Errors flow to the map's error channel.
   var getToken = this._tilesAuth ? function () { return self._tilesAuth.getToken(); } : null;
   if (typeof bemap.TilesStyle !== 'undefined') {
-    bemap.TilesStyle.fetch(this.ctx, styleUrl, { getToken: getToken })
+    bemap.TilesStyle.fetch(this.ctx, styleUrl, {
+      getToken: getToken,
+      // Use the auth's RESOLVED config so a per-map tilesAuth override applies to
+      // the style/glyph JSON fetch too (falls back to ctx.getTilesAuth()).
+      tilesAuth: self._tilesAuth ? self._tilesAuth._authConfig : null
+    })
       .then(function (style) {
         bemap.TilesStyle.resolvePlaceholders(style, self.ctx, tilesFile);
         bemap.TilesStyle.hardenSymbolCollisions(style);
@@ -18524,6 +18867,578 @@ bemap.fallbackStyle = Object.freeze({"version":8,"name":"BeMap Fallback (charte 
 bemap.defaultStyle = bemap.fallbackStyle;
 
 /**
+ * BeNomad BeMap JavaScript API — RangeFetchPolicy (v2.0)
+ *
+ * Generic, **auth-independent** fetch-cache policy for PMTiles HTTP Range
+ * requests. On **desktop Chromium** (Chrome/Edge/Brave/Opera on
+ * macOS/Windows/Linux), Range (HTTP 206) reads issued via `fetch()` with the
+ * default cache mode are serialized by Chromium's disk cache and run ~3–5x
+ * slower than the same reads with `cache: 'no-store'`. The `pmtiles` library
+ * already forces `no-store` — but only on **Windows** Chromium. This policy
+ * replicates that detection for **all** desktop Chromium and applies the same
+ * override, worker-independently (it helps against our Worker, raw R2/S3, and
+ * public/presigned URLs alike).
+ *
+ * **Safari, iOS (incl. CriOS), and Firefox are NOT affected and are left
+ * untouched** — no `cache` override is applied for them.
+ *
+ * The class is a pure decision helper (`decorate`) plus an opt-in standalone
+ * `window.fetch` installer for the raw-`opts.tiles` origin pathway. It does NOT
+ * gate on any Service Worker: PMTiles requests can fire before a SW registers,
+ * so the cache-mode decision is applied unconditionally at the fetch layer.
+ * `bemap.TilesAuth` REUSES this policy (via `decorate`) inside its single
+ * global fetch interceptor — there is never a second global patch.
+ *
+ * @since 2.0.0
+ * @public
+ * @constructor
+ * @param {Object} [options]
+ * @param {String} [options.rangeCacheMode='auto'] `'auto'` (Chromium rule),
+ *   `'default'` (opt-out — never override), or `'no-store'` (force on all Range
+ *   requests regardless of browser).
+ */
+(function () {
+  // Module-scoped state — private to this file's IIFE. `bemap` is the global
+  // declared in bemap.js (first file in the concat bundle), so the class is
+  // published on it while the memo/patch state stay hidden.
+  var _detectionMemo = null;                       // null = not yet computed
+  var _policyState = { patched: false, originalFetch: null };
+
+  bemap.RangeFetchPolicy = function (options) {
+    var opts = options || {};
+    var mode = opts.rangeCacheMode;
+    this._mode = (mode === 'default' || mode === 'no-store') ? mode : 'auto';
+  };
+
+  // Page-level default mode. `bemap.MapLibreMap` sets it from
+  // `opts.rangeCacheMode` so the SAME `rangeCacheMode` applies to BOTH the
+  // BeNomad-Tiles path (TilesAuth's shared policy) and the raw `opts.tiles`
+  // standalone installer. Default `'auto'`.
+  bemap.RangeFetchPolicy.defaultMode = 'auto';
+
+  /**
+   * Pure detection from an explicit UA string + optional UA-CH data — no
+   * `navigator` access, so it is fully deterministic in unit tests.
+   * @private
+   */
+  bemap.RangeFetchPolicy._detectFrom = function (ua, uaData) {
+    // Prefer UA Client Hints when present (Brave/Opera also report a Chromium brand).
+    if (uaData && typeof uaData === 'object' && Object.prototype.toString.call(uaData.brands) === '[object Array]') {
+      if (uaData.mobile === true) return false;               // mobile Chromium excluded
+      for (var i = 0; i < uaData.brands.length; i++) {
+        var brand = (uaData.brands[i] && uaData.brands[i].brand) || '';
+        if (/Chromium|Google Chrome|Microsoft Edge/i.test(brand)) return true;
+      }
+      return false;                                           // UA-CH present, no Chromium brand
+    }
+    // Fallback: UA string.
+    ua = ua || '';
+    if (!ua) return false;
+    if (/Firefox\//.test(ua)) return false;                   // Firefox — unaffected
+    if (/\b(iPhone|iPad|iPod)\b/.test(ua) || /CriOS\//.test(ua)) return false; // iOS (incl. Chrome-on-iOS = WebKit)
+    var isChromium = /Chrome\//.test(ua) || /Chromium\//.test(ua) || /Edg\//.test(ua);
+    if (!isChromium) return false;                            // Safari-only / other — unaffected
+    if (/Android/.test(ua) && /Mobile/.test(ua)) return false; // mobile Chromium excluded (only desktop is affected)
+    return true;
+  };
+
+  /**
+   * @public
+   * @return {Boolean} true on desktop Chromium. Memoized (cheap on repeat calls).
+   */
+  bemap.RangeFetchPolicy.isDesktopChromium = function () {
+    if (_detectionMemo !== null) return _detectionMemo;
+    var nav = (typeof navigator !== 'undefined') ? navigator : null;
+    _detectionMemo = nav ? bemap.RangeFetchPolicy._detectFrom(nav.userAgent || '', nav.userAgentData) : false;
+    return _detectionMemo;
+  };
+
+  /** Clear the detection memo (tests that stub the UA). @private */
+  bemap.RangeFetchPolicy._resetDetectionForTest = function () { _detectionMemo = null; };
+
+  /**
+   * @public
+   * @return {Boolean} true if a non-empty `Range` header is present on `init`
+   *   headers (Headers / plain object / [k,v] array) or on a `Request` `input`.
+   */
+  bemap.RangeFetchPolicy.hasRange = function (init, input) {
+    if (_headersHaveRange(init && init.headers)) return true;
+    // A Request instance carries its own headers.
+    if (input && typeof input !== 'string' && input.headers) {
+      if (_headersHaveRange(input.headers)) return true;
+    }
+    return false;
+  };
+
+  function _headersHaveRange(h) {
+    if (!h) return false;
+    if (typeof Headers !== 'undefined' && h instanceof Headers) {
+      var v = h.get('Range');
+      return !!(v && String(v).length);
+    }
+    if (Object.prototype.toString.call(h) === '[object Array]') {
+      for (var i = 0; i < h.length; i++) {
+        if (h[i] && String(h[i][0]).toLowerCase() === 'range' && h[i][1]) return true;
+      }
+      return false;
+    }
+    if (typeof h === 'object') {
+      for (var k in h) {
+        if (Object.prototype.hasOwnProperty.call(h, k) && k.toLowerCase() === 'range' && h[k]) return true;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * Return a possibly-new `init` with `cache: 'no-store'` applied per the mode.
+   * NEVER mutates the caller's `init`; only ever touches the `cache` field.
+   * Explicit caller cache modes (`reload`/`force-cache`/`no-store`/`no-cache`)
+   * are preserved. `headers`, `signal`, `method`, body, etc. are untouched.
+   *
+   * @public
+   * @param {String|Request} input
+   * @param {Object} [init]
+   * @return {Object} a fresh init object.
+   */
+  bemap.RangeFetchPolicy.prototype.decorate = function (input, init) {
+    var out = Object.assign({}, init || {});
+    if (this._mode === 'default') return out;                 // explicit opt-out
+    // Preserve any explicit cache mode the caller already chose.
+    var existing = out.cache;
+    if (existing === 'reload' || existing === 'force-cache' || existing === 'no-store' || existing === 'no-cache') {
+      return out;
+    }
+    var apply;
+    if (this._mode === 'no-store') {
+      apply = bemap.RangeFetchPolicy.hasRange(init, input);   // force on Range requests only
+    } else {                                                  // 'auto'
+      apply = bemap.RangeFetchPolicy.hasRange(init, input) && bemap.RangeFetchPolicy.isDesktopChromium();
+    }
+    if (apply) out.cache = 'no-store';
+    return out;
+  };
+
+  /**
+   * Optional standalone `window.fetch` installer for the raw-`opts.tiles`
+   * pathway (a PMTiles URL pointing at a non-`tilesHost` origin, which
+   * bypasses TilesAuth's interceptor). Idempotent. To honour the
+   * "exactly ONE global fetch interceptor" rule it NEVER stacks on top of
+   * TilesAuth's patch — if TilesAuth already owns the patch it returns a no-op
+   * (TilesAuth already applies this policy via `decorate`).
+   * @public
+   */
+  bemap.RangeFetchPolicy.prototype.installFetchInterceptor = function () {
+    if (typeof window === 'undefined' || typeof window.fetch !== 'function') return;
+    if (bemap.TilesAuth && bemap.TilesAuth._fetchPatched) return; // TilesAuth owns the single patch
+    if (_policyState.patched) return;                             // idempotent
+    _policyState.patched = true;
+    _policyState.originalFetch = window.fetch.bind(window);
+    var self = this;
+    var orig = _policyState.originalFetch;
+    window.fetch = function (input, init) {
+      return orig(input, self.decorate(input, init));
+    };
+  };
+
+  /** Restore the original `window.fetch` (if this policy installed it). @public */
+  bemap.RangeFetchPolicy.prototype.uninstallFetchInterceptor = function () {
+    if (_policyState.patched && _policyState.originalFetch && typeof window !== 'undefined') {
+      window.fetch = _policyState.originalFetch;
+    }
+    _policyState.patched = false;
+    _policyState.originalFetch = null;
+  };
+
+  /** Reset installer + detection state + default mode (tests). @private */
+  bemap.RangeFetchPolicy._resetForTest = function () {
+    _policyState.patched = false;
+    _policyState.originalFetch = null;
+    _detectionMemo = null;
+    bemap.RangeFetchPolicy.defaultMode = 'auto';
+  };
+})();
+
+/**
+ * BeNomad BeMap JavaScript API — RecoverablePromiseCache (v2.0)
+ *
+ * A drop-in replacement for pmtiles' `SharedPromiseCache` that FIXES the
+ * permanent-hole bug: the stock cache stores the header/directory *promise* and,
+ * when that promise REJECTS (a timeout / network blip / aborted read), leaves the
+ * rejected promise cached forever. Every dependent tile then awaits that cached
+ * rejection → a blank region until a full page reload. (`invalidate()` only runs
+ * on an `EtagMismatch`, never on a timeout/error.)
+ *
+ * This wrapper evicts a cache entry as soon as its promise rejects, so the NEXT
+ * read re-fetches instead of replaying the failure — self-healing without a
+ * reload. It is **transparent**: success, in-flight de-duplication, LRU pruning
+ * and `invalidate()` are all inherited unchanged (it delegates to a real
+ * `SharedPromiseCache`); the ONLY behavioural change is on a *failed* read.
+ *
+ * Composition (not subclassing) is deliberate: the bundled `pmtiles` is an ES6
+ * UMD build whose `SharedPromiseCache` is an ES6 `class`, which cannot be
+ * `Function.apply`-ed for the ES5 subclass pattern this codebase uses. Composing
+ * a Cache-shaped object that delegates to an internal `SharedPromiseCache` (and
+ * deletes its internal entry on reject) is the portable, spec-matching form.
+ *
+ * Wire it via `new pmtiles.PMTiles(archiveUrl, new bemap.RecoverablePromiseCache())`
+ * + `protocol.add(...)` (see `bemap.MapLibreMap` — gated on `opts.recoverableCache`,
+ * default on). `bemap.MapLibreMap` does this automatically for the tiles archive.
+ *
+ * @since 2.0.0
+ * @public
+ * @constructor
+ * @param {Number} [maxCacheEntries] Forwarded to `SharedPromiseCache` (default
+ *   its own default, currently 100). Optional — omit for stock sizing.
+ * @param {Boolean} [prefetch=true] Forwarded to `SharedPromiseCache`.
+ */
+bemap.RecoverablePromiseCache = function (maxCacheEntries, prefetch) {
+  if (typeof pmtiles === 'undefined' || typeof pmtiles.SharedPromiseCache !== 'function') {
+    throw new Error('bemap.RecoverablePromiseCache: pmtiles.SharedPromiseCache is unavailable — load the pmtiles library before constructing this cache.');
+  }
+  // Delegate to a real SharedPromiseCache (forward sizing knobs when given).
+  this._inner = (maxCacheEntries != null)
+    ? new pmtiles.SharedPromiseCache(maxCacheEntries, prefetch !== false)
+    : new pmtiles.SharedPromiseCache();
+};
+
+/**
+ * Page-level default for whether `bemap.MapLibreMap` wires this recoverable
+ * cache into the pmtiles archive. `true` (self-healing) by default;
+ * `bemap.MapLibreMap`'s `opts.recoverableCache: false` sets it to `false`, in
+ * which case pmtiles uses its stock (poisoning) `SharedPromiseCache`. Mirrors
+ * `bemap.RangeFetchPolicy.defaultMode`.
+ * @public
+ * @since 2.0.0
+ * @type {Boolean}
+ */
+bemap.RecoverablePromiseCache.enabled = true;
+
+/**
+ * Attach a one-shot eviction to `promise`: when it REJECTS, delete `key` from
+ * the inner cache's Map — but ONLY if the entry currently at `key` is still the
+ * SAME entry we observed (a later success or an LRU prune may have replaced it).
+ * That identity guard prevents evicting a good entry that happens to share a key.
+ * Never throws; a miss (unknown key / changed pmtiles internals) is a safe no-op
+ * that simply leaves stock behaviour in place.
+ * @private
+ */
+function _evictOnReject(inner, key, promise) {
+  if (!inner || !inner.cache || typeof inner.cache.get !== 'function' ||
+      key == null || !promise || typeof promise.then !== 'function') {
+    return promise;
+  }
+  var entry = inner.cache.get(key);   // the `{ lastUsed, data }` record just set (or a cache hit)
+  if (entry) {
+    promise.then(null, function () {
+      if (inner.cache.get(key) === entry) inner.cache.delete(key);
+    });
+  }
+  return promise;
+}
+
+/**
+ * @public
+ * @param {Object} source pmtiles `Source` (has `getKey()` + `getBytes()`).
+ * @return {Promise} the header promise; evicted from cache if it rejects.
+ */
+bemap.RecoverablePromiseCache.prototype.getHeader = function (source) {
+  var inner = this._inner;
+  var p = inner.getHeader(source);
+  // Header cache key is exactly `source.getKey()`.
+  var key = (source && typeof source.getKey === 'function') ? source.getKey() : null;
+  return _evictOnReject(inner, key, p);
+};
+
+/**
+ * @public
+ * @return {Promise} the directory promise; evicted from cache if it rejects.
+ */
+bemap.RecoverablePromiseCache.prototype.getDirectory = function (source, offset, length, header) {
+  var inner = this._inner;
+  var p = inner.getDirectory(source, offset, length, header);
+  // Directory cache key format (pmtiles): `<sourceKey>|<etag>|<offset>|<length>`.
+  // If pmtiles ever changes this the key simply won't match → no-op (safe).
+  var key = ((source && typeof source.getKey === 'function') ? source.getKey() : '') +
+    '|' + ((header && header.etag) || '') + '|' + offset + '|' + length;
+  return _evictOnReject(inner, key, p);
+};
+
+/** Delegate: invalidate an entry on `EtagMismatch` (inherited behaviour). @public */
+bemap.RecoverablePromiseCache.prototype.invalidate = function () {
+  return this._inner.invalidate.apply(this._inner, arguments);
+};
+
+/** Delegate: LRU prune (inherited behaviour). @public */
+bemap.RecoverablePromiseCache.prototype.prune = function () {
+  if (typeof this._inner.prune === 'function') return this._inner.prune.apply(this._inner, arguments);
+};
+
+/**
+ * BeNomad BeMap JavaScript API — PMTiles 200-slice Source + RangeGate (v2.0)
+ *
+ * Two independent, opt-in tile-fetch robustness/perf features, adapted from the
+ * proven bemaputnik / mp-tiles-demo reference implementations (validated on the
+ * beta Worker by mp-tiles-bench):
+ *
+ * 1. `bemap.PMTilesSliceSource` — a custom pmtiles `Source` that reads the
+ *    archive as **200-slice** requests (`<archive>?r=<start>-<end>`, inclusive
+ *    offsets, NO `Range` header) instead of HTTP Range (206). The Worker returns
+ *    a plain **HTTP 200** with `Cache-Control: immutable`, which the **browser's
+ *    native HTTP cache stores** — so repeat tiles/visits are free with ZERO
+ *    Service Worker. (206 partials are not reliably cached by browsers, which is
+ *    why the SW exists on the Range path.) Requires a Worker that serves the
+ *    `?r=` slice route — BeNomad Tiles does on all envs.
+ *
+ * 2. `bemap.RangeGate` — an optional per-request resilience wrapper: a
+ *    concurrency cap (off by default), a per-attempt `AbortController` timeout
+ *    that spans the body read, and one retry on a transient failure — NEVER
+ *    retrying a caller cancel (pan/zoom). It combines the caller's pmtiles
+ *    `signal` with the timeout signal via `AbortSignal.any`. Live-toggleable.
+ *
+ * Both are wired by `bemap.MapLibreMap` per `opts.tilesSliceMode` (default
+ * `'200'`) and the `tilesSlice*` knobs. Auth composes for free: `getBytes` uses
+ * `window.fetch`, so `bemap.TilesAuth` injects credentials; and a 200-slice has
+ * no `Range` header, so `bemap.RangeFetchPolicy`'s `no-store` correctly does NOT
+ * apply — the 200 stays browser-cacheable.
+ *
+ * @since 2.0.0
+ * @public
+ */
+
+var _bemapNoop = function () {};
+
+/**
+ * Combine two `AbortSignal`s into one that aborts when EITHER does. Prefers the
+ * native `AbortSignal.any` (self-cleaning); falls back to a manual controller;
+ * degrades to the caller signal when neither exists. Returns `{ signal, cleanup }`
+ * — the caller MUST call `cleanup()` when the attempt settles, so the fallback's
+ * listeners are removed from the (possibly long-lived) caller signal instead of
+ * accumulating across retries.
+ * @private
+ */
+function _bemapCombineSignals(a, b) {
+  if (!a) return { signal: b || undefined, cleanup: _bemapNoop };
+  if (!b) return { signal: a, cleanup: _bemapNoop };
+  if (typeof AbortSignal !== 'undefined' && typeof AbortSignal.any === 'function') {
+    try { return { signal: AbortSignal.any([a, b]), cleanup: _bemapNoop }; } catch (e) { /* fall through */ }
+  }
+  if (typeof AbortController === 'function') {
+    var ctl = new AbortController();
+    var onAbort = function () { try { ctl.abort(); } catch (e) {} };
+    if (a.aborted || b.aborted) { onAbort(); return { signal: ctl.signal, cleanup: _bemapNoop }; }
+    try { a.addEventListener('abort', onAbort); b.addEventListener('abort', onAbort); } catch (e) {}
+    return {
+      signal: ctl.signal,
+      cleanup: function () {
+        try { a.removeEventListener('abort', onAbort); b.removeEventListener('abort', onAbort); } catch (e) {}
+      }
+    };
+  }
+  return { signal: a, cleanup: _bemapNoop };
+}
+
+function _bemapAbortError() {
+  var e = new Error('The operation was aborted.');
+  e.name = 'AbortError';
+  return e;
+}
+
+/**
+ * Optional resilience gate for tile reads: concurrency cap + per-attempt timeout
+ * + one retry. When inactive (`setActive(false)` or `?nogate`) it is a pure
+ * pass-through (raw fetch). Read live per request, so toggling takes effect
+ * without a reload.
+ *
+ * @public
+ * @since 2.0.0
+ * @constructor
+ * @param {Object} [options]
+ * @param {Number} [options.concurrency=0] Max in-flight reads (0 = uncapped).
+ * @param {Number} [options.timeoutMs=3500] Per-attempt timeout spanning the body read (0 = none).
+ * @param {Number} [options.maxRetries=1] Retries on a transient failure (429/5xx/network); never on a caller cancel.
+ * @param {Boolean} [options.active=true] Whether the gate is engaged.
+ */
+bemap.RangeGate = function (options) {
+  var o = options || {};
+  this.concurrency = (typeof o.concurrency === 'number' && o.concurrency > 0) ? o.concurrency : 0;
+  this.timeoutMs = (typeof o.timeoutMs === 'number' && o.timeoutMs >= 0) ? o.timeoutMs : 3500;
+  this.maxRetries = (typeof o.maxRetries === 'number' && o.maxRetries >= 0) ? o.maxRetries : 1;
+  this._active = (o.active !== false);
+  this._inFlight = 0;
+  this._queue = [];
+  this._listeners = [];
+};
+
+/** @public @return {Boolean} */
+bemap.RangeGate.prototype.isActive = function () { return this._active; };
+
+/** Toggle the gate live (no reload). Notifies subscribers. @public */
+bemap.RangeGate.prototype.setActive = function (active) {
+  var next = !!active;
+  if (next === this._active) return;
+  this._active = next;
+  for (var i = 0; i < this._listeners.length; i++) {
+    try { this._listeners[i](next); } catch (e) { /* ignore */ }
+  }
+};
+
+/** Subscribe to active-state changes. @public @return {Function} unsubscribe */
+bemap.RangeGate.prototype.subscribe = function (fn) {
+  if (typeof fn !== 'function') return function () {};
+  var self = this;
+  this._listeners.push(fn);
+  return function () {
+    var idx = self._listeners.indexOf(fn);
+    if (idx !== -1) self._listeners.splice(idx, 1);
+  };
+};
+
+/** @private */
+bemap.RangeGate.prototype._acquire = function () {
+  var self = this;
+  if (this._inFlight < this.concurrency) { this._inFlight++; return Promise.resolve(); }
+  return new Promise(function (resolve) { self._queue.push(resolve); });
+};
+
+/** @private */
+bemap.RangeGate.prototype._release = function () {
+  if (this._inFlight > 0) this._inFlight--;
+  if (this._queue.length) { this._inFlight++; (this._queue.shift())(); }
+};
+
+/**
+ * Run one tile-read attempt through the gate. `attemptFn(signal)` must perform
+ * the whole read (fetch + body) and resolve/reject; the timeout spans it.
+ * @public
+ * @param {Function} attemptFn `function(signal) => Promise`
+ * @param {AbortSignal} [callerSignal] the pmtiles cancellation signal
+ * @return {Promise}
+ */
+bemap.RangeGate.prototype.run = function (attemptFn, callerSignal) {
+  var self = this;
+  // Inactive gate → raw pass-through (no cap, no timeout, no retry).
+  if (!this._active) return Promise.resolve().then(function () { return attemptFn(callerSignal); });
+
+  var capped = this.concurrency > 0;
+  var acquire = capped ? this._acquire() : Promise.resolve();
+
+  return acquire.then(function () {
+    var attempt = 0;
+    function tryOnce() {
+      if (callerSignal && callerSignal.aborted) return Promise.reject(_bemapAbortError());
+      var useTimeout = self.timeoutMs > 0 && typeof AbortController === 'function';
+      var tc = useTimeout ? new AbortController() : null;
+      var timer = tc ? setTimeout(function () { try { tc.abort(); } catch (e) {} }, self.timeoutMs) : null;
+      var combined = _bemapCombineSignals(callerSignal, tc && tc.signal);
+      function _cleanup() { if (timer) clearTimeout(timer); combined.cleanup(); }
+      return Promise.resolve().then(function () { return attemptFn(combined.signal); }).then(
+        function (r) { _cleanup(); return r; },
+        function (err) {
+          _cleanup();
+          // A caller cancel (pan/zoom) must NEVER be retried.
+          if (callerSignal && callerSignal.aborted) throw err;
+          // Retry only genuinely TRANSIENT failures — and NOT a status-less
+          // programming/logic error (which would otherwise be retried and its
+          // real cause masked, since `undefined == null`):
+          //   - HTTP 429 / 5xx (has err.status),
+          //   - a network failure (fetch rejects with a TypeError),
+          //   - a per-attempt TIMEOUT (our AbortController → AbortError; the
+          //     caller-cancel case was already excluded above).
+          var status = err && err.status;
+          var name = err && err.name;
+          var retryable = (status === 429) || (status >= 500) ||
+            (status == null && (name === 'TypeError' || name === 'AbortError'));
+          if (attempt < self.maxRetries && retryable) { attempt++; return tryOnce(); }
+          throw err;
+        }
+      );
+    }
+    return tryOnce();
+  }).then(
+    function (r) { if (capped) self._release(); return r; },
+    function (e) { if (capped) self._release(); throw e; }
+  );
+};
+
+/**
+ * A pmtiles `Source` that reads the archive via **200-slice** (`?r=start-end`)
+ * so responses are browser-HTTP-cacheable 200s (not 206 partials).
+ *
+ * @public
+ * @since 2.0.0
+ * @constructor
+ * @param {String} url the archive URL (no `pmtiles://` prefix), e.g. `https://host/default`.
+ * @param {Object} [options]
+ * @param {bemap.RangeGate} [options.gate] resilience gate (defaults to the shared `bemap.PMTilesSliceSource.defaultGate`).
+ */
+bemap.PMTilesSliceSource = function (url, options) {
+  this.url = url;
+  var o = options || {};
+  this._gate = o.gate || bemap.PMTilesSliceSource.defaultGate || null;
+};
+
+/** pmtiles cache key — the archive URL, matching the Protocol's stripped `pmtiles://` key. @public */
+bemap.PMTilesSliceSource.prototype.getKey = function () { return this.url; };
+
+/**
+ * Read `[offset, offset+length)` as a 200-slice. Builds `?r=<offset>-<offset+length-1>`
+ * (inclusive), sends NO `Range` header, validates the response is 2xx with the
+ * exact byte length, and returns the pmtiles `RangeResponse` shape.
+ * @public
+ * @param {Number} offset
+ * @param {Number} length
+ * @param {AbortSignal} [signal] pmtiles cancellation signal
+ * @return {Promise<{data:ArrayBuffer, etag:(String|undefined), cacheControl:(String|undefined), expires:(String|undefined)}>}
+ */
+bemap.PMTilesSliceSource.prototype.getBytes = function (offset, length, signal /*, etag */) {
+  var url = this.url;
+  var sep = (url.indexOf('?') === -1) ? '?' : '&';
+  var sliceUrl = url + sep + 'r=' + offset + '-' + (offset + length - 1);
+
+  function attempt(sig) {
+    // window.fetch → bemap.TilesAuth injects auth (credentials/header/token).
+    // No Range header → RangeFetchPolicy's no-store does NOT apply → 200 stays cacheable.
+    return fetch(sliceUrl, sig ? { signal: sig } : {}).then(function (res) {
+      if (!res.ok) {
+        var e = new Error('PMTilesSliceSource: HTTP ' + res.status + ' for ' + sliceUrl);
+        e.status = res.status;
+        throw e;
+      }
+      return res.arrayBuffer().then(function (buf) {
+        if (buf.byteLength !== length) {
+          var e2 = new Error('PMTilesSliceSource: slice length mismatch (got ' + buf.byteLength + ', want ' + length + ') for ' + sliceUrl);
+          e2.status = res.status;
+          throw e2;
+        }
+        return {
+          data: buf,
+          etag: res.headers.get('etag') || undefined,
+          cacheControl: res.headers.get('cache-control') || undefined,
+          expires: res.headers.get('expires') || undefined
+        };
+      });
+    });
+  }
+
+  var gate = this._gate;
+  if (gate && typeof gate.run === 'function') return gate.run(attempt, signal);
+  return attempt(signal);
+};
+
+/**
+ * Shared default gate for slice sources — timeout+retry ON, concurrency cap OFF
+ * (the tile origin is fast, so uncapped is smoother; the cap is an opt-in
+ * tradeoff). `bemap.MapLibreMap` tunes it from `opts.tilesSlice*`. Honors a
+ * `?nogate` URL kill-switch.
+ * @public
+ * @since 2.0.0
+ */
+bemap.PMTilesSliceSource.defaultGate = new bemap.RangeGate({
+  active: !(typeof location !== 'undefined' && location.search && /[?&]nogate\b/.test(location.search))
+});
+
+/**
  * BeNomad BeMap JavaScript API — TilesAuth (v2.0)
  *
  * JWT lifecycle for the BeNomad Tiles Worker. Replaces the buggy
@@ -18568,6 +19483,14 @@ bemap.TilesAuth = function (ctx, options) {
   this._onError = typeof opts.onError === 'function' ? opts.onError : function () {};
   this._onToken = typeof opts.onToken === 'function' ? opts.onToken : function () {};
 
+  // Resolved tile-auth wire config `{ mode, credentials, tokenHeader, tokenParam }`.
+  // Per-map `options.tilesAuth` overrides the Context's `tilesAuth`, both
+  // normalised (unset ⇒ cookie). Read by the fetch interceptor, transformRequest,
+  // login and logout so the consumer chooses cookie / header / query auth.
+  this._authConfig = (bemap.Context && bemap.Context._resolveTilesAuth)
+    ? bemap.Context._resolveTilesAuth(opts.tilesAuth, ctx && ctx.tilesAuth)
+    : { mode: 'cookie', credentials: 'include', tokenHeader: 'X-Session-Token', tokenParam: 'token' };
+
   this._storageKey = 'bemap_tiles_token';
   this._storage = this._resolveStorage(ctx && ctx.tokenStorage);
   this._restoreFromStorage();
@@ -18588,7 +19511,8 @@ var _tilesAuthState = {
   registry: {},           // { tilesHost → auth }
   patched: false,
   originalFetch: null,
-  fastHostList: []        // for cheap substring short-circuit in the wrapper
+  fastHostList: [],       // for cheap substring short-circuit in the wrapper
+  rangePolicy: null       // shared bemap.RangeFetchPolicy (lazily created)
 };
 
 // Accessors retained for tests (they need to reset / inspect state).
@@ -18598,6 +19522,7 @@ bemap.TilesAuth._resetForTest = function () {
   _tilesAuthState.patched = false;
   _tilesAuthState.originalFetch = null;
   _tilesAuthState.fastHostList = [];
+  _tilesAuthState.rangePolicy = null;
 };
 // Backwards-compatibility shims for the older test file — read-only.
 Object.defineProperty(bemap.TilesAuth, '_registry',      { get: function () { return _tilesAuthState.registry; }, set: function (v) { _tilesAuthState.registry = v || {}; } });
@@ -18620,6 +19545,51 @@ Object.defineProperty(bemap.TilesAuth, '_originalFetch', { get: function () { re
  * @param {bemap.TilesAuth} auth
  * @param {String} tilesHost
  */
+/**
+ * Stamp auth onto a Worker-origin tile/style request per the resolved config.
+ * Returns `{ input, init }` (query mode may rewrite the URL). NEVER mutates the
+ * caller's `init`. `token` is only needed for `header` / `query` modes.
+ *   - `cookie` (default): `init.credentials = cfg.credentials` — no custom header
+ *     and no query param, so a Range GET stays a CORS-safelisted "simple" request
+ *     (no preflight).
+ *   - `header`: set `cfg.tokenHeader` to the token; credentials left at the
+ *     browser default (no cookie).
+ *   - `query`: append `cfg.tokenParam=<token>` to the URL. (The SW strips
+ *     token/jwt/X-Session-Token from its cache key, so caching still works.)
+ * @private
+ */
+function _applyTileAuth(input, init, cfg, token) {
+  var out = Object.assign({}, init || {});
+  var mode = (cfg && cfg.mode) || 'cookie';
+  if (mode === 'header') {
+    if (token) {
+      var headers = new Headers((init && init.headers) || (input && input.headers) || {});
+      headers.set((cfg && cfg.tokenHeader) || 'X-Session-Token', token);
+      out.headers = headers;
+    }
+    return { input: input, init: out };
+  }
+  if (mode === 'query') {
+    if (token) {
+      var param = (cfg && cfg.tokenParam) || 'token';
+      var url = (typeof input === 'string') ? input : (input && input.url) || '';
+      if (url) {
+        var sep = (url.indexOf('?') === -1) ? '?' : '&';
+        var newUrl = url + sep + encodeURIComponent(param) + '=' + encodeURIComponent(token);
+        // Query mode targets idempotent tile/style GETs (which have no body).
+        // `new Request(newUrl, input)` MOVES the body stream, so it must not be
+        // used for a Request with a body (POST/PUT) — safe here because tile reads
+        // are always GET (and /api/login is short-circuited above).
+        input = (typeof input === 'string') ? newUrl : new Request(newUrl, input);
+      }
+    }
+    return { input: input, init: out };
+  }
+  // 'cookie' (default)
+  out.credentials = (cfg && cfg.credentials) || 'include';
+  return { input: input, init: out };
+}
+
 bemap.TilesAuth.installFetchInterceptor = function (auth, tilesHost) {
   if (!auth || !tilesHost || typeof window === 'undefined' || typeof window.fetch !== 'function') return;
   _tilesAuthState.registry[tilesHost] = auth;
@@ -18645,19 +19615,26 @@ bemap.TilesAuth.installFetchInterceptor = function (auth, tilesHost) {
     if (!host) return orig(input, init);
     var registered = _tilesAuthState.registry[host];
     if (!registered) return orig(input, init);
-    // Login itself uses Basic Auth — never inject the JWT into /api/login.
+    // Login itself uses Basic Auth (+ the Set-Cookie it stores) — never touch
+    // /api/login here.
     if (url.indexOf('/api/login') !== -1) return orig(input, init);
-    // For every other Worker URL, await the token then inject the header.
+    // For every other Worker URL, await login, then stamp auth per the
+    // registered auth's resolved config (`_applyTileAuth`): cookie (default) →
+    // `credentials:'include'`, no custom header → no CORS preflight; header →
+    // the token header; query → `?token=` on the URL. RangeFetchPolicy still
+    // applies `cache:'no-store'` afterwards (it only touches `cache`, so
+    // whatever `_applyTileAuth` set survives). Never mutates the caller's init.
     return registered.whenTokenReady().then(function (token) {
-      var newInit = Object.assign({}, init || {});
-      var headers = new Headers((init && init.headers) || (input && input.headers) || {});
-      if (token && !headers.has('X-Session-Token')) headers.set('X-Session-Token', token);
-      newInit.headers = headers;
-      return orig(input, newInit);
+      var applied = _applyTileAuth(input, init, registered._authConfig, token);
+      var newInit = applied.init;
+      if (bemap.RangeFetchPolicy) {
+        if (!_tilesAuthState.rangePolicy) _tilesAuthState.rangePolicy = new bemap.RangeFetchPolicy({ rangeCacheMode: bemap.RangeFetchPolicy.defaultMode || 'auto' });
+        newInit = _tilesAuthState.rangePolicy.decorate(applied.input, newInit);
+      }
+      return orig(applied.input, newInit);
     }, function () {
-      // Login failed — let the request fly without the header so the
-      // server's 401 surfaces through the normal error channels rather
-      // than this wrapper swallowing it.
+      // Login failed — let the request fly unchanged so the server's 401 surfaces
+      // through the normal error channels (this wrapper never swallows it).
       return orig(input, init);
     });
   };
@@ -18791,8 +19768,17 @@ bemap.TilesAuth.prototype.login = function (login, password) {
     return Promise.reject(err);
   }
 
+  // In COOKIE mode, `credentials` MUST be sent so the browser STORES the
+  // Worker's `Set-Cookie: session=…; HttpOnly; Secure; SameSite=None` — without
+  // it the cookie is never stored and every tile 401s despite a valid in-memory
+  // token. In header/query mode the consumer opted out of cookies, so we use
+  // `'same-origin'` (no cross-site cookie); the body token still drives auth.
+  var loginCredentials = (self._authConfig && self._authConfig.mode === 'cookie')
+    ? (self._authConfig.credentials || 'include')
+    : 'same-origin';
   var promise = fetch(url, {
     method: 'POST',
+    credentials: loginCredentials,
     headers: { 'Authorization': basic, 'Accept': 'application/json' }
   }).then(function (resp) {
     if (!resp.ok) {
@@ -18887,14 +19873,19 @@ bemap.TilesAuth.prototype.getHistory = function () { return this._history.slice(
 bemap.TilesAuth.prototype.refresh = function () {
   if (this._refreshInFlight) return this._refreshInFlight;
   var self = this;
-  this._inRefresh = true;
+  // `_inRefresh` suppresses the synthetic 'login' event inside login()'s .then.
+  // Only claim it when refresh actually STARTS the login — if a plain login() is
+  // already in-flight we JOIN it, and must NOT suppress its 'login' event for
+  // the original caller (the flag is read later, in that login's .then).
+  var startsLogin = !this._loginInFlight;
+  if (startsLogin) this._inRefresh = true;
   var p = this.login().then(function (t) {
-    self._inRefresh = false;
+    if (startsLogin) self._inRefresh = false;
     self._refreshInFlight = null;
     self._onToken({ reason: 'refresh', exp: self._exp });
     return t;
   }, function (err) {
-    self._inRefresh = false;
+    if (startsLogin) self._inRefresh = false;
     self._refreshInFlight = null;
     throw err;
   });
@@ -18972,11 +19963,28 @@ bemap.TilesAuth.prototype.buildTransformRequest = function () {
     } catch (e) {
       matches = (url.indexOf('://' + host) > -1) || (url.indexOf('//' + host) === 0);
     }
-    if (!matches) return { url: url };
-    var token = self.getToken();
-    var headers = {};
-    if (token) headers['X-Session-Token'] = token;
-    return { url: url, headers: headers };
+    if (!matches) return { url: url };   // other origin — no auth, no leak
+    // On the tiles host, authenticate per the resolved config (MapLibre GL v5
+    // RequestParameters honours `credentials` and `headers` for style/glyph/
+    // sprite/XYZ). Default cookie mode sends `credentials` and NO header → no
+    // CORS preflight. (pmtiles archive Range reads bypass transformRequest and
+    // are handled by the global fetch interceptor.)
+    var cfg = self._authConfig || { mode: 'cookie', credentials: 'include' };
+    if (cfg.mode === 'header') {
+      var ht = (typeof self.getToken === 'function') ? self.getToken() : null;
+      var headers = {};
+      if (ht) headers[cfg.tokenHeader || 'X-Session-Token'] = ht;
+      return { url: url, headers: headers };
+    }
+    if (cfg.mode === 'query') {
+      var qt = (typeof self.getToken === 'function') ? self.getToken() : null;
+      if (qt) {
+        var sep = (url.indexOf('?') === -1) ? '?' : '&';
+        return { url: url + sep + encodeURIComponent(cfg.tokenParam || 'token') + '=' + encodeURIComponent(qt) };
+      }
+      return { url: url };
+    }
+    return { url: url, credentials: cfg.credentials || 'include' };
   };
 };
 
@@ -19039,7 +20047,24 @@ bemap.TilesAuth.prototype.logout = function (options) {
   if (opts.serverSide && this.ctx && typeof fetch === 'function') {
     var url = this.ctx.getTilesLogoutUrl();
     if (url && token) {
-      return fetch(url, { method: 'POST', headers: { 'X-Session-Token': token } })
+      // Revoke per the resolved auth config so the Worker identifies the right
+      // session: cookie → send credentials (+ the token header as a harmless
+      // fallback for a header-keyed Worker); header → the configured header;
+      // query → the token on the URL.
+      var acfg = this._authConfig || { mode: 'cookie', credentials: 'include', tokenHeader: 'X-Session-Token', tokenParam: 'token' };
+      var lurl = url;
+      var linit = { method: 'POST' };
+      if (acfg.mode === 'query') {
+        var sep = (lurl.indexOf('?') === -1) ? '?' : '&';
+        lurl = lurl + sep + encodeURIComponent(acfg.tokenParam || 'token') + '=' + encodeURIComponent(token);
+      } else if (acfg.mode === 'header') {
+        linit.headers = {};
+        linit.headers[acfg.tokenHeader || 'X-Session-Token'] = token;
+      } else {
+        linit.credentials = acfg.credentials || 'include';
+        linit.headers = { 'X-Session-Token': token };
+      }
+      return fetch(lurl, linit)
         .then(function () {})
         .catch(function () {});
     }
@@ -19108,7 +20133,11 @@ bemap.TilesStyle.PLACE_LABEL_PLACEHOLDER = '__BILINGUAL_PLACE__';
  * @param {bemap.Context} ctx
  * @param {String|Object} urlOrObject
  * @param {Object} [options]
- * @param {Function} [options.getToken] Returns the current JWT.
+ * @param {Function} [options.getToken] Returns the current JWT — used only for
+ *   `header` / `query` auth modes (cookie mode needs no token).
+ * @param {Object} [options.tilesAuth] Resolved auth config
+ *   `{ mode, credentials, tokenHeader, tokenParam }` from `ctx.getTilesAuth()`
+ *   (or the per-map override). Defaults to the Context's config when omitted.
  * @return {Promise<Object>} Deep-cloned style.
  */
 bemap.TilesStyle.fetch = function (ctx, urlOrObject, options) {
@@ -19122,12 +20151,29 @@ bemap.TilesStyle.fetch = function (ctx, urlOrObject, options) {
       message: 'TilesStyle.fetch: input must be a URL string or a style object'
     }));
   }
-  var headers = {};
+  // On the tiles host, authenticate per the resolved config (default cookie:
+  // credentials:'include', no custom header → no CORS preflight on this style/
+  // glyph JSON fetch). Header/query modes carry the token instead. Other origins
+  // get a plain fetch so nothing leaks cross-origin.
+  var url = urlOrObject;
+  var init = {};
   if (ctx && ctx.tilesHost && urlOrObject.indexOf(ctx.tilesHost) > -1) {
-    var token = typeof opts.getToken === 'function' ? opts.getToken() : null;
-    if (token) headers['X-Session-Token'] = token;
+    var cfg = opts.tilesAuth
+      || (ctx.getTilesAuth ? ctx.getTilesAuth() : null)
+      || { mode: 'cookie', credentials: 'include' };
+    var token = (typeof opts.getToken === 'function') ? opts.getToken() : null;
+    if (cfg.mode === 'header') {
+      if (token) { init.headers = {}; init.headers[cfg.tokenHeader || 'X-Session-Token'] = token; }
+    } else if (cfg.mode === 'query') {
+      if (token) {
+        var sep = (url.indexOf('?') === -1) ? '?' : '&';
+        url = url + sep + encodeURIComponent(cfg.tokenParam || 'token') + '=' + encodeURIComponent(token);
+      }
+    } else {
+      init.credentials = cfg.credentials || 'include';
+    }
   }
-  return fetch(urlOrObject, { headers: headers })
+  return fetch(url, init)
     .then(function (resp) {
       if (!resp.ok) {
         throw new bemap.Error({
@@ -19165,8 +20211,9 @@ bemap.TilesStyle.resolvePlaceholders = function (rawStyle, ctx, tilesFile) {
   //      MapLibre gets the style as an OBJECT it resolves a relative glyphs URL
   //      against the PAGE origin — which 404s the Worker-hosted fonts and blanks
   //      every label (the charte is label-heavy, so the map looks empty). Making
-  //      it absolute routes glyphs to the Worker; the fetch interceptor then
-  //      attaches X-Session-Token. A full ("https://…") or protocol-relative
+  //      it absolute routes glyphs to the Worker; the fetch interceptor /
+  //      transformRequest then authenticates via the session cookie
+  //      (credentials:'include'). A full ("https://…") or protocol-relative
   //      ("//host/…") glyphs is already absolute and left as-is — the
   //      charAt(1)!=='/' guard avoids mangling "//host" into "<base>//host".
   //   (The tiny bundled fallback has no symbol layers and no `glyphs`, so it
@@ -19519,6 +20566,7 @@ bemap.BrowserCache = function (options) {
   this._stats = { enabled: this._enabled, hits: 0, misses: 0, entries: 0, bytesEstimated: 0 };
   this._messageHandler = null;
   this._lastAttempts = [];
+  this._ackWaiters = {};   // ackType → [resolver] for INIT/ENABLE/CLAIM acks
 };
 
 bemap.BrowserCache.TOGGLE_KEY = 'bemap_browser_cache';
@@ -19693,7 +20741,18 @@ bemap.BrowserCache.prototype.register = function () {
           }
         } catch (e) { /* ignore */ }
         self._installMessageHandler();
-        self._postMessage({ type: 'INIT', tilesHost: self.tilesHost, enabled: self._enabled });
+        // INIT handshake — wait (non-blocking) for the SW's READY ack. This is
+        // fire-and-forget: we never await it, so it can NEVER delay map load; a
+        // missing ack just logs a warning after the timeout.
+        self._postAndWait({ type: 'INIT', tilesHost: self.tilesHost, enabled: self._enabled }, 'READY', 3000);
+        // Recover an active-but-uncontrolled worker (the SW activated AFTER this
+        // page loaded — the common F5-less case) WITHOUT a reload: post CLAIM
+        // directly to the active worker. The controller is null (that's exactly
+        // why we claim), so the normal controller-gated queue cannot deliver it;
+        // on CLAIMED, `controllerchange` fires and any queued messages flush.
+        if (navigator.serviceWorker && !navigator.serviceWorker.controller && reg.active) {
+          self._postAndWait({ type: 'CLAIM' }, 'CLAIMED', 3000, reg.active);
+        }
         // WARNING #2 — registered but still not controlling after activation
         // (file 404s where it was registered, or a stale worker lingers).
         if (typeof setTimeout === 'function') {
@@ -19769,6 +20828,12 @@ bemap.BrowserCache.prototype._installMessageHandler = function () {
           context: { rejectedHost: data.host }
         }));
         break;
+      // Handshake acks — resolve any pending `_postAndWait()` for that type.
+      // INIT → READY, ENABLE/DISABLE → STATE, CLAIM → CLAIMED. Purely additive:
+      // no ack still leaves the cache working (fire-and-forget elsewhere).
+      case 'READY':   self._resolveAck('READY');   break;
+      case 'STATE':   self._resolveAck('STATE');   break;
+      case 'CLAIMED': self._resolveAck('CLAIMED'); break;
       default: break;
     }
   };
@@ -19805,6 +20870,72 @@ bemap.BrowserCache.prototype._postMessage = function (msg) {
     self._pendingFlushScheduled = false;
   });
   navigator.serviceWorker.addEventListener('controllerchange', flush);
+};
+
+/**
+ * Resolve every pending `_postAndWait()` registered for `ackType`.
+ * @private
+ * @param {String} ackType 'READY' | 'STATE' | 'CLAIMED'
+ */
+bemap.BrowserCache.prototype._resolveAck = function (ackType) {
+  var arr = this._ackWaiters && this._ackWaiters[ackType];
+  if (!arr || !arr.length) return;
+  var waiters = arr.slice();
+  this._ackWaiters[ackType] = [];
+  for (var i = 0; i < waiters.length; i++) {
+    try { waiters[i](); } catch (e) { /* ignore */ }
+  }
+};
+
+/**
+ * Post a message to the SW and resolve when the matching ack arrives (or after
+ * `timeoutMs`, resolving `false` and logging a warning). Purely additive and
+ * NON-BLOCKING — callers do not await it, so a slow/absent SW never delays the
+ * map. Set `directTarget` (a ServiceWorker) to post straight to that worker,
+ * bypassing the controller-gated queue — needed for CLAIM, where the controller
+ * is null by definition.
+ * @private
+ * @param {Object} msg
+ * @param {String} ackType 'READY' | 'STATE' | 'CLAIMED'
+ * @param {Number} [timeoutMs=3000]
+ * @param {ServiceWorker} [directTarget]
+ * @return {Promise<Boolean>} resolves true on ack, false on timeout.
+ */
+bemap.BrowserCache.prototype._postAndWait = function (msg, ackType, timeoutMs, directTarget) {
+  var self = this;
+  this._installMessageHandler();
+  this._ackWaiters = this._ackWaiters || {};
+  var wait = (typeof timeoutMs === 'number') ? timeoutMs : 3000;
+  return new Promise(function (resolve) {
+    var settled = false;
+    var timer = null;
+    var resolver = function () {
+      if (settled) return;
+      settled = true;
+      if (timer) { try { clearTimeout(timer); } catch (e) {} }
+      resolve(true);
+    };
+    (self._ackWaiters[ackType] = self._ackWaiters[ackType] || []).push(resolver);
+    if (typeof setTimeout === 'function') {
+      timer = setTimeout(function () {
+        if (settled) return;
+        settled = true;
+        var arr = self._ackWaiters[ackType] || [];
+        var idx = arr.indexOf(resolver);
+        if (idx !== -1) arr.splice(idx, 1);
+        if (typeof console !== 'undefined' && console.warn) {
+          console.warn('[bemap] BeNomad Tiles: no "' + ackType + '" ack from the Service Worker within ' +
+                       wait + 'ms — continuing (tile caching is non-blocking and may still initialise).');
+        }
+        resolve(false);
+      }, wait);
+    }
+    if (directTarget && typeof directTarget.postMessage === 'function') {
+      try { directTarget.postMessage(msg); } catch (e) { /* ignore */ }
+    } else {
+      self._postMessage(msg);
+    }
+  });
 };
 
 /** @public */
@@ -19902,6 +21033,12 @@ bemap.BrowserCache.prototype.destroy = function () {
   if (this._messageHandler && navigator.serviceWorker) {
     navigator.serviceWorker.removeEventListener('message', this._messageHandler);
     this._messageHandler = null;
+  }
+  // Resolve any still-pending ack waiters so their timers don't dangle.
+  if (this._ackWaiters) {
+    for (var k in this._ackWaiters) {
+      if (Object.prototype.hasOwnProperty.call(this._ackWaiters, k)) this._resolveAck(k);
+    }
   }
 };
 

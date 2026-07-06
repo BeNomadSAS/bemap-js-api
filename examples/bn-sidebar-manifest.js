@@ -49,6 +49,7 @@ var bnSidebarManifest = [
       { label: 'Style — custom JSON',                href: '#nav-example-maplibre-custom-style.html',chips: [{label:'ML',kind:'ml'},{label:'NEW',kind:'accent'}] },
       { label: 'BeNomad Tiles default',              href: '#nav-example-bemap-tiles.html',          chips: [{label:'ML',kind:'ml'},{label:'NEW',kind:'accent'}] },
       { label: 'Browser cache',                      href: '#nav-example-browser-cache.html',        chips: [{label:'ML',kind:'ml'},{label:'NEW',kind:'accent'}] },
+      { label: 'Tiles perf & robustness playground', href: '#nav-example-maplibre-tiles-perf.html',   chips: [{label:'ML',kind:'ml'},{label:'PERF',kind:'accent'},{label:'NEW',kind:'accent'}] },
       { label: 'Live usage stats',                   href: '#nav-example-usage-stats.html',          chips: [{label:'ML',kind:'ml'},{label:'NEW',kind:'accent'}] },
       { label: 'Attribution widget',                 href: '#nav-example-attribution-widget.html',   chips: [{label:'NEW',kind:'accent'}] },
       { label: 'Migration WMS → Tiles (live)',       href: '#nav-example-migration-side-by-side.html', chips: [{label:'LF',kind:'lf'},{label:'ML',kind:'ml'},{label:'NEW',kind:'accent'}] },

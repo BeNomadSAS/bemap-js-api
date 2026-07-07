@@ -392,9 +392,10 @@ bemap.Context = function (options) {
    * carry their auth. A grouped object
    * `{ mode, credentials, tokenHeader, tokenParam }` (or the shorthand string
    * `'cookie'|'header'|'query'`), normalised by `bemap.Context._resolveTilesAuth`.
-   * Unset ⇒ cookie auth (`credentials:'include'`) — the preflight-free default,
-   * so existing consumers are unaffected. Read via `getTilesAuth()`;
-   * `bemap.MapLibreMap` lets a per-map `tilesAuth` opt override it field-by-field.
+   * Unset ⇒ `mode:'auto'` — resolved per deployment (same site as `tilesHost`
+   * ⇒ cookie, cross-site ⇒ header), so a consumer needs no auth config and never
+   * silently breaks cross-site. Read via `getTilesAuth()`; `bemap.MapLibreMap`
+   * lets a per-map `tilesAuth` opt override it field-by-field.
    * @public
    * @since 2.0.0
    * @type {Object|String|null}
@@ -403,13 +404,16 @@ bemap.Context = function (options) {
 };
 
 /**
- * Default tile-auth wire config: cookie mode (`credentials:'include'`) — the
- * preflight-free default. Consumer-supplied fields are merged over these.
+ * Default tile-auth wire config: `mode:'auto'` — resolve per deployment at
+ * runtime (same registrable domain as `tilesHost` ⇒ `cookie`, else ⇒ `header`),
+ * so a new consumer needs NO auth config and never silently breaks cross-site
+ * (where a third-party cookie is blocked in incognito/Safari/Firefox).
+ * Consumer-supplied fields are merged over these.
  * @public
  * @since 2.0.0
  */
 bemap.Context.TILES_AUTH_DEFAULTS = {
-  mode: 'cookie',                 // 'cookie' | 'header' | 'query'
+  mode: 'auto',                   // 'auto' | 'cookie' | 'header' | 'query'
   credentials: 'include',         // cookie mode: 'include' | 'same-origin' | 'omit'
   tokenHeader: 'X-Session-Token', // header mode
   tokenParam: 'token'             // query mode
@@ -419,10 +423,12 @@ bemap.Context.TILES_AUTH_DEFAULTS = {
  * Normalise a `tilesAuth` value into a fully-defaulted
  * `{ mode, credentials, tokenHeader, tokenParam }`. Mirrors
  * `bemap.Map._resolveControlOptions`: accepts `undefined` (→ defaults), a string
- * shorthand (`'cookie'|'header'|'query'` → that mode + defaults), or a partial
- * object (missing fields filled). An unrecognised `mode` falls back to
- * `'cookie'`. `raw` fields win over `base` fields win over the defaults — so a
+ * shorthand (`'auto'|'cookie'|'header'|'query'` → that mode + defaults), or a
+ * partial object (missing fields filled). An unrecognised `mode` falls back to
+ * `'auto'`. `raw` fields win over `base` fields win over the defaults — so a
  * per-map opt (`raw`) can override a Context config (`base`) field-by-field.
+ * NOTE: this is a PURE normaliser — it may return `mode:'auto'`. The runtime
+ * apply sites resolve `'auto'` → `cookie`/`header` via `_resolveAutoMode`.
  * @public
  * @since 2.0.0
  * @param {Object|String} [raw]
@@ -439,13 +445,77 @@ bemap.Context._resolveTilesAuth = function (raw, base) {
   var b = coerce(base);
   var r = coerce(raw);
   var mode = r.mode || b.mode || D.mode;
-  if (mode !== 'cookie' && mode !== 'header' && mode !== 'query') mode = D.mode;
+  if (mode !== 'auto' && mode !== 'cookie' && mode !== 'header' && mode !== 'query') mode = D.mode;
   return {
     mode: mode,
     credentials: r.credentials || b.credentials || D.credentials,
     tokenHeader: r.tokenHeader || b.tokenHeader || D.tokenHeader,
     tokenParam: r.tokenParam || b.tokenParam || D.tokenParam
   };
+};
+
+/**
+ * Registrable domain of a host — the last two dot-labels (`a.b.benomad.net` →
+ * `benomad.net`; `benomadsas.github.io` → `github.io`; `localhost` → `localhost`).
+ * A deliberately dependency-free heuristic (no Public Suffix List): it is used
+ * ONLY to compare an app origin against `tilesHost`, and the tiles host is always
+ * a normal two-label domain, so a match can only ever mean a genuine same-site
+ * pair (the `*.github.io`-vs-`*.github.io` public-suffix trap cannot arise here).
+ * Accepts a bare host or a full URL; strips scheme / path / query / hash / port.
+ * @private
+ * @param {String} host
+ * @return {String}
+ */
+bemap.Context._regDomain = function (host) {
+  if (!host) return '';
+  host = String(host).toLowerCase()
+    .replace(/^[a-z][a-z0-9+.\-]*:\/\//, '')                    // scheme://
+    .split('/')[0].split('?')[0].split('#')[0].split(':')[0];  // path / query / hash / port
+  var labels = host.split('.').filter(function (p) { return p.length > 0; });
+  return (labels.length <= 2) ? labels.join('.') : labels.slice(-2).join('.');
+};
+
+/**
+ * `true` when `appHost` and `tilesHost` share the same registrable domain — i.e.
+ * the browser treats the tile request as first-party, so the `SameSite=None`
+ * session cookie is sent (works in incognito/Safari/Firefox). Different domains
+ * ⇒ third-party cookie ⇒ blocked ⇒ the caller must carry the token itself.
+ * @public
+ * @since 2.0.0
+ * @param {String} appHost   e.g. `window.location.hostname`
+ * @param {String} tilesHost e.g. `ctx.tilesHost`
+ * @return {Boolean}
+ */
+bemap.Context._sameSite = function (appHost, tilesHost) {
+  var a = bemap.Context._regDomain(appHost);
+  var t = bemap.Context._regDomain(tilesHost);
+  return !!a && !!t && a === t;
+};
+
+/**
+ * Resolve a `mode:'auto'` config to a concrete `cookie` (same-site) or `header`
+ * (cross-site) mode for the current page. A no-op for any explicit mode. Header
+ * is the safe fallback — it works in every browser and deployment — so we only
+ * pick `cookie` on a confident same-site match, never breaking cross-site. This
+ * is the ONE place `'auto'` is turned into a wire mode, called by the fetch
+ * interceptor / `TilesStyle.fetch`. `appHost` defaults to the current
+ * `window.location.hostname` (pass it explicitly in tests / non-browser hosts).
+ * @public
+ * @since 2.0.0
+ * @param {Object} cfg resolved config from `_resolveTilesAuth` (may be `mode:'auto'`)
+ * @param {String} tilesHost
+ * @param {String} [appHost]
+ * @return {Object} `cfg` unchanged, or a clone with a concrete `mode`
+ */
+bemap.Context._resolveAutoMode = function (cfg, tilesHost, appHost) {
+  if (!cfg || cfg.mode !== 'auto') return cfg;
+  if (appHost == null) {
+    appHost = (typeof window !== 'undefined' && window.location && window.location.hostname) || '';
+  }
+  var out = {};
+  for (var k in cfg) { if (Object.prototype.hasOwnProperty.call(cfg, k)) out[k] = cfg[k]; }
+  out.mode = bemap.Context._sameSite(appHost, tilesHost) ? 'cookie' : 'header';
+  return out;
 };
 
 /**
@@ -461,7 +531,9 @@ bemap.Context.prototype.hasTilesConfig = function () {
 
 /**
  * Resolved tile-auth wire config `{ mode, credentials, tokenHeader, tokenParam }`
- * — always fully defaulted (cookie mode when unset). See `this.tilesAuth`.
+ * — fully defaulted; `mode` is `'auto'` when unset (the fetch interceptor and
+ * `TilesStyle.fetch` resolve `'auto'` → `cookie`/`header` per deployment via
+ * `bemap.Context._resolveAutoMode`). See `this.tilesAuth`.
  * @public
  * @since 2.0.0
  * @return {{mode:String, credentials:String, tokenHeader:String, tokenParam:String}}
@@ -19485,11 +19557,20 @@ bemap.TilesAuth = function (ctx, options) {
 
   // Resolved tile-auth wire config `{ mode, credentials, tokenHeader, tokenParam }`.
   // Per-map `options.tilesAuth` overrides the Context's `tilesAuth`, both
-  // normalised (unset ⇒ cookie). Read by the fetch interceptor, transformRequest,
-  // login and logout so the consumer chooses cookie / header / query auth.
+  // normalised (unset ⇒ `mode:'auto'`). Read by the fetch interceptor,
+  // transformRequest, login and logout so the consumer chooses the wire auth.
   this._authConfig = (bemap.Context && bemap.Context._resolveTilesAuth)
     ? bemap.Context._resolveTilesAuth(opts.tilesAuth, ctx && ctx.tilesAuth)
-    : { mode: 'cookie', credentials: 'include', tokenHeader: 'X-Session-Token', tokenParam: 'token' };
+    : { mode: 'header', credentials: 'include', tokenHeader: 'X-Session-Token', tokenParam: 'token' };
+
+  // Turn the default `mode:'auto'` into a concrete wire mode ONCE, here, so every
+  // downstream site (interceptor, transformRequest, login, logout, TilesStyle)
+  // sees a resolved `cookie`/`header`/`query`: same registrable domain as
+  // `tilesHost` ⇒ cookie (first-party, zero preflight); cross-site ⇒ header
+  // (token carried explicitly, works in incognito). Explicit modes pass through.
+  if (bemap.Context && bemap.Context._resolveAutoMode) {
+    this._authConfig = bemap.Context._resolveAutoMode(this._authConfig, ctx && ctx.tilesHost);
+  }
 
   this._storageKey = 'bemap_tiles_token';
   this._storage = this._resolveStorage(ctx && ctx.tokenStorage);
@@ -19560,7 +19641,9 @@ Object.defineProperty(bemap.TilesAuth, '_originalFetch', { get: function () { re
  */
 function _applyTileAuth(input, init, cfg, token) {
   var out = Object.assign({}, init || {});
-  var mode = (cfg && cfg.mode) || 'cookie';
+  // By the time a request reaches here the mode is concrete (the constructor
+  // resolved any `'auto'`); `header` is the safe fallback if a mode ever went missing.
+  var mode = (cfg && cfg.mode) || 'header';
   if (mode === 'header') {
     if (token) {
       var headers = new Headers((init && init.headers) || (input && input.headers) || {});
@@ -19969,7 +20052,7 @@ bemap.TilesAuth.prototype.buildTransformRequest = function () {
     // sprite/XYZ). Default cookie mode sends `credentials` and NO header → no
     // CORS preflight. (pmtiles archive Range reads bypass transformRequest and
     // are handled by the global fetch interceptor.)
-    var cfg = self._authConfig || { mode: 'cookie', credentials: 'include' };
+    var cfg = self._authConfig || { mode: 'header', credentials: 'include', tokenHeader: 'X-Session-Token' };
     if (cfg.mode === 'header') {
       var ht = (typeof self.getToken === 'function') ? self.getToken() : null;
       var headers = {};
@@ -20051,7 +20134,7 @@ bemap.TilesAuth.prototype.logout = function (options) {
       // session: cookie → send credentials (+ the token header as a harmless
       // fallback for a header-keyed Worker); header → the configured header;
       // query → the token on the URL.
-      var acfg = this._authConfig || { mode: 'cookie', credentials: 'include', tokenHeader: 'X-Session-Token', tokenParam: 'token' };
+      var acfg = this._authConfig || { mode: 'header', credentials: 'include', tokenHeader: 'X-Session-Token', tokenParam: 'token' };
       var lurl = url;
       var linit = { method: 'POST' };
       if (acfg.mode === 'query') {
@@ -20151,16 +20234,20 @@ bemap.TilesStyle.fetch = function (ctx, urlOrObject, options) {
       message: 'TilesStyle.fetch: input must be a URL string or a style object'
     }));
   }
-  // On the tiles host, authenticate per the resolved config (default cookie:
-  // credentials:'include', no custom header → no CORS preflight on this style/
-  // glyph JSON fetch). Header/query modes carry the token instead. Other origins
-  // get a plain fetch so nothing leaks cross-origin.
+  // On the tiles host, authenticate per the resolved config. `mode:'auto'` is
+  // resolved here to cookie (same-site: credentials:'include', no header → no
+  // CORS preflight) or header (cross-site: token carried explicitly). Header/query
+  // modes carry the token instead of the cookie. Other origins get a plain fetch
+  // so nothing leaks cross-origin.
   var url = urlOrObject;
   var init = {};
   if (ctx && ctx.tilesHost && urlOrObject.indexOf(ctx.tilesHost) > -1) {
     var cfg = opts.tilesAuth
       || (ctx.getTilesAuth ? ctx.getTilesAuth() : null)
-      || { mode: 'cookie', credentials: 'include' };
+      || { mode: 'header', tokenHeader: 'X-Session-Token' };
+    if (bemap.Context && bemap.Context._resolveAutoMode) {
+      cfg = bemap.Context._resolveAutoMode(cfg, ctx.tilesHost);
+    }
     var token = (typeof opts.getToken === 'function') ? opts.getToken() : null;
     if (cfg.mode === 'header') {
       if (token) { init.headers = {}; init.headers[cfg.tokenHeader || 'X-Session-Token'] = token; }

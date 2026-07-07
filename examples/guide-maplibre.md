@@ -6,7 +6,7 @@ MapLibre GL JS is the BeMap v2.0 **default path**: GPU-rendered vector tiles ser
 
 ## 1. The canonical setup (v2.0 default)
 
-Set `tilesHost` on the Context, then instantiate `bemap.MapLibreMap`. The library does the rest — login, JWT, tile auth (HttpOnly cookie by default), the live default style, and zero-config browser caching (200-slice by default; no Service Worker needed).
+Set `tilesHost` on the Context, then instantiate `bemap.MapLibreMap`. The library does the rest — login, JWT, tile auth (`auto` by default: same-site cookie, cross-site header), the live default style, and zero-config browser caching (200-slice by default; no Service Worker needed).
 
 ```
 {"bemap":{"language":"javascript"}}
@@ -42,7 +42,7 @@ var map = new bemap.MapLibreMap(ctx, 'map1').move(2.3412, 48.85693, 12);
 What happens behind the scenes:
 
 - The Context credentials are POSTed to `https://mptiles-api.benomad.net/api/login` and the resulting JWT is cached.
-- Tile auth rides the Worker's **HttpOnly session cookie** by default (`credentials:'include'`, no custom header → no CORS preflight). Set `tilesAuth:'header'` (or `'query'`) on the Context/options to use the `X-Session-Token` header or `?token=` param instead.
+- Tile auth is **`auto`** by default: same site as `tilesHost` ⇒ cookie (`credentials:'include'`, no preflight), cross-site ⇒ `X-Session-Token` header (works in incognito / Safari / Firefox). Pin `tilesAuth:'cookie'` / `'header'` / `'query'` on the Context/options to force a specific wire.
 - The token is renewed 5 minutes before expiry; on any `401` the next request transparently gets a fresh token.
 - A tiny font-free fallback paints instantly; then the **live default style loads from the Worker after login** (full charte with bilingual place labels + Worker fonts). Update the charte server-side and every app picks it up with no redeploy.
 - Tiles are fetched as cacheable **HTTP 200 slices** (`tilesSliceMode:'200'`, the default) that the **browser HTTP cache stores natively** — repeat visits are free with **no Service Worker**. For classic HTTP Range (`tilesSliceMode:'range'`), `dist/bemap-sw-tiles.js` is auto-registered (copy it to your site root once). See [Browser cache](#page-../docs/browser-cache.md).
@@ -90,7 +90,7 @@ See [Style customisation → Fonts](#page-../docs/style-customisation.md).
 
 ## 2. Override the default style
 
-The default style is the live BeNomad charte loaded from the Worker after login (with a tiny font-free fallback as the instant first paint). If you have your own MapLibre Style JSON (corporate charte, dark mode, day/night theming, …), pass it in `opts.style`. The library still authenticates any URL that points at `ctx.tilesHost` automatically (the HttpOnly cookie by default; the `X-Session-Token` header or `?token=` param if `tilesAuth` is set).
+The default style is the live BeNomad charte loaded from the Worker after login (with a tiny font-free fallback as the instant first paint). If you have your own MapLibre Style JSON (corporate charte, dark mode, day/night theming, …), pass it in `opts.style`. The library still authenticates any URL that points at `ctx.tilesHost` automatically (`auto` by default — same-site cookie, cross-site header; or a pinned `tilesAuth`).
 
 ```
 {"bemap":{"language":"javascript"}}

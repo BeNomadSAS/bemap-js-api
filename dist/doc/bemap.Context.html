@@ -199,7 +199,7 @@
 
 
 <div class="description">
-    Default tile-auth wire config: cookie mode (`credentials:'include'`) — thepreflight-free default. Consumer-supplied fields are merged over these.
+    Default tile-auth wire config: `mode:'auto'` — resolve per deployment atruntime (same registrable domain as `tilesHost` ⇒ `cookie`, else ⇒ `header`),so a new consumer needs NO auth config and never silently breaks cross-site(where a third-party cookie is blocked in incognito/Safari/Firefox).Consumer-supplied fields are merged over these.
 </div>
 
 
@@ -240,7 +240,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line411">line 411</a>
+        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line415">line 415</a>
     </li></ul></dd>
     
 
@@ -777,7 +777,7 @@
 
 
 <div class="description">
-    Tile-auth wire configuration — HOW authenticated requests to `tilesHost`carry their auth. A grouped object`{ mode, credentials, tokenHeader, tokenParam }` (or the shorthand string`'cookie'|'header'|'query'`), normalised by `bemap.Context._resolveTilesAuth`.Unset ⇒ cookie auth (`credentials:'include'`) — the preflight-free default,so existing consumers are unaffected. Read via `getTilesAuth()`;`bemap.MapLibreMap` lets a per-map `tilesAuth` opt override it field-by-field.
+    Tile-auth wire configuration — HOW authenticated requests to `tilesHost`carry their auth. A grouped object`{ mode, credentials, tokenHeader, tokenParam }` (or the shorthand string`'cookie'|'header'|'query'`), normalised by `bemap.Context._resolveTilesAuth`.Unset ⇒ `mode:'auto'` — resolved per deployment (same site as `tilesHost`⇒ cookie, cross-site ⇒ header), so a consumer needs no auth config and neversilently breaks cross-site. Read via `getTilesAuth()`; `bemap.MapLibreMap`lets a per-map `tilesAuth` opt override it field-by-field.
 </div>
 
 
@@ -834,7 +834,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line402">line 402</a>
+        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line403">line 403</a>
     </li></ul></dd>
     
 
@@ -1240,6 +1240,242 @@
     
 
     
+    <h4 class="name" id="._resolveAutoMode"><span class="type-signature">(static) </span>_resolveAutoMode<span class="signature">(cfg, tilesHost, appHost<span class="signature-attributes">opt</span>)</span><span class="type-signature"> &rarr; {Object}</span></h4>
+    
+
+    
+
+
+
+<div class="description">
+    Resolve a `mode:'auto'` config to a concrete `cookie` (same-site) or `header`(cross-site) mode for the current page. A no-op for any explicit mode. Headeris the safe fallback — it works in every browser and deployment — so we onlypick `cookie` on a confident same-site match, never breaking cross-site. Thisis the ONE place `'auto'` is turned into a wire mode, called by the fetchinterceptor / `TilesStyle.fetch`. `appHost` defaults to the current`window.location.hostname` (pass it explicitly in tests / non-browser hosts).
+</div>
+
+
+
+
+
+
+
+
+
+    <h5>Parameters:</h5>
+    
+
+<table class="params">
+    <thead>
+    <tr>
+        
+        <th>Name</th>
+        
+
+        <th>Type</th>
+
+        
+        <th>Attributes</th>
+        
+
+        
+
+        <th class="last">Description</th>
+    </tr>
+    </thead>
+
+    <tbody>
+    
+
+        <tr>
+            
+                <td class="name"><code>cfg</code></td>
+            
+
+            <td class="type">
+            
+                
+<span class="param-type">Object</span>
+
+
+            
+            </td>
+
+            
+                <td class="attributes">
+                
+
+                
+
+                
+                </td>
+            
+
+            
+
+            <td class="description last">resolved config from `_resolveTilesAuth` (may be `mode:'auto'`)</td>
+        </tr>
+
+    
+
+        <tr>
+            
+                <td class="name"><code>tilesHost</code></td>
+            
+
+            <td class="type">
+            
+                
+<span class="param-type">String</span>
+
+
+            
+            </td>
+
+            
+                <td class="attributes">
+                
+
+                
+
+                
+                </td>
+            
+
+            
+
+            <td class="description last"></td>
+        </tr>
+
+    
+
+        <tr>
+            
+                <td class="name"><code>appHost</code></td>
+            
+
+            <td class="type">
+            
+                
+<span class="param-type">String</span>
+
+
+            
+            </td>
+
+            
+                <td class="attributes">
+                
+                    &lt;optional><br>
+                
+
+                
+
+                
+                </td>
+            
+
+            
+
+            <td class="description last"></td>
+        </tr>
+
+    
+    </tbody>
+</table>
+
+
+
+
+
+
+<dl class="details">
+
+    
+
+    
+    <dt class="tag-since">Since:</dt>
+    <dd class="tag-since"><ul class="dummy"><li>2.0.0</li></ul></dd>
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+    <dt class="tag-source">Source:</dt>
+    <dd class="tag-source"><ul class="dummy"><li>
+        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line510">line 510</a>
+    </li></ul></dd>
+    
+
+    
+
+    
+
+    
+</dl>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<h5>Returns:</h5>
+
+        
+<div class="param-desc">
+    `cfg` unchanged, or a clone with a concrete `mode`
+</div>
+
+
+
+<dl>
+    <dt>
+        Type
+    </dt>
+    <dd>
+        
+<span class="param-type">Object</span>
+
+
+    </dd>
+</dl>
+
+    
+
+
+
+
+
+        
+            
+
+    
+
+    
     <h4 class="name" id="._resolveTilesAuth"><span class="type-signature">(static) </span>_resolveTilesAuth<span class="signature">(raw<span class="signature-attributes">opt</span>, base<span class="signature-attributes">opt</span>)</span><span class="type-signature"> &rarr; {Object}</span></h4>
     
 
@@ -1248,7 +1484,7 @@
 
 
 <div class="description">
-    Normalise a `tilesAuth` value into a fully-defaulted`{ mode, credentials, tokenHeader, tokenParam }`. Mirrors`bemap.Map._resolveControlOptions`: accepts `undefined` (→ defaults), a stringshorthand (`'cookie'|'header'|'query'` → that mode + defaults), or a partialobject (missing fields filled). An unrecognised `mode` falls back to`'cookie'`. `raw` fields win over `base` fields win over the defaults — so aper-map opt (`raw`) can override a Context config (`base`) field-by-field.
+    Normalise a `tilesAuth` value into a fully-defaulted`{ mode, credentials, tokenHeader, tokenParam }`. Mirrors`bemap.Map._resolveControlOptions`: accepts `undefined` (→ defaults), a stringshorthand (`'auto'|'cookie'|'header'|'query'` → that mode + defaults), or apartial object (missing fields filled). An unrecognised `mode` falls back to`'auto'`. `raw` fields win over `base` fields win over the defaults — so aper-map opt (`raw`) can override a Context config (`base`) field-by-field.NOTE: this is a PURE normaliser — it may return `mode:'auto'`. The runtimeapply sites resolve `'auto'` → `cookie`/`header` via `_resolveAutoMode`.
 </div>
 
 
@@ -1395,7 +1631,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line432">line 432</a>
+        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line438">line 438</a>
     </li></ul></dd>
     
 
@@ -1432,6 +1668,187 @@
     <dd>
         
 <span class="param-type">Object</span>
+
+
+    </dd>
+</dl>
+
+    
+
+
+
+
+
+        
+            
+
+    
+
+    
+    <h4 class="name" id="._sameSite"><span class="type-signature">(static) </span>_sameSite<span class="signature">(appHost, tilesHost)</span><span class="type-signature"> &rarr; {Boolean}</span></h4>
+    
+
+    
+
+
+
+<div class="description">
+    `true` when `appHost` and `tilesHost` share the same registrable domain — i.e.the browser treats the tile request as first-party, so the `SameSite=None`session cookie is sent (works in incognito/Safari/Firefox). Different domains⇒ third-party cookie ⇒ blocked ⇒ the caller must carry the token itself.
+</div>
+
+
+
+
+
+
+
+
+
+    <h5>Parameters:</h5>
+    
+
+<table class="params">
+    <thead>
+    <tr>
+        
+        <th>Name</th>
+        
+
+        <th>Type</th>
+
+        
+
+        
+
+        <th class="last">Description</th>
+    </tr>
+    </thead>
+
+    <tbody>
+    
+
+        <tr>
+            
+                <td class="name"><code>appHost</code></td>
+            
+
+            <td class="type">
+            
+                
+<span class="param-type">String</span>
+
+
+            
+            </td>
+
+            
+
+            
+
+            <td class="description last">e.g. `window.location.hostname`</td>
+        </tr>
+
+    
+
+        <tr>
+            
+                <td class="name"><code>tilesHost</code></td>
+            
+
+            <td class="type">
+            
+                
+<span class="param-type">String</span>
+
+
+            
+            </td>
+
+            
+
+            
+
+            <td class="description last">e.g. `ctx.tilesHost`</td>
+        </tr>
+
+    
+    </tbody>
+</table>
+
+
+
+
+
+
+<dl class="details">
+
+    
+
+    
+    <dt class="tag-since">Since:</dt>
+    <dd class="tag-since"><ul class="dummy"><li>2.0.0</li></ul></dd>
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+    <dt class="tag-source">Source:</dt>
+    <dd class="tag-source"><ul class="dummy"><li>
+        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line489">line 489</a>
+    </li></ul></dd>
+    
+
+    
+
+    
+
+    
+</dl>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<h5>Returns:</h5>
+
+        
+
+
+<dl>
+    <dt>
+        Type
+    </dt>
+    <dd>
+        
+<span class="param-type">Boolean</span>
 
 
     </dd>
@@ -1501,7 +1918,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line658">line 658</a>
+        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line730">line 730</a>
     </li></ul></dd>
     
 
@@ -1611,7 +2028,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line647">line 647</a>
+        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line719">line 719</a>
     </li></ul></dd>
     
 
@@ -1724,7 +2141,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line639">line 639</a>
+        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line711">line 711</a>
     </li></ul></dd>
     
 
@@ -1833,7 +2250,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line684">line 684</a>
+        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line756">line 756</a>
     </li></ul></dd>
     
 
@@ -1899,7 +2316,7 @@
 
 
 <div class="description">
-    Resolved tile-auth wire config `{ mode, credentials, tokenHeader, tokenParam }`— always fully defaulted (cookie mode when unset). See `this.tilesAuth`.
+    Resolved tile-auth wire config `{ mode, credentials, tokenHeader, tokenParam }`— fully defaulted; `mode` is `'auto'` when unset (the fetch interceptor and`TilesStyle.fetch` resolve `'auto'` → `cookie`/`header` per deployment via`bemap.Context._resolveAutoMode`). See `this.tilesAuth`.
 </div>
 
 
@@ -1946,7 +2363,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line469">line 469</a>
+        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line541">line 541</a>
     </li></ul></dd>
     
 
@@ -2055,7 +2472,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line480">line 480</a>
+        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line552">line 552</a>
     </li></ul></dd>
     
 
@@ -2167,7 +2584,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line550">line 550</a>
+        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line622">line 622</a>
     </li></ul></dd>
     
 
@@ -2279,7 +2696,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line584">line 584</a>
+        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line656">line 656</a>
     </li></ul></dd>
     
 
@@ -2452,7 +2869,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line597">line 597</a>
+        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line669">line 669</a>
     </li></ul></dd>
     
 
@@ -2564,7 +2981,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line491">line 491</a>
+        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line563">line 563</a>
     </li></ul></dd>
     
 
@@ -2676,7 +3093,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line513">line 513</a>
+        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line585">line 585</a>
     </li></ul></dd>
     
 
@@ -2788,7 +3205,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line525">line 525</a>
+        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line597">line 597</a>
     </li></ul></dd>
     
 
@@ -2900,7 +3317,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line502">line 502</a>
+        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line574">line 574</a>
     </li></ul></dd>
     
 
@@ -3012,7 +3429,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line537">line 537</a>
+        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line609">line 609</a>
     </li></ul></dd>
     
 
@@ -3173,7 +3590,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line568">line 568</a>
+        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line640">line 640</a>
     </li></ul></dd>
     
 
@@ -3285,7 +3702,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line458">line 458</a>
+        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line528">line 528</a>
     </li></ul></dd>
     
 
@@ -3391,7 +3808,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line676">line 676</a>
+        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line748">line 748</a>
     </li></ul></dd>
     
 
@@ -3550,7 +3967,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line692">line 692</a>
+        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line764">line 764</a>
     </li></ul></dd>
     
 
@@ -3702,7 +4119,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line625">line 625</a>
+        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line697">line 697</a>
     </li></ul></dd>
     
 
@@ -3808,7 +4225,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line668">line 668</a>
+        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line740">line 740</a>
     </li></ul></dd>
     
 
@@ -3860,7 +4277,7 @@
 <br class="clear">
 
 <footer>
-    Documentation generated by <a href="https://github.com/jsdoc/jsdoc">JSDoc 3.6.3</a> on Mon Jul 06 2026 15:00:38 GMT+0200 (heure d’été d’Europe centrale)
+    Documentation generated by <a href="https://github.com/jsdoc/jsdoc">JSDoc 3.6.3</a> on Tue Jul 07 2026 09:27:18 GMT+0200 (heure d’été d’Europe centrale)
 </footer>
 
 <script> prettyPrint(); </script>

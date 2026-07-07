@@ -72,10 +72,10 @@ inside `MapLibreMap.defaultLayers()` when `ctx.tilesHost` is set: the
 background is supplied by the BeNomad Tiles vector charte instead (a tiny
 font-free fallback first, then the live charte loaded from the Worker).
 
-**Auth** rides the Worker's HttpOnly session cookie by default
-(`credentials:'include'`, no custom header → no CORS preflight); switch to
-the `X-Session-Token` header or `?token=` query with the `tilesAuth`
-option (`'cookie'` | `'header'` | `'query'`). To keep credentials
+**Auth** is `auto` by default: same site as `tilesHost` ⇒ cookie (no
+preflight), cross-site ⇒ `X-Session-Token` header (incognito-safe) — so no
+auth config is needed. Pin a specific wire with the `tilesAuth` option
+(`'auto'` | `'cookie'` | `'header'` | `'query'`). To keep credentials
 server-side, use `tilesTokenProvider` instead of `login`/`password` — see
 [Backend token provider](integration-tiles-token-provider.md).
 

@@ -197,18 +197,19 @@ covers every PMTiles fetch on the page.
 
 ## Tile auth — pick your wire mechanism (`tilesAuth`)
 
-By **default** browser tile auth rides the Worker's **HttpOnly session
-cookie** (`credentials: 'include'`, no header → no CORS preflight — see
-below). You can change this per Context (or override per map) with a
-`tilesAuth` config, e.g. when a cross-site `SameSite=None` cookie is
-blocked (Safari ITP / Firefox TCP / Chrome tracking-protection) or your
-Worker isn't set up for credentialed CORS:
+By **default** browser tile auth is **`auto`**: the SDK compares the app's
+origin with `tilesHost` and picks the right wire mechanism per deployment —
+**same site ⇒ cookie** (first-party HttpOnly session cookie, zero preflight);
+**cross-site ⇒ header** (`X-Session-Token`, works in incognito / Safari /
+Firefox, where a third-party cookie is blocked). A new consumer needs **no**
+auth config and it never silently breaks cross-site. You can still pin the
+wire mechanism per Context (or override per map) with a `tilesAuth` config:
 
 ```js
 new bemap.Context({
   tilesHost: 'tiles.example.net',
   tilesAuth: {
-    mode: 'cookie',                 // 'cookie' (default) | 'header' | 'query'
+    mode: 'auto',                   // 'auto' (default) | 'cookie' | 'header' | 'query'
     credentials: 'include',         // cookie mode: 'include' | 'same-origin' | 'omit'
     tokenHeader: 'X-Session-Token', // header mode
     tokenParam: 'token'             // query mode
@@ -221,16 +222,17 @@ new bemap.MapLibreMap(ctx, 'map', { tilesAuth: { mode: 'query' } }); // per-map 
 
 | `mode` | How tile/style requests authenticate |
 | --- | --- |
-| `cookie` *(default)* | `credentials: <credentials>`; no header, no query → **no CORS preflight**. Needs cookie-capable Worker CORS (below). |
-| `header` | `<tokenHeader>: <jwt>` on each request. Works without cookies, but a custom header forces a CORS preflight per request. |
-| `query` | `?<tokenParam>=<jwt>` on the URL. No header/cookie; the SW strips it from the cache key so caching still works. |
+| `auto` *(default)* | Resolve at runtime: **same registrable domain** as `tilesHost` ⇒ `cookie`; **cross-site** ⇒ `header`. Zero config, never breaks cross-site. |
+| `cookie` | `credentials: <credentials>`; no header, no query → **no CORS preflight**. First-party only — a cross-site `SameSite=None` cookie is blocked in incognito / Safari / Firefox. Needs cookie-capable Worker CORS (below). |
+| `header` | `<tokenHeader>: <jwt>` on each request. Works without cookies (incognito-safe). Preflight cost is **path-dependent**: on the Range+`no-store` path a custom header preflights *every* request; on the **200-slice** path (the default) it is one cheap `OPTIONS` the first time each slice URL is seen, cached 24h by `Access-Control-Max-Age` — no per-request storm. |
+| `query` | `?<tokenParam>=<jwt>` on the URL. No header/cookie → no preflight, incognito-safe; the Worker keeps the token out of its edge cache key. Cost: token in the URL, and the browser cache refills on token rotation (~daily). |
 
 Applies uniformly to the pmtiles Range interceptor, MapLibre's
 `transformRequest` (style/glyph/sprite/XYZ), `TilesStyle.fetch`, and
-`login`/`logout`. Unset ⇒ cookie. `rangeCacheMode` is a separate option
+`login`/`logout`. Unset ⇒ `auto`. `rangeCacheMode` is a separate option
 (cache behaviour, not auth) and is unchanged.
 
-### Cookie mode details (the default)
+### Cookie mode details (auto-selected same-site)
 
 `bemap.TilesAuth` sends `credentials: 'include'` on
 tile requests (both the global `fetch` interceptor that pmtiles Range
@@ -258,12 +260,13 @@ request fires.
   `Access-Control-Allow-Origin` that **echoes the exact request Origin**
   (never `*` — credentialed responses with `*` are rejected by the
   browser and the tile is dropped).
-- `SameSite=None; Secure` is a **cross-site** cookie. In a third-party
-  context (app origin ≠ tiles origin) it is subject to Safari ITP, Firefox
-  Total Cookie Protection, and Chrome tracking-protection blocking. Prefer
-  deploying the tiles host as a **first-party subdomain** of the app so
-  the cookie is same-site. If the cookie is blocked, tiles `401` — surface
-  a clear auth error rather than silently rendering holes.
+- Cookie mode is **first-party only**. `SameSite=None; Secure` cookies are
+  blocked in a third-party context (app site ≠ tiles site) by Safari ITP,
+  Firefox Total Cookie Protection, and Chrome incognito / tracking-protection.
+  This is exactly why the **`auto`** default falls to `header` cross-site — so
+  you only ever land on cookie mode where it is genuinely same-site. If you
+  *pin* `mode:'cookie'` on a cross-site app it will `401` in those browsers;
+  use `auto` (or `header`) there instead.
 - Login and logout still send `Authorization: Basic` / `X-Session-Token`,
   so they preflight **once per session** (not per tile) — the Worker
   `OPTIONS` must list those headers, echo the Origin, and set

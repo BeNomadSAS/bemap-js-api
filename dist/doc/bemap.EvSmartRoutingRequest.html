@@ -52,10 +52,13 @@
 <div class="description">
     BeNomad BeMap JavaScript API - EvSmartRoutingRequest (v1.5)
 
-Strongly-typed request builder for `POST service/evsmartrouting/1.0`.
+Strongly-typed request builder. `toJson()` emits the REST **v1.0** body
+(`POST service/evsmartrouting/1.0`); `toJsonV2()` emits the REST **v2.0.0**
+body (`POST service/2.0/evsmartrouting`).
 
-Wire shape cross-checked against the BeMap server contract in
-`bemap_idea/.../service/v1_0_0/model/evSmartRouting/request/EvSmartRoutingRequest.java`.
+Wire shapes cross-checked against the BeMap server contracts in
+`bemap_idea/.../service/v1_0_0/model/evSmartRouting/request/EvSmartRoutingRequest.java`
+and `.../service/v2_0_0/model/evSmartRouting/request/EvSmartRoutingRequest.java`.
 
 The server requires:
   - `startLon`, `startLat`, `stopLon`, `stopLat` (decimal degrees, WGS84)
@@ -1657,6 +1660,275 @@ Example:
         </tr>
 
     
+
+        <tr>
+            
+                <td class="name"><code>chargingStationFiltersVersion</code></td>
+            
+
+            <td class="type">
+            
+                
+<span class="param-type">Number</span>
+
+
+            
+            </td>
+
+            
+                <td class="attributes">
+                
+                    &lt;optional><br>
+                
+
+                
+
+                
+                </td>
+            
+
+            
+                <td class="default">
+                
+                </td>
+            
+
+            <td class="description last">(v2) Charging-station filter logic version (1|2).</td>
+        </tr>
+
+    
+
+        <tr>
+            
+                <td class="name"><code>tariffChargePassHashIds</code></td>
+            
+
+            <td class="type">
+            
+                
+<span class="param-type">Array.&lt;String></span>
+
+
+            
+            </td>
+
+            
+                <td class="attributes">
+                
+                    &lt;optional><br>
+                
+
+                
+
+                
+                </td>
+            
+
+            
+                <td class="default">
+                
+                </td>
+            
+
+            <td class="description last">(v2) Eligible charge-pass hash IDs.</td>
+        </tr>
+
+    
+
+        <tr>
+            
+                <td class="name"><code>tollCost</code></td>
+            
+
+            <td class="type">
+            
+                
+<span class="param-type">Boolean</span>
+
+
+            
+            </td>
+
+            
+                <td class="attributes">
+                
+                    &lt;optional><br>
+                
+
+                
+
+                
+                </td>
+            
+
+            
+                <td class="default">
+                
+                    false
+                
+                </td>
+            
+
+            <td class="description last">(v2) Enable toll-cost calculation + toll events.</td>
+        </tr>
+
+    
+
+        <tr>
+            
+                <td class="name"><code>routesheet</code></td>
+            
+
+            <td class="type">
+            
+                
+<span class="param-type">Boolean</span>
+
+
+            
+            </td>
+
+            
+                <td class="attributes">
+                
+                    &lt;optional><br>
+                
+
+                
+
+                
+                </td>
+            
+
+            
+                <td class="default">
+                
+                    false
+                
+                </td>
+            
+
+            <td class="description last">(v2) Enable the route-sheet.</td>
+        </tr>
+
+    
+
+        <tr>
+            
+                <td class="name"><code>routesheetLanguage</code></td>
+            
+
+            <td class="type">
+            
+                
+<span class="param-type">String</span>
+
+
+            
+            </td>
+
+            
+                <td class="attributes">
+                
+                    &lt;optional><br>
+                
+
+                
+
+                
+                </td>
+            
+
+            
+                <td class="default">
+                
+                </td>
+            
+
+            <td class="description last">(v2) Route-sheet language.</td>
+        </tr>
+
+    
+
+        <tr>
+            
+                <td class="name"><code>routesheetMode</code></td>
+            
+
+            <td class="type">
+            
+                
+<span class="param-type">String</span>
+
+
+            
+            </td>
+
+            
+                <td class="attributes">
+                
+                    &lt;optional><br>
+                
+
+                
+
+                
+                </td>
+            
+
+            
+                <td class="default">
+                
+                </td>
+            
+
+            <td class="description last">(v2) Route-sheet mode: `TEXT`|`DETAILS`|`TEXT_DETAILS`.</td>
+        </tr>
+
+    
+
+        <tr>
+            
+                <td class="name"><code>routesheetVerboseLevel</code></td>
+            
+
+            <td class="type">
+            
+                
+<span class="param-type">String</span>
+
+
+            
+            </td>
+
+            
+                <td class="attributes">
+                
+                    &lt;optional><br>
+                
+
+                
+
+                
+                </td>
+            
+
+            
+                <td class="default">
+                
+                </td>
+            
+
+            <td class="description last">(v2) Route-sheet verbosity: `LOW`|`MEDIUM`|`HIGH`.
+
+NOTE ON VERSIONS: the same public options serialise to either wire shape —
+`toJson()` builds the REST **v1.0** body (flat), `toJsonV2()` builds the REST
+**v2.0.0** body (nested `vehicle`/`start`/`stop`/`vias`/`condition`).
+`bemap.EvSmartRouting.calculate()` uses `toJsonV2()`; the `(v2)` options above
+are honoured only by `toJsonV2()`.</td>
+        </tr>
+
+    
     </tbody>
 </table>
 
@@ -1704,7 +1976,7 @@ Example:
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-services-v2_ev-routing_bemap-ev-smart-routing-request.js.html">bemap-services-v2/ev-routing/bemap-ev-smart-routing-request.js</a>, <a href="bemap-services-v2_ev-routing_bemap-ev-smart-routing-request.js.html#line91">line 91</a>
+        <a href="bemap-services-v2_ev-routing_bemap-ev-smart-routing-request.js.html">bemap-services-v2/ev-routing/bemap-ev-smart-routing-request.js</a>, <a href="bemap-services-v2_ev-routing_bemap-ev-smart-routing-request.js.html#line107">line 107</a>
     </li></ul></dd>
     
 
@@ -1813,7 +2085,121 @@ payload stays minimal.
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-services-v2_ev-routing_bemap-ev-smart-routing-request.js.html">bemap-services-v2/ev-routing/bemap-ev-smart-routing-request.js</a>, <a href="bemap-services-v2_ev-routing_bemap-ev-smart-routing-request.js.html#line172">line 172</a>
+        <a href="bemap-services-v2_ev-routing_bemap-ev-smart-routing-request.js.html">bemap-services-v2/ev-routing/bemap-ev-smart-routing-request.js</a>, <a href="bemap-services-v2_ev-routing_bemap-ev-smart-routing-request.js.html#line198">line 198</a>
+    </li></ul></dd>
+    
+
+    
+
+    
+
+    
+</dl>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<h5>Returns:</h5>
+
+        
+
+
+<dl>
+    <dt>
+        Type
+    </dt>
+    <dd>
+        
+<span class="param-type">Object</span>
+
+
+    </dd>
+</dl>
+
+    
+
+
+
+
+
+        
+            
+
+    
+
+    
+    <h4 class="name" id="toJsonV2"><span class="type-signature"></span>toJsonV2<span class="signature">()</span><span class="type-signature"> &rarr; {Object}</span></h4>
+    
+
+    
+
+
+
+<div class="description">
+    Build the REST **v2.0.0** wire-format body for `POST service/2.0/evsmartrouting`.
+
+Same public options as `toJson()` (v1) — only the wire SHAPE differs: v2 nests
+`vehicle{key,initBatLvl,payload}`, `start`/`stop`/`vias` as `{lon,lat}` places,
+and most trip options inside `condition{}` (with the v2 key names). Drops
+null / default fields. The v1 `toJson()` above is left untouched.
+</div>
+
+
+
+
+
+
+
+
+
+
+
+
+
+<dl class="details">
+
+    
+
+    
+    <dt class="tag-since">Since:</dt>
+    <dd class="tag-since"><ul class="dummy"><li>2.0.0</li></ul></dd>
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+    <dt class="tag-source">Source:</dt>
+    <dd class="tag-source"><ul class="dummy"><li>
+        <a href="bemap-services-v2_ev-routing_bemap-ev-smart-routing-request.js.html">bemap-services-v2/ev-routing/bemap-ev-smart-routing-request.js</a>, <a href="bemap-services-v2_ev-routing_bemap-ev-smart-routing-request.js.html#line296">line 296</a>
     </li></ul></dd>
     
 
@@ -1883,7 +2269,7 @@ payload stays minimal.
 <br class="clear">
 
 <footer>
-    Documentation generated by <a href="https://github.com/jsdoc/jsdoc">JSDoc 3.6.3</a> on Tue Jul 07 2026 09:27:18 GMT+0200 (heure d’été d’Europe centrale)
+    Documentation generated by <a href="https://github.com/jsdoc/jsdoc">JSDoc 3.6.3</a> on Wed Jul 08 2026 16:03:31 GMT+0200 (heure d’été d’Europe centrale)
 </footer>
 
 <script> prettyPrint(); </script>

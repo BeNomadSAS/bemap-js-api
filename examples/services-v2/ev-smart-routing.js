@@ -2,11 +2,11 @@
  * EV Smart Routing v2 demo — bemap.EvSmartRouting.
  *
  * 1st map click → start point. 2nd map click → stop point. Hit Calculate.
- * The demo calls `POST service/evsmartrouting/1.0` with the configured
- * EV and the active CSP from the sidebar.
+ * The demo calls `POST service/2.0/evsmartrouting` (REST v2.0.0) with the
+ * configured EV and the active CSP from the sidebar.
  *
  * Server contract cross-checked against
- * `bemap_idea/.../service/v1_0_0/EvSmartRoutingController.java`.
+ * `bemap_idea/.../service/v2_0_0/controller/EvSmartRoutingV2Controller.java`.
  */
 (function() {
 
@@ -258,7 +258,7 @@
             co2Emissions: true
         });
 
-        setStatus('Calling /service/evsmartrouting/1.0 ...');
+        setStatus('Calling /service/2.0/evsmartrouting ...');
 
         router.calculate(req).then(function(response) {
             snippet.setResponse(response);

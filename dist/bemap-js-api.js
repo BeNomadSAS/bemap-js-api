@@ -3247,11 +3247,22 @@ bemap.OlMap.prototype._addOwnToProperties = function (bemapObject) {
  * @return {Object} a bemap object like bemap.marker, bemap.multimarker or bemap.polyline.
  */
 bemap.OlMap.prototype._getOwnFromProperties = function (olObject) {
+  if (!olObject || typeof olObject.getProperties !== 'function') return undefined;
   var props = olObject.getProperties();
+  if (!props) return undefined;
   var ownRef = props[bemap.Map.OWNREF];
   if (ownRef === undefined) {
-    props = props.features[0].getProperties();
-    ownRef = props[bemap.Map.OWNREF];
+    // Cluster-source fallback: ol.source.Cluster exposes wrapped features as a
+    // `.features` array on the cluster feature's properties. If neither OWNREF
+    // nor a non-empty `.features` is present, this is a non-bemap feature (a
+    // draw-interaction sketch, a modify-vertex handle, or a third-party layer
+    // feature) — return undefined instead of dereferencing `features[0]` and
+    // crashing on pointer events (PMT-53).
+    if (props.features && props.features.length > 0
+        && typeof props.features[0].getProperties === 'function') {
+      var inner = props.features[0].getProperties();
+      ownRef = inner ? inner[bemap.Map.OWNREF] : undefined;
+    }
   }
   return ownRef;
 };
@@ -5717,9 +5728,18 @@ bemap.MapLibreMap = function(context, target, options) {
     this._setupTilesAuth(opts.tiles, opts.tilesToken, opts.tilesTokenHeader || 'X-Session-Token');
   }
 
-  // Apply globe projection request before construction so the first style
-  // load picks it up (MapLibre v5 reads `projection` off the style).
-  if (opts.projection === 'globe' && style && typeof style === 'object') {
+  // Projection is SDK-owned: the default is `mercator` (north-up, flat — the
+  // cross-engine contract; OpenLayers/Leaflet are mercator-only) and `globe`
+  // is opt-in only. Track the developer's choice so a *server* style that
+  // carries its own root `projection` can't silently switch it after load —
+  // MapLibre v5 applies a stylesheet's `projection` on every setStyle, and a
+  // globe curves the view at low zoom, reading as a map "at the wrong angle".
+  // This mirrors how the SDK already ignores a style's own `sources`
+  // (see bemap.TilesStyle.resolvePlaceholders). Re-asserted after each style
+  // swap via _applyDesiredProjection().
+  this._desiredProjection = (opts.projection === 'globe') ? 'globe' : 'mercator';
+  // Seed the FIRST style so the initial paint already matches the request.
+  if (this._desiredProjection === 'globe' && style && typeof style === 'object') {
     style.projection = { type: 'globe' };
   }
 
@@ -5790,6 +5810,7 @@ bemap.MapLibreMap = function(context, target, options) {
       try { _roSelf.native.setCenter(_roSelf.native.getCenter()); } catch (e) {}
     }
   });
+  this._observeTargetResize(target);
 
   // Browser-cache wiring — opts.browserCache (true | false | 'auto', default 'auto').
   //
@@ -5996,6 +6017,78 @@ bemap.MapLibreMap = function(context, target, options) {
   }
 };
 bemap.inherits(bemap.MapLibreMap, bemap.Map);
+
+/**
+ * MapLibre-only container-size self-healing.
+ *
+ * The broken cases here are not OpenLayers cases: MapLibre can latch its canvas
+ * size while an iframe/flex/tab layout is still settling. Window resize does
+ * not fire for those parent/container-only changes, so observe this map's
+ * target and call the MapLibre resize path directly.
+ * @private
+ */
+bemap.MapLibreMap.prototype._observeTargetResize = function (target) {
+  if (typeof ResizeObserver !== 'function') return this;
+
+  var el = target || this.target;
+  if (typeof el === 'string') {
+    if (typeof document === 'undefined') return this;
+    el = document.getElementById(el);
+  }
+  if (!el || el.nodeType !== 1) return this;
+
+  this._disconnectTargetResizeObserver();
+
+  var self = this;
+  var token = {};
+  var scheduled = false;
+  this._targetResizeObserverToken = token;
+
+  var run = function () {
+    scheduled = false;
+    if (self._targetResizeObserverToken !== token || !self.native) return;
+    try { self.refresh(); } catch (e) { /* map may be torn down */ }
+  };
+
+  var schedule = function () {
+    if (self._targetResizeObserverToken !== token || scheduled) return;
+    scheduled = true;
+    if (typeof requestAnimationFrame === 'function') requestAnimationFrame(run);
+    else setTimeout(run, 0);
+  };
+
+  try {
+    this._targetResizeObserver = new ResizeObserver(schedule);
+    this._targetResizeObserver.observe(el);
+
+    // First render in the dashboard iframe/flex layout can settle just after
+    // construction. These kicks cover initial frame, post-layout frame, and
+    // short delayed iframe layout without requiring page-level hacks.
+    schedule();
+    if (typeof requestAnimationFrame === 'function') {
+      requestAnimationFrame(function () { requestAnimationFrame(schedule); });
+    } else {
+      setTimeout(schedule, 0);
+    }
+    setTimeout(schedule, 100);
+    setTimeout(schedule, 500);
+  } catch (e) {
+    this._targetResizeObserver = null;
+    this._targetResizeObserverToken = null;
+  }
+
+  return this;
+};
+
+/** @private */
+bemap.MapLibreMap.prototype._disconnectTargetResizeObserver = function () {
+  this._targetResizeObserverToken = null;
+  if (this._targetResizeObserver) {
+    try { this._targetResizeObserver.disconnect(); } catch (e) {}
+    this._targetResizeObserver = null;
+  }
+  return this;
+};
 
 /**
  * Toggle keyboard navigation (arrow-pan + `=`/`-` zoom + `Shift+arrow`
@@ -6626,6 +6719,7 @@ bemap.MapLibreMap.prototype.loadPMTiles = function(layer, callback) {
     if (callback) {
       _this.native.once('style.load', function() { callback(_this); });
     }
+    _this._normalizeStyleProjection(style);   // SDK owns projection, not the style
 
     _this.native.setStyle(style);
     _this._hasCustomStyle = true;
@@ -6890,10 +6984,12 @@ bemap.MapLibreMap.prototype.loadBeMapTiles = function(options) {
   }
 
   var doLoad = function(token) {
-    // Register service worker for tile caching (cache-first for PMTiles range requests)
-    if ('serviceWorker' in navigator && opts.cache !== false) {
-      navigator.serviceWorker.register('sw-tiles.js').catch(function() {});
-    }
+    // Tile caching is owned by bemap.BrowserCache (the tile Service Worker,
+    // gated by opts.serviceWorker/browserCache and auto-off under 200-slice) — not
+    // here. The old inline `navigator.serviceWorker.register('sw-tiles.js')` was
+    // removed (PMT-26): that filename was wrong (real file: bemap-sw-tiles.js) and
+    // path-less, so it always 404'd — "A bad HTTP response code (404) was received
+    // when fetching the script." — with no functional effect.
 
     var tiles = new bemap.PMTilesLayer({
       url: tilesApi + '/' + tilesFile,
@@ -7538,6 +7634,9 @@ bemap.MapLibreMap.prototype.removeTerrain = function() {
 };
 
 bemap.MapLibreMap.prototype.setProjection = function(type) {
+  // Remember the explicit choice so it survives later style swaps (the server
+  // default-style refresh, a customer setStyle, etc.) — see _applyDesiredProjection.
+  this._desiredProjection = (type === 'globe') ? 'globe' : 'mercator';
   try { this.native.setProjection({ type: type }); } catch(e) {}
   var self = this;
   // Only register the 'globe' state as an effect — mercator is the
@@ -7550,6 +7649,42 @@ bemap.MapLibreMap.prototype.setProjection = function(type) {
     }
   }
   return this;
+};
+
+/**
+ * Force a style object's root `projection` to the SDK-owned value
+ * (`this._desiredProjection`, default `mercator`; `globe` only when the
+ * developer opted in via `opts.projection` / `setProjection`). Called
+ * synchronously on every style spec before it reaches `native.setStyle`.
+ *
+ * MapLibre v5 applies a style's root `projection` on BOTH a full load AND a
+ * diff update (the diff emits `setProjection`, unlike camera keys which it
+ * skips), so a server/charte style shipping `"projection":{"type":"globe"}`
+ * would otherwise silently switch the map to a globe — which curves the view
+ * at low zoom and reads as a map "at the wrong angle". Overwriting the key
+ * here (rather than in a post-load event) is deterministic: it works for the
+ * diff path, where neither `style.load` nor `idle` reliably fires. Mirrors how
+ * the SDK already ignores a style's own `sources` (TilesStyle.resolvePlaceholders).
+ * @private
+ */
+bemap.MapLibreMap.prototype._normalizeStyleProjection = function(style) {
+  if (style && typeof style === 'object') {
+    var want = this._desiredProjection || 'mercator';
+    var declared = style.projection && style.projection.type;
+    // One-time, per-map heads-up when we actually override a projection the
+    // style asked for (e.g. a server charte shipping globe) — confirms the
+    // source of a "wrong angle" and points at the opt-in.
+    if (declared && declared !== want && !this._projectionOverrideNoted) {
+      this._projectionOverrideNoted = true;
+      if (typeof console !== 'undefined' && console.info) {
+        console.info("bemap.MapLibreMap: style requested projection '" + declared +
+          "' — kept the SDK default '" + want + "'. Call map.setProjection('" + declared +
+          "') to opt in.");
+      }
+    }
+    style.projection = { type: want };
+  }
+  return style;
 };
 
 bemap.MapLibreMap.prototype.setSky = function(options) {
@@ -7742,6 +7877,7 @@ bemap.MapLibreMap.prototype.setStyle = function (urlOrObject, options) {
         bemap.TilesStyle.hardenSymbolCollisions(resolved);
       } catch (e) { resolved = urlOrObject; }
     }
+    this._normalizeStyleProjection(resolved);   // SDK owns projection, not the style
     this._currentStyleSpec = resolved;
     // Flag the in-flight setStyle so _whenStyleReady can refuse the fast
     // path (isStyleLoaded() returns true for the OLD style during the gap).
@@ -7780,6 +7916,7 @@ bemap.MapLibreMap.prototype.setStyle = function (urlOrObject, options) {
       .then(function (style) {
         bemap.TilesStyle.resolvePlaceholders(style, self.ctx, tilesFile);
         bemap.TilesStyle.hardenSymbolCollisions(style);
+        self._normalizeStyleProjection(style);   // SDK owns projection, not the style
         self._currentStyleSpec = style;
         self._setStyleInFlight = true;
         self.native.setStyle(style);
@@ -7991,6 +8128,7 @@ bemap.MapLibreMap.prototype.remove = function () {
   try { if (this._tilesAuth) this._tilesAuth.destroy(); } catch (e) {}
   try { if (this._browserCache) this._browserCache.destroy(); } catch (e) {}
   try { if (this._overlayCatalog) this._overlayCatalog.clear(); } catch (e) {}
+  try { this._disconnectTargetResizeObserver(); } catch (e) {}
   this.stopSpinGlobe();
   if (typeof _origRemoveMapLibre === 'function') return _origRemoveMapLibre.apply(this, arguments);
   if (this.native && typeof this.native.remove === 'function') this.native.remove();
@@ -17649,7 +17787,12 @@ bemap.MapLibreMap.prototype._startDraw = function(type, options, callback) {
     var vertexFeatures = lngLats.map(function(ll) {
       return { type: 'Feature', geometry: { type: 'Point', coordinates: ll } };
     });
-    _this.native.getSource(vertexLayerId + '-src').setData({ type: 'FeatureCollection', features: vertexFeatures });
+    // The preview sources can be gone when this runs — a style reload (the server
+    // charte loads async after login) drops all sources, and the click handler is
+    // setTimeout-deferred so it may fire after cleanup. Guard before setData().
+    var _vSrc = _this.native.getSource(vertexLayerId + '-src');
+    if (!_vSrc) return;
+    _vSrc.setData({ type: 'FeatureCollection', features: vertexFeatures });
 
     // Main shape
     var data;
@@ -17666,7 +17809,8 @@ bemap.MapLibreMap.prototype._startDraw = function(type, options, callback) {
     } else {
       data = emptyGeoJson;
     }
-    _this.native.getSource(sourceId).setData(data.type === 'FeatureCollection' ? data : { type: 'FeatureCollection', features: [data] });
+    var _mSrc = _this.native.getSource(sourceId);
+    if (_mSrc) _mSrc.setData(data.type === 'FeatureCollection' ? data : { type: 'FeatureCollection', features: [data] });
   };
 
   // Mouse move → rubber-band line from last vertex to cursor
@@ -17674,7 +17818,8 @@ bemap.MapLibreMap.prototype._startDraw = function(type, options, callback) {
     if (coords.length === 0) return;
     var last = [coords[coords.length - 1].getLon(), coords[coords.length - 1].getLat()];
     var cursor = [e.lngLat.lng, e.lngLat.lat];
-    _this.native.getSource(rubberLineId + '-src').setData({
+    var _rSrc = _this.native.getSource(rubberLineId + '-src');
+    if (_rSrc) _rSrc.setData({
       type: 'Feature', geometry: { type: 'LineString', coordinates: [last, cursor] }
     });
   };
@@ -23521,10 +23666,13 @@ bemap.ChargingStations.prototype.getConnectorTypes = function(options) {
 /**
  * BeNomad BeMap JavaScript API - EvSmartRoutingRequest (v1.5)
  *
- * Strongly-typed request builder for `POST service/evsmartrouting/1.0`.
+ * Strongly-typed request builder. `toJson()` emits the REST **v1.0** body
+ * (`POST service/evsmartrouting/1.0`); `toJsonV2()` emits the REST **v2.0.0**
+ * body (`POST service/2.0/evsmartrouting`).
  *
- * Wire shape cross-checked against the BeMap server contract in
- * `bemap_idea/.../service/v1_0_0/model/evSmartRouting/request/EvSmartRoutingRequest.java`.
+ * Wire shapes cross-checked against the BeMap server contracts in
+ * `bemap_idea/.../service/v1_0_0/model/evSmartRouting/request/EvSmartRoutingRequest.java`
+ * and `.../service/v2_0_0/model/evSmartRouting/request/EvSmartRoutingRequest.java`.
  *
  * The server requires:
  *   - `startLon`, `startLat`, `stopLon`, `stopLat` (decimal degrees, WGS84)
@@ -23607,6 +23755,19 @@ bemap.ChargingStations.prototype.getConnectorTypes = function(options) {
  * @param {Boolean} [options.ignoreStatus=false]  Ignore charging-station availability status.
  * @param {String} [options.evtExtKey]         Extended route-timeline key (requires events:true).
  * @param {String} [options.geoserver]         Override the Context geoserver.
+ * @param {Number} [options.chargingStationFiltersVersion] (v2) Charging-station filter logic version (1|2).
+ * @param {Array.<String>} [options.tariffChargePassHashIds] (v2) Eligible charge-pass hash IDs.
+ * @param {Boolean} [options.tollCost=false]   (v2) Enable toll-cost calculation + toll events.
+ * @param {Boolean} [options.routesheet=false] (v2) Enable the route-sheet.
+ * @param {String} [options.routesheetLanguage] (v2) Route-sheet language.
+ * @param {String} [options.routesheetMode]     (v2) Route-sheet mode: `TEXT`|`DETAILS`|`TEXT_DETAILS`.
+ * @param {String} [options.routesheetVerboseLevel] (v2) Route-sheet verbosity: `LOW`|`MEDIUM`|`HIGH`.
+ *
+ * NOTE ON VERSIONS: the same public options serialise to either wire shape —
+ * `toJson()` builds the REST **v1.0** body (flat), `toJsonV2()` builds the REST
+ * **v2.0.0** body (nested `vehicle`/`start`/`stop`/`vias`/`condition`).
+ * `bemap.EvSmartRouting.calculate()` uses `toJsonV2()`; the `(v2)` options above
+ * are honoured only by `toJsonV2()`.
  */
 bemap.EvSmartRoutingRequest = function(options) {
     var opts = options || {};
@@ -23658,6 +23819,16 @@ bemap.EvSmartRoutingRequest = function(options) {
     this.aroundEvse = !!opts.aroundEvse;
     this.ignoreStatus = !!opts.ignoreStatus;
     this.evtExtKey = opts.evtExtKey || null;
+
+    // --- v2-only optional fields (REST v2.0.0 — service/2.0/evsmartrouting) ---
+    // Accepted but optional; the v1 `toJson()` path ignores them. See `toJsonV2()`.
+    this.chargingStationFiltersVersion = (typeof opts.chargingStationFiltersVersion === 'number') ? opts.chargingStationFiltersVersion : null;
+    this.tariffChargePassHashIds = Array.isArray(opts.tariffChargePassHashIds) ? opts.tariffChargePassHashIds.slice() : null;
+    this.tollCost = !!opts.tollCost;
+    this.routesheet = !!opts.routesheet;
+    this.routesheetLanguage = opts.routesheetLanguage || null;
+    this.routesheetMode = opts.routesheetMode || null;
+    this.routesheetVerboseLevel = opts.routesheetVerboseLevel || null;
 
     this.geoserver = opts.geoserver || null;
 };
@@ -23776,12 +23947,113 @@ bemap.EvSmartRoutingRequest.prototype.toJson = function() {
 };
 
 /**
+ * Build the REST **v2.0.0** wire-format body for `POST service/2.0/evsmartrouting`.
+ *
+ * Same public options as `toJson()` (v1) — only the wire SHAPE differs: v2 nests
+ * `vehicle{key,initBatLvl,payload}`, `start`/`stop`/`vias` as `{lon,lat}` places,
+ * and most trip options inside `condition{}` (with the v2 key names). Drops
+ * null / default fields. The v1 `toJson()` above is left untouched.
+ *
+ * @public
+ * @since 2.0.0
+ * @return {Object}
+ */
+bemap.EvSmartRoutingRequest.prototype.toJsonV2 = function() {
+    var body = {};
+    var lonOf = bemap.EvSmartRoutingRequest._lonOf;
+    var latOf = bemap.EvSmartRoutingRequest._latOf;
+
+    // vehicle{} (required) — key + battery/payload move inside the object.
+    var vehicle = {};
+    if (this.vehicle) vehicle.key = this.vehicle;
+    vehicle.initBatLvl = this.initBatteryLevel;      // always sent (default 100)
+    vehicle.payload = this.payload;                  // always sent (default 75)
+    body.vehicle = vehicle;
+
+    // start / stop / vias — structured PlaceFront (lon/lat).
+    if (this.start) body.start = { lon: lonOf(this.start), lat: latOf(this.start) };
+    if (this.stop) body.stop = { lon: lonOf(this.stop), lat: latOf(this.stop) };
+    if (this.vias && this.vias.length) {
+        body.vias = this.vias.map(function(v) { return { lon: lonOf(v), lat: latOf(v) }; });
+    }
+
+    // Charging providers / filters stay top-level in v2.
+    if (this.chargingStationProviders && this.chargingStationProviders.length) body.csps = this.chargingStationProviders.slice();
+    if (this.chargingStationFilters && this.chargingStationFilters.length) body.csfs = this.chargingStationFilters.slice();
+    if (this.chargingStationFiltersVersion !== null) body.csfsVersion = this.chargingStationFiltersVersion;
+    if (this.tariffChargePassHashIds && this.tariffChargePassHashIds.length) body.tariffChargePassHashIds = this.tariffChargePassHashIds.slice();
+
+    // condition{} — most former top-level options live here in v2, with new keys.
+    var cond = {};
+    if (this.optimMode) cond.optimMode = this.optimMode;
+    if (this.criterias && this.criterias.length) cond.criterias = this.criterias.slice();
+    if (this.alternative) cond.alternative = this.alternative;
+    if (this.departureTime !== null && this.departureTime !== undefined) {
+        // Server field is String (epoch-ms or ISO local date-time) — mirror v1 coercion.
+        if (this.departureTime instanceof Date) cond.departureTime = String(this.departureTime.getTime());
+        else if (typeof this.departureTime === 'number') cond.departureTime = String(this.departureTime);
+        else cond.departureTime = this.departureTime;
+    }
+    if (this.temperature !== 20) cond.temperature = this.temperature;
+    if (this.minBatteryLevel) cond.minBatLvl = this.minBatteryLevel;
+    if (this.minArrivalBatteryLevel) cond.minArrivalBatLvl = this.minArrivalBatteryLevel;
+    if (this.maxAfterChargeBatteryLevel !== null) cond.maxAfterChargeBatLvl = this.maxAfterChargeBatteryLevel;
+    if (this.connectorTypes && this.connectorTypes.length) cond.connectorTypes = this.connectorTypes.slice();
+    if (this.chargingStationDeprecatedConnector) cond.chargingStationDeprecatedConnector = true;
+    // v2 renamed `stepPointPluggingTime` → `chargePluggingTime` (server default 300s).
+    // Send the SDK value (default 0) explicitly so behaviour matches v1 — no
+    // silent 300s-per-stop when the consumer did not ask for it.
+    cond.chargePluggingTime = this.stepPointPluggingTime;
+    if (this.stepPointTimeSlots && this.stepPointTimeSlots.length) cond.chargeTimeSlots = this.stepPointTimeSlots.slice();
+    if (this.restrictedEvse) cond.restrictedEvse = true;
+    if (this.allowNaStatus) cond.allowNaStatus = true;
+    if (this.ignoreStatus) cond.ignoreAvailableStatus = true;   // renamed from `ignoreStatus`
+    if (this.drivingStyle) {
+        // v1 was a string enum; v2 is an object `{mode, …}`. Wrap a string; copy an
+        // object so a later caller mutation cannot corrupt the already-built body.
+        cond.drivingStyle = (typeof this.drivingStyle === 'string')
+            ? { mode: this.drivingStyle }
+            : Object.assign({}, this.drivingStyle);
+    }
+    if (this.allowMaxSpeedReco) cond.allowMaxSpeedRecommendation = true;   // renamed from `allowMaxSpdReco`
+    // Polyline defaults ON in the SDK; v2 `geometry` defaults false server-side, so send it.
+    cond.geometry = this.polyline;
+    if (this.encodedPolyline) cond.encodedGeometry = true;      // renamed from `epl`
+    if (this.co2Emissions) cond.co2emissions = true;
+    if (this.weather) cond.weather = true;
+    if (this.weatherProvider) cond.weatherProvider = this.weatherProvider;
+    if (this.currency) cond.currency = this.currency;
+    if (this.events) {                                          // `evt` → `routeDetails`
+        cond.routeDetails = true;
+        if (this.eventFrequency !== 60) cond.routeDetailsFreq = this.eventFrequency;
+    }
+    if (this.evtExtKey) cond.routeDetailsExtKey = this.evtExtKey;
+    // v2-only optional extras.
+    if (this.tollCost) cond.tollCost = true;
+    if (this.routesheet) cond.routesheet = true;
+    if (this.routesheetLanguage) cond.routesheetLanguage = this.routesheetLanguage;
+    if (this.routesheetMode) cond.routesheetMode = this.routesheetMode;
+    if (this.routesheetVerboseLevel) cond.routesheetVerboseLevel = this.routesheetVerboseLevel;
+    body.condition = cond;
+
+    // v1-only options with no v2 equivalent (arrivalTime, aroundEvse, debugStat,
+    // extraPayload) are intentionally omitted here; they remain available via the
+    // v1 `toJson()` path.
+
+    if (this.geoserver) body.geoserver = this.geoserver;
+
+    return body;
+};
+
+/**
  * BeNomad BeMap JavaScript API - EvSmartRoutingResponse (v1.5)
  *
- * Strongly-typed response from `POST service/evsmartrouting/1.0`.
+ * Strongly-typed response parser. `fromJson()` accepts both the REST **v1.0**
+ * shape (single `journey` + `route`) and the REST **v2.0.0** shape (`journeys[]`
+ * of `{summary, events[]}`), exposing both through the same getters.
  *
- * Wire shape mirrors `EvSmartRoutingResponse` on the server side
- * (`bemap_idea/.../service/v1_0_0/model/evSmartRouting/response/EvSmartRoutingResponse.java`):
+ * Wire shapes mirror `EvSmartRoutingResponse` server-side
+ * (`bemap_idea/.../service/{v1_0_0,v2_0_0}/model/evSmartRouting/response/EvSmartRoutingResponse.java`):
  *
  *   {
  *     logTag,
@@ -23805,6 +24077,16 @@ bemap.EvSmartRoutingResponse = function(options) {
     this.boundingBox = opts.boundingBox || null;
     this.route = opts.route || null;
     this.debugStat = opts.debugStat || null;
+
+    // REST v2.0.0 extras — populated by `_fromJsonV2`, `null` on a v1 response.
+    this.journeys = opts.journeys || null;
+    this.events = opts.events || null;
+    this.summary = opts.summary || null;
+    this.vehicleInfo = opts.vehicleInfo || null;
+    this.chargingCost = opts.chargingCost || null;
+    this.tollSumFees = opts.tollSumFees || null;
+    this.timeSlotWarns = opts.timeSlotWarns || null;
+    this.routeConsumptions = opts.routeConsumptions || null;
 };
 
 bemap.EvSmartRoutingResponse.prototype.getLogTag = function() { return this.logTag; };
@@ -23812,6 +24094,23 @@ bemap.EvSmartRoutingResponse.prototype.getJourney = function() { return this.jou
 bemap.EvSmartRoutingResponse.prototype.getInputInfo = function() { return this.inputInfo; };
 bemap.EvSmartRoutingResponse.prototype.getRoute = function() { return this.route; };
 bemap.EvSmartRoutingResponse.prototype.getDebugStat = function() { return this.debugStat; };
+
+/** @public @since 2.0.0 @return {Array.<Object>|null} All v2 journeys (alternatives); `null` on v1. */
+bemap.EvSmartRoutingResponse.prototype.getJourneys = function() { return this.journeys; };
+/** @public @since 2.0.0 @return {Array.<Object>|null} Ordered v2 route-timeline events; `null` on v1. */
+bemap.EvSmartRoutingResponse.prototype.getEvents = function() { return this.events; };
+/** @public @since 2.0.0 @return {Object|null} v2 primary-journey summary; `null` on v1. */
+bemap.EvSmartRoutingResponse.prototype.getSummary = function() { return this.summary; };
+/** @public @since 2.0.0 @return {Object|null} Vehicle info `{brand,name,variant,year}` (v2). */
+bemap.EvSmartRoutingResponse.prototype.getVehicleInfo = function() { return this.vehicleInfo; };
+/** @public @since 2.0.0 @return {Object|null} Charging-cost summary (v2). */
+bemap.EvSmartRoutingResponse.prototype.getChargingCost = function() { return this.chargingCost; };
+/** @public @since 2.0.0 @return {Object|null} Toll sum fees `{currency,feeMin,feeMax}` (v2). */
+bemap.EvSmartRoutingResponse.prototype.getTollSumFees = function() { return this.tollSumFees; };
+/** @public @since 2.0.0 @return {Array.<Object>|null} Time-slot warnings (v2). */
+bemap.EvSmartRoutingResponse.prototype.getTimeSlotWarnings = function() { return this.timeSlotWarns; };
+/** @public @since 2.0.0 @return {Array.<Object>|null} Per-point route consumptions (v2, routeDetails on). */
+bemap.EvSmartRoutingResponse.prototype.getRouteConsumptions = function() { return this.routeConsumptions; };
 
 /**
  * `bemap.BoundingBox` covering the whole journey, or `null` when absent.
@@ -23853,9 +24152,11 @@ bemap.EvSmartRoutingResponse.prototype.getPolyline = function() {
 };
 
 /**
- * Google-encoded polyline string, when the request asked for `encodedPolyline`.
+ * Google-encoded polyline. On a **v1** response this is a single `String`; on a
+ * **v2** response it is an `Array.<String>` — one encoded string per ROUTE
+ * segment, since v2 splits the geometry across ROUTE events. `null` when absent.
  * @public
- * @return {String|null}
+ * @return {String|Array.<String>|null}
  */
 bemap.EvSmartRoutingResponse.prototype.getEncodedPolyline = function() {
     return (this.route && this.route.encodedPolyline) ? this.route.encodedPolyline : null;
@@ -23925,6 +24226,8 @@ bemap.EvSmartRoutingResponse.prototype.getSavedCo2Emissions = function() {
  */
 bemap.EvSmartRoutingResponse.fromJson = function(json) {
     if (!json) return new bemap.EvSmartRoutingResponse();
+    // REST v2.0.0 responses carry a `journeys[]` array; v1 carried a single `journey`.
+    if (Array.isArray(json.journeys)) return bemap.EvSmartRoutingResponse._fromJsonV2(json);
 
     var route = null;
     if (json.route) {
@@ -23974,9 +24277,120 @@ bemap.EvSmartRoutingResponse.fromJson = function(json) {
 };
 
 /**
+ * Parse a REST **v2.0.0** response (`{ logTag, journeys: [{ summary, events[] }] }`)
+ * into the same public shape the v1 getters expect, plus the new v2 getters.
+ *
+ * The single-journey getters read the **primary** journey (`journeys[0]`); use
+ * `getJourneys()` for alternatives. The v2 event timeline is unrolled into the
+ * legacy `route.{stepPoints,polyline,encodedPolyline}` view: `CHARGE` events →
+ * `EvStepPoint`s, `ROUTE` events' `geometry` → the concatenated polyline (and
+ * each ROUTE leg's distance/duration/consumed is carried onto the next step
+ * point so `EvStepPoint.getDistance()` etc. keep working).
+ *
+ * @private
+ * @since 2.0.0
+ * @param {Object} json
+ * @return {bemap.EvSmartRoutingResponse}
+ */
+bemap.EvSmartRoutingResponse._fromJsonV2 = function(json) {
+    var journeys = Array.isArray(json.journeys) ? json.journeys : [];
+    var primary = journeys[0] || null;
+    var summary = (primary && primary.summary) || null;
+    var events = (primary && Array.isArray(primary.events)) ? primary.events : [];
+
+    // Unroll the ordered event timeline.
+    var stepPoints = [];
+    var polyline = [];
+    var encoded = [];
+    var routeConsumptions = [];
+    // Accumulate the ROUTE leg(s) travelled since the last step point — a via can
+    // split one leg into several ROUTE events — and attach the total to the next
+    // CHARGE, so EvStepPoint.getDistance()/getDuration()/getConsumed() keep working.
+    var leg = null;
+    function addLeg(e) {
+        if (!leg) leg = { distance: 0, duration: 0, consumed: 0 };
+        if (typeof e.distance === 'number') leg.distance += e.distance;
+        if (typeof e.duration === 'number') leg.duration += e.duration;
+        if (typeof e.consumed === 'number') leg.consumed += e.consumed;
+    }
+    for (var i = 0; i < events.length; i++) {
+        var evt = events[i] || {};
+        var type = evt.eventType;
+        if (type === 'ROUTE') {
+            if (Array.isArray(evt.geometry)) polyline = polyline.concat(evt.geometry);
+            if (evt.encodedGeometry) encoded.push(evt.encodedGeometry);
+            if (Array.isArray(evt.routeConsumptions)) routeConsumptions = routeConsumptions.concat(evt.routeConsumptions);
+            addLeg(evt);
+        } else if (type === 'CHARGE') {
+            stepPoints.push(bemap.EvStepPoint.fromChargeEvent(evt, leg));
+            leg = null;   // reset — start accumulating the next segment's leg
+        }
+        // START / STOP / VIA / TOLL / EXCEPTION remain available via getEvents();
+        // v1 `stepPoints` were charging stops only, so only CHARGE maps here.
+    }
+
+    // v2 boundingBox is `{minLon,minLat,maxLon,maxLat}` (v1 was topLeft/bottomRight).
+    var bbox = null;
+    var bb = summary && summary.boundingBox;
+    if (bb) {
+        if (typeof bb.minLon === 'number') {
+            try {
+                bbox = new bemap.BoundingBox(
+                    new bemap.Coordinate(bb.minLon, bb.maxLat),   // top-left
+                    new bemap.Coordinate(bb.maxLon, bb.minLat)    // bottom-right
+                );
+            } catch (e) {
+                if (typeof console !== 'undefined' && console.warn) {
+                    console.warn('bemap.EvSmartRoutingResponse: v2 bounding-box parse failed', e);
+                }
+                bbox = bb;
+            }
+        } else {
+            bbox = bb;
+        }
+    }
+
+    // Legacy `journey` shim so getDistance()/getDuration()/… keep working.
+    var journey = summary ? {
+        distance: summary.distance,
+        duration: summary.duration,
+        batteryLevel: summary.batteryLevel,
+        consumed: summary.consumed,
+        chargingTime: summary.chargingTime,
+        departureTime: summary.departureTime,
+        arrivalTime: summary.arrivalTime,
+        savedCo2Emissions: (typeof summary.savedCo2Emissions === 'number') ? summary.savedCo2Emissions : null,
+        vehicle: summary.vehicleInfo || null,
+        chargingCost: summary.chargingCost || null
+    } : null;
+
+    var route = {
+        stepPoints: stepPoints,
+        polyline: polyline.length ? polyline : null,
+        encodedPolyline: encoded.length ? encoded : null,   // v2: array of per-ROUTE-segment strings
+        events: events
+    };
+
+    return new bemap.EvSmartRoutingResponse({
+        logTag: json.logTag || null,
+        journey: journey,
+        boundingBox: bbox,
+        route: route,
+        journeys: journeys,
+        events: events,
+        summary: summary,
+        vehicleInfo: (summary && summary.vehicleInfo) || null,
+        chargingCost: (summary && summary.chargingCost) || null,
+        tollSumFees: (summary && summary.tollSumFees) || null,
+        timeSlotWarns: (primary && Array.isArray(primary.timeSlotWarns)) ? primary.timeSlotWarns : null,
+        routeConsumptions: routeConsumptions.length ? routeConsumptions : null
+    });
+};
+
+/**
  * BeNomad BeMap JavaScript API - EvSmartRouting service (v1.5)
  *
- * Promise-based wrapper around `POST service/evsmartrouting/1.0`.
+ * Promise-based wrapper around `POST service/2.0/evsmartrouting` (REST v2.0.0).
  *
  * **What it does.** Given a start, a stop, and a vehicle key, the service
  * plans an EV journey that respects the battery's state of charge — adding
@@ -24035,29 +24449,33 @@ bemap.EvSmartRouting.prototype.calculate = function(request, options) {
         }));
     }
     var opts = options || {};
-    var body = request.toJson();
+    var body = request.toJsonV2();
     if (!body.geoserver) body.geoserver = this.ctx.getGeoserver();
     // Pre-fill the CSP from the Context when the request did not specify one.
     if ((!body.csps || !body.csps.length) && this.ctx.chargingStationProvider) {
         body.csps = [this.ctx.chargingStationProvider];
     }
-    // Server fields startLon / startLat / stopLon / stopLat are mandatory
-    // (@JsonProperty(required = true) in EvSmartRoutingRequest.java). Trap
-    // the missing-coordinate case client-side so consumers get a typed
-    // error rather than an opaque 400. `== null` catches both null and
-    // undefined while letting legitimate `0` (Prime-Meridian / Equator)
-    // through.
-    if (body.startLon == null || body.startLat == null ||
-        body.stopLon == null  || body.stopLat == null) {
+    // v2 `start` / `stop` are structured places with a mandatory `lon`/`lat`
+    // (@JsonProperty(required = true) in v2_0_0 EvSmartRoutingRequest / PlaceFront).
+    // Trap the missing-coordinate case client-side so consumers get a typed error
+    // rather than an opaque 400. `== null` catches null/undefined while letting a
+    // legitimate `0` (Prime-Meridian / Equator) through.
+    var s = body.start, e = body.stop;
+    if (!s || s.lon == null || s.lat == null || !e || e.lon == null || e.lat == null) {
         return Promise.reject(new bemap.Error({
             code: bemap.Error.INVALID_ARGUMENT,
             message: 'EvSmartRouting.calculate: start and stop coordinates are required'
         }));
     }
-    return this._post('service/evsmartrouting/1.0', body, { signal: opts.signal })
+    return this._post('service/2.0/evsmartrouting', body, { signal: opts.signal })
         .then(function(json) {
             var resp = bemap.EvSmartRoutingResponse.fromJson(json);
-            if (!resp.getJourney()) {
+            // A journey was returned if the v2 `journeys[]` has an entry (or, for a
+            // v1-shaped payload, `journey` is present). Gating on the summary-derived
+            // shim alone would falsely throw when a journey omits its summary.
+            var journeys = resp.getJourneys();
+            var hasJourney = (journeys && journeys.length) || !!resp.getJourney();
+            if (!hasJourney) {
                 throw new bemap.Error({
                     code: bemap.Error.EV_NO_JOURNEY,
                     message: 'No EV journey could be planned between the supplied points'
@@ -24110,9 +24528,10 @@ bemap.EvSmartRouting.prototype.getVehicles = function(options) {
 /**
  * BeNomad BeMap JavaScript API - EvStepPoint (v1.5)
  *
- * One charging stop along an EV journey. Mirrors `StepPointFront` on the
- * server side
- * (`bemap_idea/.../service/v1_0_0/model/evSmartRouting/response/StepPointFront.java`).
+ * One charging stop along an EV journey. Built from the v1 `StepPointFront`
+ * (`.../service/v1_0_0/.../response/StepPointFront.java`) or, via
+ * `fromChargeEvent()`, from a v2 `ChargeEventFront`
+ * (`.../service/v2_0_0/.../response/events/ChargeEventFront.java`).
  *
  * @public
  * @constructor
@@ -24153,6 +24572,9 @@ bemap.EvStepPoint = function(options) {
     this.images = Array.isArray(opts.images) ? opts.images.slice() : null;
     this.chargingStations = Array.isArray(opts.chargingStations) ? opts.chargingStations.slice() : null;
     this.maxSpeed = (typeof opts.maxSpeed === 'number') ? opts.maxSpeed : null;
+    // Full v2 `pool` object (set from a v2 CHARGE event by `fromChargeEvent`);
+    // null on a v1 step point. Exposed via `getPool()`.
+    this.pool = opts.pool || null;
 };
 
 bemap.EvStepPoint.prototype.getId = function() { return this.id; };
@@ -24179,6 +24601,66 @@ bemap.EvStepPoint.prototype.getWeather = function() { return this.weather; };
 bemap.EvStepPoint.prototype.getCountryCode = function() { return this.countryCode; };
 bemap.EvStepPoint.prototype.getCity = function() { return this.city; };
 bemap.EvStepPoint.prototype.getMaxSpeed = function() { return this.maxSpeed; };
+
+/** Full v2 `pool` object (all provider/station detail) when built from a v2 CHARGE event. @public @since 2.0.0 @return {Object|null} */
+bemap.EvStepPoint.prototype.getPool = function() { return this.pool || null; };
+
+/**
+ * Build an `EvStepPoint` from a REST **v2.0.0** `CHARGE` event (`ChargeEventFront`).
+ *
+ * v2 nests the station/provider detail under `pool` (`PoolFront`) and the
+ * coordinate under `coord`; the charging figures (battery in/out, charging time,
+ * power, cost) are on the event itself. `leg` (optional) carries the preceding
+ * `ROUTE` segment's `distance`/`duration`/`consumed` so the v1 getters
+ * (`getDistance()`/`getDuration()`/`getConsumed()`) keep returning per-leg data.
+ * The complete raw pool is preserved via `getPool()`.
+ *
+ * @public
+ * @since 2.0.0
+ * @param {Object} evt  a v2 `CHARGE` event
+ * @param {Object} [leg] `{ distance, duration, consumed }` from the preceding ROUTE event
+ * @return {bemap.EvStepPoint}
+ */
+bemap.EvStepPoint.fromChargeEvent = function(evt, leg) {
+    evt = evt || {};
+    var pool = evt.pool || {};
+    var coord = evt.coord || {};
+    var addr = pool.address || {};
+    var l = leg || {};
+    var sp = new bemap.EvStepPoint({
+        id: pool.id || null,
+        operatorId: pool.operatorId || null,
+        brand: pool.brand || null,
+        nameOfPool: pool.name || null,
+        accessibility: pool.accessibility || null,
+        availabilityStatus: pool.availabilityStatus || null,
+        longitude: (typeof coord.lon === 'number') ? coord.lon : null,
+        latitude: (typeof coord.lat === 'number') ? coord.lat : null,
+        distance: (typeof l.distance === 'number') ? l.distance : 0,
+        duration: (typeof l.duration === 'number') ? l.duration : 0,
+        arrivalTime: (typeof evt.arrivalTime === 'number') ? evt.arrivalTime : null,
+        departureTime: (typeof evt.departureTime === 'number') ? evt.departureTime : null,
+        consumed: (typeof l.consumed === 'number') ? l.consumed : null,
+        arrivalBatteryLevel: (typeof evt.arrivalBatteryLevel === 'number') ? evt.arrivalBatteryLevel : null,
+        departureBatteryLevel: (typeof evt.departureBatteryLevel === 'number') ? evt.departureBatteryLevel : null,
+        chargingPower: evt.chargingPower || null,
+        chargingTime: (typeof evt.chargingTime === 'number') ? evt.chargingTime : 0,
+        chargingCost: evt.chargingCost || null,
+        weather: evt.weather || null,
+        countryCode: pool.countryCode || null,
+        phoneNumber: pool.phoneNumber || null,
+        open24x7: (typeof pool.open24x7 === 'boolean') ? pool.open24x7 : null,
+        openingHours: Array.isArray(pool.openingHours) ? pool.openingHours : null,
+        country: addr.country || null,
+        postalCode: addr.postalCode || null,
+        city: addr.city || null,
+        street: addr.street || null,
+        streetNumber: addr.streetNumber || null
+    });
+    // Keep the full v2 pool for anything the flat EvStepPoint doesn't expose.
+    sp.pool = evt.pool || null;
+    return sp;
+};
 
 /**
  * BeNomad BeMap JavaScript API - ChargingCurrentType (v1.5)

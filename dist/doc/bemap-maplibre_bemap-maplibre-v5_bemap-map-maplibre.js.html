@@ -250,9 +250,18 @@ bemap.MapLibreMap = function(context, target, options) {
     this._setupTilesAuth(opts.tiles, opts.tilesToken, opts.tilesTokenHeader || 'X-Session-Token');
   }
 
-  // Apply globe projection request before construction so the first style
-  // load picks it up (MapLibre v5 reads `projection` off the style).
-  if (opts.projection === 'globe' &amp;&amp; style &amp;&amp; typeof style === 'object') {
+  // Projection is SDK-owned: the default is `mercator` (north-up, flat — the
+  // cross-engine contract; OpenLayers/Leaflet are mercator-only) and `globe`
+  // is opt-in only. Track the developer's choice so a *server* style that
+  // carries its own root `projection` can't silently switch it after load —
+  // MapLibre v5 applies a stylesheet's `projection` on every setStyle, and a
+  // globe curves the view at low zoom, reading as a map "at the wrong angle".
+  // This mirrors how the SDK already ignores a style's own `sources`
+  // (see bemap.TilesStyle.resolvePlaceholders). Re-asserted after each style
+  // swap via _applyDesiredProjection().
+  this._desiredProjection = (opts.projection === 'globe') ? 'globe' : 'mercator';
+  // Seed the FIRST style so the initial paint already matches the request.
+  if (this._desiredProjection === 'globe' &amp;&amp; style &amp;&amp; typeof style === 'object') {
     style.projection = { type: 'globe' };
   }
 
@@ -323,6 +332,7 @@ bemap.MapLibreMap = function(context, target, options) {
       try { _roSelf.native.setCenter(_roSelf.native.getCenter()); } catch (e) {}
     }
   });
+  this._observeTargetResize(target);
 
   // Browser-cache wiring — opts.browserCache (true | false | 'auto', default 'auto').
   //
@@ -529,6 +539,78 @@ bemap.MapLibreMap = function(context, target, options) {
   }
 };
 bemap.inherits(bemap.MapLibreMap, bemap.Map);
+
+/**
+ * MapLibre-only container-size self-healing.
+ *
+ * The broken cases here are not OpenLayers cases: MapLibre can latch its canvas
+ * size while an iframe/flex/tab layout is still settling. Window resize does
+ * not fire for those parent/container-only changes, so observe this map's
+ * target and call the MapLibre resize path directly.
+ * @private
+ */
+bemap.MapLibreMap.prototype._observeTargetResize = function (target) {
+  if (typeof ResizeObserver !== 'function') return this;
+
+  var el = target || this.target;
+  if (typeof el === 'string') {
+    if (typeof document === 'undefined') return this;
+    el = document.getElementById(el);
+  }
+  if (!el || el.nodeType !== 1) return this;
+
+  this._disconnectTargetResizeObserver();
+
+  var self = this;
+  var token = {};
+  var scheduled = false;
+  this._targetResizeObserverToken = token;
+
+  var run = function () {
+    scheduled = false;
+    if (self._targetResizeObserverToken !== token || !self.native) return;
+    try { self.refresh(); } catch (e) { /* map may be torn down */ }
+  };
+
+  var schedule = function () {
+    if (self._targetResizeObserverToken !== token || scheduled) return;
+    scheduled = true;
+    if (typeof requestAnimationFrame === 'function') requestAnimationFrame(run);
+    else setTimeout(run, 0);
+  };
+
+  try {
+    this._targetResizeObserver = new ResizeObserver(schedule);
+    this._targetResizeObserver.observe(el);
+
+    // First render in the dashboard iframe/flex layout can settle just after
+    // construction. These kicks cover initial frame, post-layout frame, and
+    // short delayed iframe layout without requiring page-level hacks.
+    schedule();
+    if (typeof requestAnimationFrame === 'function') {
+      requestAnimationFrame(function () { requestAnimationFrame(schedule); });
+    } else {
+      setTimeout(schedule, 0);
+    }
+    setTimeout(schedule, 100);
+    setTimeout(schedule, 500);
+  } catch (e) {
+    this._targetResizeObserver = null;
+    this._targetResizeObserverToken = null;
+  }
+
+  return this;
+};
+
+/** @private */
+bemap.MapLibreMap.prototype._disconnectTargetResizeObserver = function () {
+  this._targetResizeObserverToken = null;
+  if (this._targetResizeObserver) {
+    try { this._targetResizeObserver.disconnect(); } catch (e) {}
+    this._targetResizeObserver = null;
+  }
+  return this;
+};
 
 /**
  * Toggle keyboard navigation (arrow-pan + `=`/`-` zoom + `Shift+arrow`
@@ -1159,6 +1241,7 @@ bemap.MapLibreMap.prototype.loadPMTiles = function(layer, callback) {
     if (callback) {
       _this.native.once('style.load', function() { callback(_this); });
     }
+    _this._normalizeStyleProjection(style);   // SDK owns projection, not the style
 
     _this.native.setStyle(style);
     _this._hasCustomStyle = true;
@@ -1423,10 +1506,12 @@ bemap.MapLibreMap.prototype.loadBeMapTiles = function(options) {
   }
 
   var doLoad = function(token) {
-    // Register service worker for tile caching (cache-first for PMTiles range requests)
-    if ('serviceWorker' in navigator &amp;&amp; opts.cache !== false) {
-      navigator.serviceWorker.register('sw-tiles.js').catch(function() {});
-    }
+    // Tile caching is owned by bemap.BrowserCache (the tile Service Worker,
+    // gated by opts.serviceWorker/browserCache and auto-off under 200-slice) — not
+    // here. The old inline `navigator.serviceWorker.register('sw-tiles.js')` was
+    // removed (PMT-26): that filename was wrong (real file: bemap-sw-tiles.js) and
+    // path-less, so it always 404'd — "A bad HTTP response code (404) was received
+    // when fetching the script." — with no functional effect.
 
     var tiles = new bemap.PMTilesLayer({
       url: tilesApi + '/' + tilesFile,
@@ -2071,6 +2156,9 @@ bemap.MapLibreMap.prototype.removeTerrain = function() {
 };
 
 bemap.MapLibreMap.prototype.setProjection = function(type) {
+  // Remember the explicit choice so it survives later style swaps (the server
+  // default-style refresh, a customer setStyle, etc.) — see _applyDesiredProjection.
+  this._desiredProjection = (type === 'globe') ? 'globe' : 'mercator';
   try { this.native.setProjection({ type: type }); } catch(e) {}
   var self = this;
   // Only register the 'globe' state as an effect — mercator is the
@@ -2083,6 +2171,42 @@ bemap.MapLibreMap.prototype.setProjection = function(type) {
     }
   }
   return this;
+};
+
+/**
+ * Force a style object's root `projection` to the SDK-owned value
+ * (`this._desiredProjection`, default `mercator`; `globe` only when the
+ * developer opted in via `opts.projection` / `setProjection`). Called
+ * synchronously on every style spec before it reaches `native.setStyle`.
+ *
+ * MapLibre v5 applies a style's root `projection` on BOTH a full load AND a
+ * diff update (the diff emits `setProjection`, unlike camera keys which it
+ * skips), so a server/charte style shipping `"projection":{"type":"globe"}`
+ * would otherwise silently switch the map to a globe — which curves the view
+ * at low zoom and reads as a map "at the wrong angle". Overwriting the key
+ * here (rather than in a post-load event) is deterministic: it works for the
+ * diff path, where neither `style.load` nor `idle` reliably fires. Mirrors how
+ * the SDK already ignores a style's own `sources` (TilesStyle.resolvePlaceholders).
+ * @private
+ */
+bemap.MapLibreMap.prototype._normalizeStyleProjection = function(style) {
+  if (style &amp;&amp; typeof style === 'object') {
+    var want = this._desiredProjection || 'mercator';
+    var declared = style.projection &amp;&amp; style.projection.type;
+    // One-time, per-map heads-up when we actually override a projection the
+    // style asked for (e.g. a server charte shipping globe) — confirms the
+    // source of a "wrong angle" and points at the opt-in.
+    if (declared &amp;&amp; declared !== want &amp;&amp; !this._projectionOverrideNoted) {
+      this._projectionOverrideNoted = true;
+      if (typeof console !== 'undefined' &amp;&amp; console.info) {
+        console.info("bemap.MapLibreMap: style requested projection '" + declared +
+          "' — kept the SDK default '" + want + "'. Call map.setProjection('" + declared +
+          "') to opt in.");
+      }
+    }
+    style.projection = { type: want };
+  }
+  return style;
 };
 
 bemap.MapLibreMap.prototype.setSky = function(options) {
@@ -2275,6 +2399,7 @@ bemap.MapLibreMap.prototype.setStyle = function (urlOrObject, options) {
         bemap.TilesStyle.hardenSymbolCollisions(resolved);
       } catch (e) { resolved = urlOrObject; }
     }
+    this._normalizeStyleProjection(resolved);   // SDK owns projection, not the style
     this._currentStyleSpec = resolved;
     // Flag the in-flight setStyle so _whenStyleReady can refuse the fast
     // path (isStyleLoaded() returns true for the OLD style during the gap).
@@ -2313,6 +2438,7 @@ bemap.MapLibreMap.prototype.setStyle = function (urlOrObject, options) {
       .then(function (style) {
         bemap.TilesStyle.resolvePlaceholders(style, self.ctx, tilesFile);
         bemap.TilesStyle.hardenSymbolCollisions(style);
+        self._normalizeStyleProjection(style);   // SDK owns projection, not the style
         self._currentStyleSpec = style;
         self._setStyleInFlight = true;
         self.native.setStyle(style);
@@ -2524,6 +2650,7 @@ bemap.MapLibreMap.prototype.remove = function () {
   try { if (this._tilesAuth) this._tilesAuth.destroy(); } catch (e) {}
   try { if (this._browserCache) this._browserCache.destroy(); } catch (e) {}
   try { if (this._overlayCatalog) this._overlayCatalog.clear(); } catch (e) {}
+  try { this._disconnectTargetResizeObserver(); } catch (e) {}
   this.stopSpinGlobe();
   if (typeof _origRemoveMapLibre === 'function') return _origRemoveMapLibre.apply(this, arguments);
   if (this.native &amp;&amp; typeof this.native.remove === 'function') this.native.remove();
@@ -2548,7 +2675,7 @@ bemap.MapLibreMap.prototype.remove = function () {
 <br class="clear">
 
 <footer>
-    Documentation generated by <a href="https://github.com/jsdoc/jsdoc">JSDoc 3.6.3</a> on Tue Jul 07 2026 09:27:18 GMT+0200 (heure d’été d’Europe centrale)
+    Documentation generated by <a href="https://github.com/jsdoc/jsdoc">JSDoc 3.6.3</a> on Wed Jul 08 2026 16:03:30 GMT+0200 (heure d’été d’Europe centrale)
 </footer>
 
 <script> prettyPrint(); </script>

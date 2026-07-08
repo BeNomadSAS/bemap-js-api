@@ -65,7 +65,7 @@ var bnSidebarManifest = [
     label: 'Services',
     children: [
       { label: 'Geocoding', children: [
-        { label: 'Geocoder',                  href: '#nav-services-v2/geocoder.html',          chips: [{label:'v2',kind:'brand'}], requiresService: 'Geocoding' },
+        { label: 'Geocoder',                  href: '#nav-services-v2/geocoder.html',          chips: [{label:'v2',kind:'brand'}], requiresGeoserver: 'nominatim,herehlp' },
         { label: 'Reverse Geocoder',          href: '#nav-services-v2/reverse-geocoder.html',  chips: [{label:'v2',kind:'brand'},{label:'NEW',kind:'accent'}], requiresService: 'ReverseGeocoding' },
         { label: 'Autocomplete',              href: '#nav-services-v2/autocomplete.html',      chips: [{label:'v2',kind:'brand'}], requiresService: 'AutocompleteGeocoding' },
         { label: 'GeoAutocomplete',           href: '#nav-services-v2/geo-autocomplete.html',  chips: [{label:'v2',kind:'brand'}], requiresService: 'AutocompleteGeocoding' },

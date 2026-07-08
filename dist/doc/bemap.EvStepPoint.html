@@ -52,9 +52,10 @@
 <div class="description">
     BeNomad BeMap JavaScript API - EvStepPoint (v1.5)
 
-One charging stop along an EV journey. Mirrors `StepPointFront` on the
-server side
-(`bemap_idea/.../service/v1_0_0/model/evSmartRouting/response/StepPointFront.java`).
+One charging stop along an EV journey. Built from the v1 `StepPointFront`
+(`.../service/v1_0_0/.../response/StepPointFront.java`) or, via
+`fromChargeEvent()`, from a v2 `ChargeEventFront`
+(`.../service/v2_0_0/.../response/events/ChargeEventFront.java`).
 </div>
 
 
@@ -147,7 +148,7 @@ server side
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-services-v2_ev-routing_bemap-ev-step-point.js.html">bemap-services-v2/ev-routing/bemap-ev-step-point.js</a>, <a href="bemap-services-v2_ev-routing_bemap-ev-step-point.js.html#line12">line 12</a>
+        <a href="bemap-services-v2_ev-routing_bemap-ev-step-point.js.html">bemap-services-v2/ev-routing/bemap-ev-step-point.js</a>, <a href="bemap-services-v2_ev-routing_bemap-ev-step-point.js.html#line13">line 13</a>
     </li></ul></dd>
     
 
@@ -195,6 +196,306 @@ server side
     
 
     
+        <h3 class="subsection-title">Methods</h3>
+
+        
+            
+
+    
+
+    
+    <h4 class="name" id=".fromChargeEvent"><span class="type-signature">(static) </span>fromChargeEvent<span class="signature">(evt, leg<span class="signature-attributes">opt</span>)</span><span class="type-signature"> &rarr; {<a href="bemap.EvStepPoint.html">bemap.EvStepPoint</a>}</span></h4>
+    
+
+    
+
+
+
+<div class="description">
+    Build an `EvStepPoint` from a REST **v2.0.0** `CHARGE` event (`ChargeEventFront`).
+
+v2 nests the station/provider detail under `pool` (`PoolFront`) and the
+coordinate under `coord`; the charging figures (battery in/out, charging time,
+power, cost) are on the event itself. `leg` (optional) carries the preceding
+`ROUTE` segment's `distance`/`duration`/`consumed` so the v1 getters
+(`getDistance()`/`getDuration()`/`getConsumed()`) keep returning per-leg data.
+The complete raw pool is preserved via `getPool()`.
+</div>
+
+
+
+
+
+
+
+
+
+    <h5>Parameters:</h5>
+    
+
+<table class="params">
+    <thead>
+    <tr>
+        
+        <th>Name</th>
+        
+
+        <th>Type</th>
+
+        
+        <th>Attributes</th>
+        
+
+        
+
+        <th class="last">Description</th>
+    </tr>
+    </thead>
+
+    <tbody>
+    
+
+        <tr>
+            
+                <td class="name"><code>evt</code></td>
+            
+
+            <td class="type">
+            
+                
+<span class="param-type">Object</span>
+
+
+            
+            </td>
+
+            
+                <td class="attributes">
+                
+
+                
+
+                
+                </td>
+            
+
+            
+
+            <td class="description last">a v2 `CHARGE` event</td>
+        </tr>
+
+    
+
+        <tr>
+            
+                <td class="name"><code>leg</code></td>
+            
+
+            <td class="type">
+            
+                
+<span class="param-type">Object</span>
+
+
+            
+            </td>
+
+            
+                <td class="attributes">
+                
+                    &lt;optional><br>
+                
+
+                
+
+                
+                </td>
+            
+
+            
+
+            <td class="description last">`{ distance, duration, consumed }` from the preceding ROUTE event</td>
+        </tr>
+
+    
+    </tbody>
+</table>
+
+
+
+
+
+
+<dl class="details">
+
+    
+
+    
+    <dt class="tag-since">Since:</dt>
+    <dd class="tag-since"><ul class="dummy"><li>2.0.0</li></ul></dd>
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+    <dt class="tag-source">Source:</dt>
+    <dd class="tag-source"><ul class="dummy"><li>
+        <a href="bemap-services-v2_ev-routing_bemap-ev-step-point.js.html">bemap-services-v2/ev-routing/bemap-ev-step-point.js</a>, <a href="bemap-services-v2_ev-routing_bemap-ev-step-point.js.html#line97">line 97</a>
+    </li></ul></dd>
+    
+
+    
+
+    
+
+    
+</dl>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<h5>Returns:</h5>
+
+        
+
+
+<dl>
+    <dt>
+        Type
+    </dt>
+    <dd>
+        
+<span class="param-type"><a href="bemap.EvStepPoint.html">bemap.EvStepPoint</a></span>
+
+
+    </dd>
+</dl>
+
+    
+
+
+
+
+
+        
+            
+
+    
+
+    
+    <h4 class="name" id="getPool"><span class="type-signature"></span>getPool<span class="signature">()</span><span class="type-signature"></span></h4>
+    
+
+    
+
+
+
+<div class="description">
+    Full v2 `pool` object (all provider/station detail) when built from a v2 CHARGE event. @public @since 2.0.0 @return {Object|null}
+</div>
+
+
+
+
+
+
+
+
+
+
+
+
+
+<dl class="details">
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+    <dt class="tag-source">Source:</dt>
+    <dd class="tag-source"><ul class="dummy"><li>
+        <a href="bemap-services-v2_ev-routing_bemap-ev-step-point.js.html">bemap-services-v2/ev-routing/bemap-ev-step-point.js</a>, <a href="bemap-services-v2_ev-routing_bemap-ev-step-point.js.html#line79">line 79</a>
+    </li></ul></dd>
+    
+
+    
+
+    
+
+    
+</dl>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+        
+    
 
     
 
@@ -215,7 +516,7 @@ server side
 <br class="clear">
 
 <footer>
-    Documentation generated by <a href="https://github.com/jsdoc/jsdoc">JSDoc 3.6.3</a> on Tue Jul 07 2026 09:27:18 GMT+0200 (heure d’été d’Europe centrale)
+    Documentation generated by <a href="https://github.com/jsdoc/jsdoc">JSDoc 3.6.3</a> on Wed Jul 08 2026 16:03:31 GMT+0200 (heure d’été d’Europe centrale)
 </footer>
 
 <script> prettyPrint(); </script>

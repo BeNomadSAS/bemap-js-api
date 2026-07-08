@@ -299,6 +299,16 @@
       else items[i].classList.remove('service-unavailable');
     }
   }
+  // Account-level geoserver gate — delegates to the shell's unit-tested
+  // bn.sidebar.applyGeoserverGate (see bn-2026.js). Entries carrying
+  // `data-requires-geoserver="a,b"` (e.g. the Geocoder v2 demo → nominatim/herehlp)
+  // are shown when the ACCOUNT has ANY of those geoservers, independent of the
+  // dashboard's currently-selected geoserver.
+  function applyGeoserverGate() {
+    if (window.bn && bn.sidebar && typeof bn.sidebar.applyGeoserverGate === 'function') {
+      bn.sidebar.applyGeoserverGate(window._availableGeoserverSet || {});
+    }
+  }
   function refreshSidebarForGeoserver(geoserver) {
     if (!geoserver) return;
     if (window._geoserverServices[geoserver]) {
@@ -335,6 +345,21 @@
           set = {};
           OVERRIDES[geoserver].add.forEach(function (s) { set[s] = true; });
         }
+        // Augment with the geoserver's ACTUALLY-declared services — the API's
+        // `servicesInfo` is already ACL-filtered per account server-side, so it is
+        // the authoritative signal. Its serviceName values match the sidebar's
+        // requiresService keys (Routing, Geocoding, AutocompleteGeocoding, ...).
+        // This only ADDS correctly-detected services (e.g. AutocompleteGeocoding on
+        // herehlp, which the transport heuristic above misses because herehlp also
+        // routes), never removes any — fixing the Geocoder/Autocomplete gate (PMT-33).
+        try {
+          var declared = (typeof info.getServicesInfo === 'function') ? info.getServicesInfo() : [];
+          for (var s = 0; s < declared.length; s++) {
+            var sn = (typeof declared[s].getServiceName === 'function')
+              ? declared[s].getServiceName() : declared[s].serviceName;
+            if (sn) set[sn] = true;
+          }
+        } catch (e) { /* ignore — heuristic set still applies */ }
         window._geoserverServices[geoserver] = set;
         applySidebarFilter(set);
       })
@@ -369,6 +394,7 @@
     var csps = details.getChargingStationProviders();
     window._geoserverLabels = {};
     window._cspLabels = {};
+    window._availableGeoserverSet = {};   // account-level geoserver names (for applyGeoserverGate)
 
     if (details.hasRight('ROLE_ADMIN_ACCESS')) document.body.classList.add('is-admin');
 
@@ -383,6 +409,7 @@
         opt.value = gs.getKey();
         opt.textContent = gs.getValue() + (gs.isDefault() ? ' (default)' : '');
         window._geoserverLabels[gs.getKey()] = gs.getValue();
+        window._availableGeoserverSet[String(gs.getKey()).toLowerCase()] = true;
         if (gs.isDefault()) defaultKey = gs.getKey();
         geoSel.appendChild(opt);
       });
@@ -391,6 +418,10 @@
       geoSel.value = initial;
       switchGeoserver(initial);
     }
+
+    // The account's geoserver list is now known — gate geoserver-pinned demos
+    // (e.g. the Geocoder v2 entry, which needs nominatim OR herehlp).
+    applyGeoserverGate();
 
     cspSel.innerHTML = '';
     if (!csps.length) {

@@ -29,10 +29,12 @@
             <pre class="prettyprint source linenums"><code>/**
  * BeNomad BeMap JavaScript API - EvSmartRoutingResponse (v1.5)
  *
- * Strongly-typed response from `POST service/evsmartrouting/1.0`.
+ * Strongly-typed response parser. `fromJson()` accepts both the REST **v1.0**
+ * shape (single `journey` + `route`) and the REST **v2.0.0** shape (`journeys[]`
+ * of `{summary, events[]}`), exposing both through the same getters.
  *
- * Wire shape mirrors `EvSmartRoutingResponse` on the server side
- * (`bemap_idea/.../service/v1_0_0/model/evSmartRouting/response/EvSmartRoutingResponse.java`):
+ * Wire shapes mirror `EvSmartRoutingResponse` server-side
+ * (`bemap_idea/.../service/{v1_0_0,v2_0_0}/model/evSmartRouting/response/EvSmartRoutingResponse.java`):
  *
  *   {
  *     logTag,
@@ -56,6 +58,16 @@ bemap.EvSmartRoutingResponse = function(options) {
     this.boundingBox = opts.boundingBox || null;
     this.route = opts.route || null;
     this.debugStat = opts.debugStat || null;
+
+    // REST v2.0.0 extras — populated by `_fromJsonV2`, `null` on a v1 response.
+    this.journeys = opts.journeys || null;
+    this.events = opts.events || null;
+    this.summary = opts.summary || null;
+    this.vehicleInfo = opts.vehicleInfo || null;
+    this.chargingCost = opts.chargingCost || null;
+    this.tollSumFees = opts.tollSumFees || null;
+    this.timeSlotWarns = opts.timeSlotWarns || null;
+    this.routeConsumptions = opts.routeConsumptions || null;
 };
 
 bemap.EvSmartRoutingResponse.prototype.getLogTag = function() { return this.logTag; };
@@ -63,6 +75,23 @@ bemap.EvSmartRoutingResponse.prototype.getJourney = function() { return this.jou
 bemap.EvSmartRoutingResponse.prototype.getInputInfo = function() { return this.inputInfo; };
 bemap.EvSmartRoutingResponse.prototype.getRoute = function() { return this.route; };
 bemap.EvSmartRoutingResponse.prototype.getDebugStat = function() { return this.debugStat; };
+
+/** @public @since 2.0.0 @return {Array.&lt;Object>|null} All v2 journeys (alternatives); `null` on v1. */
+bemap.EvSmartRoutingResponse.prototype.getJourneys = function() { return this.journeys; };
+/** @public @since 2.0.0 @return {Array.&lt;Object>|null} Ordered v2 route-timeline events; `null` on v1. */
+bemap.EvSmartRoutingResponse.prototype.getEvents = function() { return this.events; };
+/** @public @since 2.0.0 @return {Object|null} v2 primary-journey summary; `null` on v1. */
+bemap.EvSmartRoutingResponse.prototype.getSummary = function() { return this.summary; };
+/** @public @since 2.0.0 @return {Object|null} Vehicle info `{brand,name,variant,year}` (v2). */
+bemap.EvSmartRoutingResponse.prototype.getVehicleInfo = function() { return this.vehicleInfo; };
+/** @public @since 2.0.0 @return {Object|null} Charging-cost summary (v2). */
+bemap.EvSmartRoutingResponse.prototype.getChargingCost = function() { return this.chargingCost; };
+/** @public @since 2.0.0 @return {Object|null} Toll sum fees `{currency,feeMin,feeMax}` (v2). */
+bemap.EvSmartRoutingResponse.prototype.getTollSumFees = function() { return this.tollSumFees; };
+/** @public @since 2.0.0 @return {Array.&lt;Object>|null} Time-slot warnings (v2). */
+bemap.EvSmartRoutingResponse.prototype.getTimeSlotWarnings = function() { return this.timeSlotWarns; };
+/** @public @since 2.0.0 @return {Array.&lt;Object>|null} Per-point route consumptions (v2, routeDetails on). */
+bemap.EvSmartRoutingResponse.prototype.getRouteConsumptions = function() { return this.routeConsumptions; };
 
 /**
  * `bemap.BoundingBox` covering the whole journey, or `null` when absent.
@@ -104,9 +133,11 @@ bemap.EvSmartRoutingResponse.prototype.getPolyline = function() {
 };
 
 /**
- * Google-encoded polyline string, when the request asked for `encodedPolyline`.
+ * Google-encoded polyline. On a **v1** response this is a single `String`; on a
+ * **v2** response it is an `Array.&lt;String>` — one encoded string per ROUTE
+ * segment, since v2 splits the geometry across ROUTE events. `null` when absent.
  * @public
- * @return {String|null}
+ * @return {String|Array.&lt;String>|null}
  */
 bemap.EvSmartRoutingResponse.prototype.getEncodedPolyline = function() {
     return (this.route &amp;&amp; this.route.encodedPolyline) ? this.route.encodedPolyline : null;
@@ -176,6 +207,8 @@ bemap.EvSmartRoutingResponse.prototype.getSavedCo2Emissions = function() {
  */
 bemap.EvSmartRoutingResponse.fromJson = function(json) {
     if (!json) return new bemap.EvSmartRoutingResponse();
+    // REST v2.0.0 responses carry a `journeys[]` array; v1 carried a single `journey`.
+    if (Array.isArray(json.journeys)) return bemap.EvSmartRoutingResponse._fromJsonV2(json);
 
     var route = null;
     if (json.route) {
@@ -223,6 +256,117 @@ bemap.EvSmartRoutingResponse.fromJson = function(json) {
         debugStat: json.debugStat || null
     });
 };
+
+/**
+ * Parse a REST **v2.0.0** response (`{ logTag, journeys: [{ summary, events[] }] }`)
+ * into the same public shape the v1 getters expect, plus the new v2 getters.
+ *
+ * The single-journey getters read the **primary** journey (`journeys[0]`); use
+ * `getJourneys()` for alternatives. The v2 event timeline is unrolled into the
+ * legacy `route.{stepPoints,polyline,encodedPolyline}` view: `CHARGE` events →
+ * `EvStepPoint`s, `ROUTE` events' `geometry` → the concatenated polyline (and
+ * each ROUTE leg's distance/duration/consumed is carried onto the next step
+ * point so `EvStepPoint.getDistance()` etc. keep working).
+ *
+ * @private
+ * @since 2.0.0
+ * @param {Object} json
+ * @return {bemap.EvSmartRoutingResponse}
+ */
+bemap.EvSmartRoutingResponse._fromJsonV2 = function(json) {
+    var journeys = Array.isArray(json.journeys) ? json.journeys : [];
+    var primary = journeys[0] || null;
+    var summary = (primary &amp;&amp; primary.summary) || null;
+    var events = (primary &amp;&amp; Array.isArray(primary.events)) ? primary.events : [];
+
+    // Unroll the ordered event timeline.
+    var stepPoints = [];
+    var polyline = [];
+    var encoded = [];
+    var routeConsumptions = [];
+    // Accumulate the ROUTE leg(s) travelled since the last step point — a via can
+    // split one leg into several ROUTE events — and attach the total to the next
+    // CHARGE, so EvStepPoint.getDistance()/getDuration()/getConsumed() keep working.
+    var leg = null;
+    function addLeg(e) {
+        if (!leg) leg = { distance: 0, duration: 0, consumed: 0 };
+        if (typeof e.distance === 'number') leg.distance += e.distance;
+        if (typeof e.duration === 'number') leg.duration += e.duration;
+        if (typeof e.consumed === 'number') leg.consumed += e.consumed;
+    }
+    for (var i = 0; i &lt; events.length; i++) {
+        var evt = events[i] || {};
+        var type = evt.eventType;
+        if (type === 'ROUTE') {
+            if (Array.isArray(evt.geometry)) polyline = polyline.concat(evt.geometry);
+            if (evt.encodedGeometry) encoded.push(evt.encodedGeometry);
+            if (Array.isArray(evt.routeConsumptions)) routeConsumptions = routeConsumptions.concat(evt.routeConsumptions);
+            addLeg(evt);
+        } else if (type === 'CHARGE') {
+            stepPoints.push(bemap.EvStepPoint.fromChargeEvent(evt, leg));
+            leg = null;   // reset — start accumulating the next segment's leg
+        }
+        // START / STOP / VIA / TOLL / EXCEPTION remain available via getEvents();
+        // v1 `stepPoints` were charging stops only, so only CHARGE maps here.
+    }
+
+    // v2 boundingBox is `{minLon,minLat,maxLon,maxLat}` (v1 was topLeft/bottomRight).
+    var bbox = null;
+    var bb = summary &amp;&amp; summary.boundingBox;
+    if (bb) {
+        if (typeof bb.minLon === 'number') {
+            try {
+                bbox = new bemap.BoundingBox(
+                    new bemap.Coordinate(bb.minLon, bb.maxLat),   // top-left
+                    new bemap.Coordinate(bb.maxLon, bb.minLat)    // bottom-right
+                );
+            } catch (e) {
+                if (typeof console !== 'undefined' &amp;&amp; console.warn) {
+                    console.warn('bemap.EvSmartRoutingResponse: v2 bounding-box parse failed', e);
+                }
+                bbox = bb;
+            }
+        } else {
+            bbox = bb;
+        }
+    }
+
+    // Legacy `journey` shim so getDistance()/getDuration()/… keep working.
+    var journey = summary ? {
+        distance: summary.distance,
+        duration: summary.duration,
+        batteryLevel: summary.batteryLevel,
+        consumed: summary.consumed,
+        chargingTime: summary.chargingTime,
+        departureTime: summary.departureTime,
+        arrivalTime: summary.arrivalTime,
+        savedCo2Emissions: (typeof summary.savedCo2Emissions === 'number') ? summary.savedCo2Emissions : null,
+        vehicle: summary.vehicleInfo || null,
+        chargingCost: summary.chargingCost || null
+    } : null;
+
+    var route = {
+        stepPoints: stepPoints,
+        polyline: polyline.length ? polyline : null,
+        encodedPolyline: encoded.length ? encoded : null,   // v2: array of per-ROUTE-segment strings
+        events: events
+    };
+
+    return new bemap.EvSmartRoutingResponse({
+        logTag: json.logTag || null,
+        journey: journey,
+        boundingBox: bbox,
+        route: route,
+        journeys: journeys,
+        events: events,
+        summary: summary,
+        vehicleInfo: (summary &amp;&amp; summary.vehicleInfo) || null,
+        chargingCost: (summary &amp;&amp; summary.chargingCost) || null,
+        tollSumFees: (summary &amp;&amp; summary.tollSumFees) || null,
+        timeSlotWarns: (primary &amp;&amp; Array.isArray(primary.timeSlotWarns)) ? primary.timeSlotWarns : null,
+        routeConsumptions: routeConsumptions.length ? routeConsumptions : null
+    });
+};
 </code></pre>
         </article>
     </section>
@@ -239,7 +383,7 @@ bemap.EvSmartRoutingResponse.fromJson = function(json) {
 <br class="clear">
 
 <footer>
-    Documentation generated by <a href="https://github.com/jsdoc/jsdoc">JSDoc 3.6.3</a> on Tue Jul 07 2026 09:27:18 GMT+0200 (heure d’été d’Europe centrale)
+    Documentation generated by <a href="https://github.com/jsdoc/jsdoc">JSDoc 3.6.3</a> on Wed Jul 08 2026 16:03:30 GMT+0200 (heure d’été d’Europe centrale)
 </footer>
 
 <script> prettyPrint(); </script>

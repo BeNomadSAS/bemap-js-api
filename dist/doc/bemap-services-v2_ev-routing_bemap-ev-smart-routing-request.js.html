@@ -29,10 +29,13 @@
             <pre class="prettyprint source linenums"><code>/**
  * BeNomad BeMap JavaScript API - EvSmartRoutingRequest (v1.5)
  *
- * Strongly-typed request builder for `POST service/evsmartrouting/1.0`.
+ * Strongly-typed request builder. `toJson()` emits the REST **v1.0** body
+ * (`POST service/evsmartrouting/1.0`); `toJsonV2()` emits the REST **v2.0.0**
+ * body (`POST service/2.0/evsmartrouting`).
  *
- * Wire shape cross-checked against the BeMap server contract in
- * `bemap_idea/.../service/v1_0_0/model/evSmartRouting/request/EvSmartRoutingRequest.java`.
+ * Wire shapes cross-checked against the BeMap server contracts in
+ * `bemap_idea/.../service/v1_0_0/model/evSmartRouting/request/EvSmartRoutingRequest.java`
+ * and `.../service/v2_0_0/model/evSmartRouting/request/EvSmartRoutingRequest.java`.
  *
  * The server requires:
  *   - `startLon`, `startLat`, `stopLon`, `stopLat` (decimal degrees, WGS84)
@@ -115,6 +118,19 @@
  * @param {Boolean} [options.ignoreStatus=false]  Ignore charging-station availability status.
  * @param {String} [options.evtExtKey]         Extended route-timeline key (requires events:true).
  * @param {String} [options.geoserver]         Override the Context geoserver.
+ * @param {Number} [options.chargingStationFiltersVersion] (v2) Charging-station filter logic version (1|2).
+ * @param {Array.&lt;String>} [options.tariffChargePassHashIds] (v2) Eligible charge-pass hash IDs.
+ * @param {Boolean} [options.tollCost=false]   (v2) Enable toll-cost calculation + toll events.
+ * @param {Boolean} [options.routesheet=false] (v2) Enable the route-sheet.
+ * @param {String} [options.routesheetLanguage] (v2) Route-sheet language.
+ * @param {String} [options.routesheetMode]     (v2) Route-sheet mode: `TEXT`|`DETAILS`|`TEXT_DETAILS`.
+ * @param {String} [options.routesheetVerboseLevel] (v2) Route-sheet verbosity: `LOW`|`MEDIUM`|`HIGH`.
+ *
+ * NOTE ON VERSIONS: the same public options serialise to either wire shape —
+ * `toJson()` builds the REST **v1.0** body (flat), `toJsonV2()` builds the REST
+ * **v2.0.0** body (nested `vehicle`/`start`/`stop`/`vias`/`condition`).
+ * `bemap.EvSmartRouting.calculate()` uses `toJsonV2()`; the `(v2)` options above
+ * are honoured only by `toJsonV2()`.
  */
 bemap.EvSmartRoutingRequest = function(options) {
     var opts = options || {};
@@ -166,6 +182,16 @@ bemap.EvSmartRoutingRequest = function(options) {
     this.aroundEvse = !!opts.aroundEvse;
     this.ignoreStatus = !!opts.ignoreStatus;
     this.evtExtKey = opts.evtExtKey || null;
+
+    // --- v2-only optional fields (REST v2.0.0 — service/2.0/evsmartrouting) ---
+    // Accepted but optional; the v1 `toJson()` path ignores them. See `toJsonV2()`.
+    this.chargingStationFiltersVersion = (typeof opts.chargingStationFiltersVersion === 'number') ? opts.chargingStationFiltersVersion : null;
+    this.tariffChargePassHashIds = Array.isArray(opts.tariffChargePassHashIds) ? opts.tariffChargePassHashIds.slice() : null;
+    this.tollCost = !!opts.tollCost;
+    this.routesheet = !!opts.routesheet;
+    this.routesheetLanguage = opts.routesheetLanguage || null;
+    this.routesheetMode = opts.routesheetMode || null;
+    this.routesheetVerboseLevel = opts.routesheetVerboseLevel || null;
 
     this.geoserver = opts.geoserver || null;
 };
@@ -282,6 +308,105 @@ bemap.EvSmartRoutingRequest.prototype.toJson = function() {
 
     return body;
 };
+
+/**
+ * Build the REST **v2.0.0** wire-format body for `POST service/2.0/evsmartrouting`.
+ *
+ * Same public options as `toJson()` (v1) — only the wire SHAPE differs: v2 nests
+ * `vehicle{key,initBatLvl,payload}`, `start`/`stop`/`vias` as `{lon,lat}` places,
+ * and most trip options inside `condition{}` (with the v2 key names). Drops
+ * null / default fields. The v1 `toJson()` above is left untouched.
+ *
+ * @public
+ * @since 2.0.0
+ * @return {Object}
+ */
+bemap.EvSmartRoutingRequest.prototype.toJsonV2 = function() {
+    var body = {};
+    var lonOf = bemap.EvSmartRoutingRequest._lonOf;
+    var latOf = bemap.EvSmartRoutingRequest._latOf;
+
+    // vehicle{} (required) — key + battery/payload move inside the object.
+    var vehicle = {};
+    if (this.vehicle) vehicle.key = this.vehicle;
+    vehicle.initBatLvl = this.initBatteryLevel;      // always sent (default 100)
+    vehicle.payload = this.payload;                  // always sent (default 75)
+    body.vehicle = vehicle;
+
+    // start / stop / vias — structured PlaceFront (lon/lat).
+    if (this.start) body.start = { lon: lonOf(this.start), lat: latOf(this.start) };
+    if (this.stop) body.stop = { lon: lonOf(this.stop), lat: latOf(this.stop) };
+    if (this.vias &amp;&amp; this.vias.length) {
+        body.vias = this.vias.map(function(v) { return { lon: lonOf(v), lat: latOf(v) }; });
+    }
+
+    // Charging providers / filters stay top-level in v2.
+    if (this.chargingStationProviders &amp;&amp; this.chargingStationProviders.length) body.csps = this.chargingStationProviders.slice();
+    if (this.chargingStationFilters &amp;&amp; this.chargingStationFilters.length) body.csfs = this.chargingStationFilters.slice();
+    if (this.chargingStationFiltersVersion !== null) body.csfsVersion = this.chargingStationFiltersVersion;
+    if (this.tariffChargePassHashIds &amp;&amp; this.tariffChargePassHashIds.length) body.tariffChargePassHashIds = this.tariffChargePassHashIds.slice();
+
+    // condition{} — most former top-level options live here in v2, with new keys.
+    var cond = {};
+    if (this.optimMode) cond.optimMode = this.optimMode;
+    if (this.criterias &amp;&amp; this.criterias.length) cond.criterias = this.criterias.slice();
+    if (this.alternative) cond.alternative = this.alternative;
+    if (this.departureTime !== null &amp;&amp; this.departureTime !== undefined) {
+        // Server field is String (epoch-ms or ISO local date-time) — mirror v1 coercion.
+        if (this.departureTime instanceof Date) cond.departureTime = String(this.departureTime.getTime());
+        else if (typeof this.departureTime === 'number') cond.departureTime = String(this.departureTime);
+        else cond.departureTime = this.departureTime;
+    }
+    if (this.temperature !== 20) cond.temperature = this.temperature;
+    if (this.minBatteryLevel) cond.minBatLvl = this.minBatteryLevel;
+    if (this.minArrivalBatteryLevel) cond.minArrivalBatLvl = this.minArrivalBatteryLevel;
+    if (this.maxAfterChargeBatteryLevel !== null) cond.maxAfterChargeBatLvl = this.maxAfterChargeBatteryLevel;
+    if (this.connectorTypes &amp;&amp; this.connectorTypes.length) cond.connectorTypes = this.connectorTypes.slice();
+    if (this.chargingStationDeprecatedConnector) cond.chargingStationDeprecatedConnector = true;
+    // v2 renamed `stepPointPluggingTime` → `chargePluggingTime` (server default 300s).
+    // Send the SDK value (default 0) explicitly so behaviour matches v1 — no
+    // silent 300s-per-stop when the consumer did not ask for it.
+    cond.chargePluggingTime = this.stepPointPluggingTime;
+    if (this.stepPointTimeSlots &amp;&amp; this.stepPointTimeSlots.length) cond.chargeTimeSlots = this.stepPointTimeSlots.slice();
+    if (this.restrictedEvse) cond.restrictedEvse = true;
+    if (this.allowNaStatus) cond.allowNaStatus = true;
+    if (this.ignoreStatus) cond.ignoreAvailableStatus = true;   // renamed from `ignoreStatus`
+    if (this.drivingStyle) {
+        // v1 was a string enum; v2 is an object `{mode, …}`. Wrap a string; copy an
+        // object so a later caller mutation cannot corrupt the already-built body.
+        cond.drivingStyle = (typeof this.drivingStyle === 'string')
+            ? { mode: this.drivingStyle }
+            : Object.assign({}, this.drivingStyle);
+    }
+    if (this.allowMaxSpeedReco) cond.allowMaxSpeedRecommendation = true;   // renamed from `allowMaxSpdReco`
+    // Polyline defaults ON in the SDK; v2 `geometry` defaults false server-side, so send it.
+    cond.geometry = this.polyline;
+    if (this.encodedPolyline) cond.encodedGeometry = true;      // renamed from `epl`
+    if (this.co2Emissions) cond.co2emissions = true;
+    if (this.weather) cond.weather = true;
+    if (this.weatherProvider) cond.weatherProvider = this.weatherProvider;
+    if (this.currency) cond.currency = this.currency;
+    if (this.events) {                                          // `evt` → `routeDetails`
+        cond.routeDetails = true;
+        if (this.eventFrequency !== 60) cond.routeDetailsFreq = this.eventFrequency;
+    }
+    if (this.evtExtKey) cond.routeDetailsExtKey = this.evtExtKey;
+    // v2-only optional extras.
+    if (this.tollCost) cond.tollCost = true;
+    if (this.routesheet) cond.routesheet = true;
+    if (this.routesheetLanguage) cond.routesheetLanguage = this.routesheetLanguage;
+    if (this.routesheetMode) cond.routesheetMode = this.routesheetMode;
+    if (this.routesheetVerboseLevel) cond.routesheetVerboseLevel = this.routesheetVerboseLevel;
+    body.condition = cond;
+
+    // v1-only options with no v2 equivalent (arrivalTime, aroundEvse, debugStat,
+    // extraPayload) are intentionally omitted here; they remain available via the
+    // v1 `toJson()` path.
+
+    if (this.geoserver) body.geoserver = this.geoserver;
+
+    return body;
+};
 </code></pre>
         </article>
     </section>
@@ -298,7 +423,7 @@ bemap.EvSmartRoutingRequest.prototype.toJson = function() {
 <br class="clear">
 
 <footer>
-    Documentation generated by <a href="https://github.com/jsdoc/jsdoc">JSDoc 3.6.3</a> on Tue Jul 07 2026 09:27:18 GMT+0200 (heure d’été d’Europe centrale)
+    Documentation generated by <a href="https://github.com/jsdoc/jsdoc">JSDoc 3.6.3</a> on Wed Jul 08 2026 16:03:30 GMT+0200 (heure d’été d’Europe centrale)
 </footer>
 
 <script> prettyPrint(); </script>

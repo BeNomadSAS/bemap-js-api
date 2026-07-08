@@ -1416,6 +1416,29 @@
   function persistSidebarActive(path) {
     try { sessionStorage.setItem('bn.sidebar.v1.active', path || ''); } catch (e) {}
   }
+  // Account-level geoserver gate. Sidebar leaves pinned to specific geoservers
+  // carry `data-requires-geoserver="a,b"` (stamped by renderLeaf) and are shown
+  // only when the account has ANY of those geoservers — independent of the
+  // dashboard's currently-selected geoserver (e.g. the Geocoder v2 demo, which
+  // talks to nominatim/herehlp directly). `availableSet` is a
+  // {geoserverKey: truthy} map (keys matched case-insensitively); `root` scopes
+  // the query (defaults to document). Lives with the leaf renderer so it stays
+  // unit-testable; index.html calls it after the ACL geoserver list loads.
+  function applyGeoserverGate(availableSet, root) {
+    var scope = root || (typeof document !== 'undefined' ? document : null);
+    if (!scope) return;
+    var set = availableSet || {};
+    var items = scope.querySelectorAll('[data-requires-geoserver]');
+    for (var i = 0; i < items.length; i++) {
+      var needed = (items[i].getAttribute('data-requires-geoserver') || '').split(',');
+      var ok = false;
+      for (var j = 0; j < needed.length; j++) {
+        if (set[needed[j].trim().toLowerCase()]) { ok = true; break; }
+      }
+      if (ok) items[i].classList.remove('service-unavailable');
+      else items[i].classList.add('service-unavailable');
+    }
+  }
   function renderSidebar(rootEl, manifest) {
     sidebarState.manifest = manifest || [];
     loadSidebarState();
@@ -1503,6 +1526,7 @@
     }, children);
     if (leaf.requiresService) a.setAttribute('data-requires-service', leaf.requiresService);
     if (leaf.requiresProvider) a.setAttribute('data-requires-provider', leaf.requiresProvider);
+    if (leaf.requiresGeoserver) a.setAttribute('data-requires-geoserver', leaf.requiresGeoserver);
     if (leaf.adminOnly) a.classList.add('admin-only', 'bn-tree__leaf--admin');
     if (leaf.target) { a.setAttribute('target', leaf.target); a.setAttribute('rel', 'noopener'); }
     a.addEventListener('click', function () {
@@ -1819,8 +1843,12 @@
     // Forward console.* from the loaded example into the dashboard's console
     // pane. Same-origin iframes only — cross-origin throws on contentWindow
     // access and is silently ignored.
-    iframe.addEventListener('load', function () { hookIframeConsole(iframe); });
+    iframe.addEventListener('load', function () {
+      hookIframeConsole(iframe);
+      pokeIframeMap(iframe);
+    });
     stage.appendChild(iframe);
+    pokeIframeMap(iframe);
 
     shellState.currentExample = path;
     shellState.currentIframe = iframe;
@@ -1834,6 +1862,24 @@
     // Apply meta from registered example (when migrated) for top-bar title.
     var entry = registry[path] || registry[path.replace(/\.html$/i, '')];
     if (entry && entry.meta) applyMeta(entry.meta);
+  }
+
+  function pokeIframeMap(iframe) {
+    function send() {
+      try {
+        if (iframe && iframe.contentWindow) {
+          iframe.contentWindow.postMessage({ type: 'bemap:map:refresh' }, '*');
+        }
+      } catch (e) {}
+    }
+    send();
+    if (typeof requestAnimationFrame === 'function') {
+      requestAnimationFrame(function () { requestAnimationFrame(send); });
+    } else {
+      setTimeout(send, 0);
+    }
+    setTimeout(send, 100);
+    setTimeout(send, 500);
   }
 
   function fetchCodeSource(path) {
@@ -1955,7 +2001,7 @@
 
     // SPA shell
     shell: { boot: bootShell, navigate: function (h) { global.location.hash = '#' + h; } },
-    sidebar: { render: renderSidebar, setProviderCard: setProviderCard },
+    sidebar: { render: renderSidebar, setProviderCard: setProviderCard, applyGeoserverGate: applyGeoserverGate },
     codePanel: { setSource: setCodeSource, toggle: toggleCode, copy: copyCode },
     snippet: { rewrite: rewriteSnippet },
     requestSnippet: requestSnippet,

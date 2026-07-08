@@ -234,29 +234,57 @@ if (_BN_EMBED) {
 }
 
 // 3. Monkey-patch bemap.createMap so EVERY service page (embedded or not)
-//    gets the canvas-resize race fix automatically. This costs nothing on
-//    OL/Leaflet (the resize calls are no-ops on already-sized canvases).
+//    gets the iframe first-render resize fix automatically. For MapLibre use
+//    the SDK wrapper refresh(), not raw native.resize(): refresh() also nudges
+//    the camera so newly exposed tiles are requested after the canvas size
+//    changes. OL/Leaflet keep their native resize calls.
 (function patchCreateMapForResize() {
     if (typeof bemap !== 'object' || !bemap || typeof bemap.createMap !== 'function') return;
     if (bemap.createMap.__bnResized) return;          // idempotent
     var original = bemap.createMap;
+    var maps = [];
+    function resizeMap(m) {
+        if (!m) return;
+        try {
+            if (typeof bemap.MapLibreMap !== 'undefined'
+                && m instanceof bemap.MapLibreMap
+                && typeof m.refresh === 'function') {
+                m.refresh();
+                return;
+            }
+        } catch (e) {}
+        try { if (m.native && m.native.invalidateSize) m.native.invalidateSize(); } catch (e) {}
+        try { if (m.native && m.native.updateSize)     m.native.updateSize(); } catch (e) {}
+        try { if (m.native && m.native.resize)         m.native.resize(); } catch (e) {}
+    }
+    function resizeAllMaps() {
+        for (var i = 0; i < maps.length; i++) resizeMap(maps[i]);
+    }
+    function scheduleResizeAll() {
+        if (typeof requestAnimationFrame === 'function') {
+            requestAnimationFrame(function () { requestAnimationFrame(resizeAllMaps); });
+        } else {
+            setTimeout(resizeAllMaps, 0);
+        }
+        setTimeout(resizeAllMaps, 100);
+        setTimeout(resizeAllMaps, 500);
+    }
     var patched = function (context, target, options) {
         var m = original.apply(this, arguments);
         if (!m) return m;
-        function resize() {
-            try { if (m.native && m.native.resize)         m.native.resize(); } catch (e) {}
-            try { if (m.native && m.native.invalidateSize) m.native.invalidateSize(); } catch (e) {}
-            try { if (m.native && m.native.updateSize)     m.native.updateSize(); } catch (e) {}
-        }
-        requestAnimationFrame(function () { requestAnimationFrame(resize); });
-        setTimeout(resize, 100);
-        setTimeout(resize, 500);
+        maps.push(m);
+        scheduleResizeAll();
         if (typeof ResizeObserver === 'function' && typeof target === 'string') {
             var el = document.getElementById(target);
-            if (el) new ResizeObserver(resize).observe(el);
+            if (el) new ResizeObserver(function () { resizeMap(m); }).observe(el);
         }
         return m;
     };
     patched.__bnResized = true;
+    patched.__bnResizeAll = scheduleResizeAll;
     bemap.createMap = patched;
+    window.addEventListener('message', function (ev) {
+        var data = ev && ev.data;
+        if (data && data.type === 'bemap:map:refresh') scheduleResizeAll();
+    });
 })();

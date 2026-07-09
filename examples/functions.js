@@ -1715,6 +1715,9 @@ FUNCS['addGeoJsonSource'] = function() {
       id: 'cities-labels', type: 'symbol', source: 'cities-src',
       layout: {
         'text-field':  ['get', 'city'],
+        // BeNomad Tiles serves Noto Sans; MapLibre's default Open Sans stack
+        // 404s on the glyphs endpoint (PMT-42). Pin a served font.
+        'text-font':   ['Noto Sans Regular'],
         'text-size':   12,
         'text-offset': [0, 1.5],
         'text-anchor': 'top'
@@ -1850,6 +1853,7 @@ FUNCS['addImage'] = function() {
               'icon-size': 0.7,
               'icon-allow-overlap': true,
               'text-field': ['get', 'city'],
+              'text-font': ['Noto Sans Regular'],   // Noto Sans is served; Open Sans 404s (PMT-42)
               'text-offset': [0, 2],
               'text-anchor': 'top',
               'text-size': 12

@@ -29,9 +29,12 @@
     <h3 style="margin:0 0 4px;font-size:16px;">Dark Blue Map Style — 3 engines side-by-side</h3>
     <p style="margin:0;font-size:12px;opacity:0.75;">
       Same dark-blue theme rendered three ways: OpenLayers + Leaflet use the WMS
-      <code>styles:'darkblue'</code> server-side render; MapLibre uses the bundled
-      BeNomad vector style with dark-blue paint overrides applied at runtime.
-      Markers are added with identical code on all three.
+      <code>styles:'darkblue'</code> server-side render &mdash; <b>this named WMS
+      style is only served by the <code>here</code> geoserver; other geoservers
+      (e.g. <code>osm</code>) have no dark-blue style, so OL/Leaflet fall back to
+      their default render there.</b> MapLibre uses the bundled BeNomad vector
+      style with dark-blue paint overrides applied at runtime, so it is dark blue
+      on any geoserver. Markers are added with identical code on all three.
     </p>
   </div>
 
@@ -39,14 +42,14 @@
     <div class="bn-map-cell">
       <div class="bn-map-cell__label bn--ol">
         <span class="bn-chip bn-chip--ol">OL</span>
-        <span>OpenLayers v10 · WMS <code>styles:'darkblue'</code></span>
+        <span>OpenLayers v10 · WMS <code>styles:'darkblue'</code> (needs <code>here</code> geoserver)</span>
       </div>
       <div id="map-ol" class="bn-map"></div>
     </div>
     <div class="bn-map-cell">
       <div class="bn-map-cell__label bn--lf">
         <span class="bn-chip bn-chip--lf">Leaflet</span>
-        <span>Leaflet 1.9 · WMS <code>styles:'darkblue'</code></span>
+        <span>Leaflet 1.9 · WMS <code>styles:'darkblue'</code> (needs <code>here</code> geoserver)</span>
       </div>
       <div id="map-lf" class="bn-map"></div>
     </div>

@@ -386,14 +386,16 @@ body.bn-embedded .bn-topbar__back { display: none; }
   min-width: 0; min-height: 0;
 }
 .bn-map-cell__label {
-  height: 24px; line-height: 24px;
-  padding: 0 10px;
+  min-height: 24px; line-height: 1.35;
+  padding: 4px 10px;
   font-size: 11px; font-weight: 600;
   letter-spacing: 0.5px; text-transform: uppercase;
   color: var(--bn-text);
   background: var(--bn-ink-800);
   border-bottom: 1px solid var(--bn-line);
-  display: flex; align-items: center; gap: 6px;
+  /* wrap + grow so a longer caption (e.g. "…needs here geoserver") is fully
+     visible in a narrow 3-up cell instead of being clipped by a fixed height. */
+  display: flex; flex-wrap: wrap; align-items: center; gap: 2px 6px;
 }
 .bn-map-cell .bn-map { flex: 1; background: #d4ecf5; }
 .bn-map-cell__label.bn--ol { background: #1f4e79; }

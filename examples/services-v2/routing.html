@@ -28,6 +28,8 @@
             Click the map to drop start / end / vias.
             <code>bemap.RoutingV2.calculate(...)</code> returns a Promise
             that resolves with a <code>RoutingResponse</code>.
+            Energy-optimised routing (<code>ECO_ENERGY</code>) needs a full vehicle
+            <em>energy profile</em> — see the <strong>EV Smart Routing</strong> example.
         </p>
 
         <div class="field-row">
@@ -36,7 +38,10 @@
                 <select id="rt-crit">
                     <option value="FASTEST">FASTEST</option>
                     <option value="SHORTEST">SHORTEST</option>
-                    <option value="ECO_ENERGY">ECO_ENERGY</option>
+                    <!-- ECO_ENERGY needs a full vehicle energy profile (evf) the
+                         server requires; that belongs in the EV Smart Routing
+                         demo, so it is disabled here (PMT-36). -->
+                    <option value="ECO_ENERGY" disabled>ECO_ENERGY — see EV Smart Routing</option>
                 </select>
             </div>
             <div style="flex:1;">

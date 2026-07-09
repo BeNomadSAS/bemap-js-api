@@ -1317,6 +1317,17 @@
       controlsState.list.appendChild(btn);
     });
     bar.style.display = (buttons.length || title) ? 'flex' : 'none';
+    return bar;
+  }
+  // Unmount the previous example's controls on navigation (PMT-45). The control
+  // bar is a shell singleton (a stageCol sibling of the stage), so clearing the
+  // stage iframe does NOT clear it — call this on every example/landing/markdown
+  // switch so a page that posts no controls doesn't inherit stale ones.
+  function resetControlsBar() {
+    if (!controlsState.root) return;
+    if (controlsState.title) controlsState.title.textContent = '';
+    if (controlsState.list) controlsState.list.innerHTML = '';
+    controlsState.root.style.display = 'none';
   }
 
   /* ----- bn.codePanel — bottom panel (§6) ----- */
@@ -1782,6 +1793,7 @@
   }
 
   function disposeCurrentExample() {
+    resetControlsBar();   // PMT-45: unmount the previous example's control bar
     // Free any markdown-mounted maps' GPU contexts first (see _loseStageWebGL).
     _loseStageWebGL();
     if (shellState.currentExample) {
@@ -1809,6 +1821,7 @@
         shellState.currentExample.split('?')[0] === path.split('?')[0]) {
       var fnQuery = path.indexOf('?fn=') > -1 ? path.substring(path.indexOf('?fn=') + 4) : '';
       if (fnQuery) {
+        resetControlsBar();   // PMT-45: the switched-to fn re-posts its own controls
         try {
           shellState.currentIframe.contentWindow.postMessage(
             { type: 'bemap:fn:run', name: decodeURIComponent(fnQuery) }, '*'
@@ -2003,6 +2016,7 @@
     shell: { boot: bootShell, navigate: function (h) { global.location.hash = '#' + h; } },
     sidebar: { render: renderSidebar, setProviderCard: setProviderCard, applyGeoserverGate: applyGeoserverGate },
     codePanel: { setSource: setCodeSource, toggle: toggleCode, copy: copyCode },
+    controlsBar: { render: renderControlsBar, reset: resetControlsBar },
     snippet: { rewrite: rewriteSnippet },
     requestSnippet: requestSnippet,
     registerExample: registerExample,

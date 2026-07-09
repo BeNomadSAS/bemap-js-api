@@ -2612,7 +2612,7 @@ the hint; dev console gets a one-time `console.info`.
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-leaflet_bemap-map-leaflet-marker.js.html">bemap-leaflet/bemap-map-leaflet-marker.js</a>, <a href="bemap-leaflet_bemap-map-leaflet-marker.js.html#line9">line 9</a>
+        <a href="bemap-leaflet_bemap-map-leaflet-marker.js.html">bemap-leaflet/bemap-map-leaflet-marker.js</a>, <a href="bemap-leaflet_bemap-map-leaflet-marker.js.html#line22">line 22</a>
     </li></ul></dd>
     
 
@@ -2670,7 +2670,7 @@ the hint; dev console gets a one-time `console.info`.
     
 
     
-    <h4 class="name" id="addMultiMarker"><span class="type-signature">(abstract) </span>addMultiMarker<span class="signature">(multipoint, options)</span><span class="type-signature"> &rarr; {<a href="bemap.Map.html">bemap.Map</a>}</span></h4>
+    <h4 class="name" id="addMultiMarker"><span class="type-signature"></span>addMultiMarker<span class="signature">(multimarker, options)</span><span class="type-signature"> &rarr; {<a href="bemap.LeafletMap.html">bemap.LeafletMap</a>}</span></h4>
     
 
     
@@ -2678,7 +2678,7 @@ the hint; dev console gets a one-time `console.info`.
 
 
 <div class="description">
-    Add a multipoint to the layer
+    Add a multimarker to the map. Leaflet has no native multi-point marker, so —exactly like the MapLibre backend — each point is rendered as its own childbemap.Marker (id "<multimarkerId>_<i>"). Previously LeafletMap had NOaddMultiMarker at all, so `map.addMultiMarker(mm)` hit the base no-op and themultimarker was silently dropped — the engines rendered different markercounts for the same code (PMT-28). Now all three engines draw the same points.
 </div>
 
 
@@ -2714,13 +2714,13 @@ the hint; dev console gets a one-time `console.info`.
 
         <tr>
             
-                <td class="name"><code>multipoint</code></td>
+                <td class="name"><code>multimarker</code></td>
             
 
             <td class="type">
             
                 
-<span class="param-type">bemap.MultiPoint</span>
+<span class="param-type"><a href="bemap.MultiMarker.html">bemap.MultiMarker</a></span>
 
 
             
@@ -2772,8 +2772,10 @@ the hint; dev console gets a one-time `console.info`.
     
 
     
-    <dt class="inherited-from">Inherited From:</dt>
-    <dd class="inherited-from"><ul class="dummy"><li>
+
+    
+    <dt class="tag-overrides">Overrides:</dt>
+    <dd class="tag-overrides"><ul class="dummy"><li>
         <a href="bemap.Map.html#addMultiMarker">bemap.Map#addMultiMarker</a>
     </li></ul></dd>
     
@@ -2795,11 +2797,9 @@ the hint; dev console gets a one-time `console.info`.
     
 
     
-
-    
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line748">line 748</a>
+        <a href="bemap-leaflet_bemap-map-leaflet-marker.js.html">bemap-leaflet/bemap-map-leaflet-marker.js</a>, <a href="bemap-leaflet_bemap-map-leaflet-marker.js.html#line211">line 211</a>
     </li></ul></dd>
     
 
@@ -2839,7 +2839,7 @@ the hint; dev console gets a one-time `console.info`.
     </dt>
     <dd>
         
-<span class="param-type"><a href="bemap.Map.html">bemap.Map</a></span>
+<span class="param-type"><a href="bemap.LeafletMap.html">bemap.LeafletMap</a></span>
 
 
     </dd>
@@ -4967,7 +4967,7 @@ the registry is cleared at the end regardless.
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-leaflet_bemap-map-leaflet-circle.js.html">bemap-leaflet/bemap-map-leaflet-circle.js</a>, <a href="bemap-leaflet_bemap-map-leaflet-circle.js.html#line141">line 141</a>
+        <a href="bemap-leaflet_bemap-map-leaflet-circle.js.html">bemap-leaflet/bemap-map-leaflet-circle.js</a>, <a href="bemap-leaflet_bemap-map-leaflet-circle.js.html#line164">line 164</a>
     </li></ul></dd>
     
 
@@ -5226,7 +5226,7 @@ the registry is cleared at the end regardless.
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-leaflet_bemap-map-leaflet-marker.js.html">bemap-leaflet/bemap-map-leaflet-marker.js</a>, <a href="bemap-leaflet_bemap-map-leaflet-marker.js.html#line192">line 192</a>
+        <a href="bemap-leaflet_bemap-map-leaflet-marker.js.html">bemap-leaflet/bemap-map-leaflet-marker.js</a>, <a href="bemap-leaflet_bemap-map-leaflet-marker.js.html#line283">line 283</a>
     </li></ul></dd>
     
 
@@ -9321,7 +9321,7 @@ update; subscribe via `onEffectChange` for live notification.
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-leaflet_bemap-map-leaflet-circle.js.html">bemap-leaflet/bemap-map-leaflet-circle.js</a>, <a href="bemap-leaflet_bemap-map-leaflet-circle.js.html#line106">line 106</a>
+        <a href="bemap-leaflet_bemap-map-leaflet-circle.js.html">bemap-leaflet/bemap-map-leaflet-circle.js</a>, <a href="bemap-leaflet_bemap-map-leaflet-circle.js.html#line129">line 129</a>
     </li></ul></dd>
     
 
@@ -9911,7 +9911,7 @@ false`). The dashboard's active-effects bar consumes this.
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-leaflet_bemap-map-leaflet-marker.js.html">bemap-leaflet/bemap-map-leaflet-marker.js</a>, <a href="bemap-leaflet_bemap-map-leaflet-marker.js.html#line159">line 159</a>
+        <a href="bemap-leaflet_bemap-map-leaflet-marker.js.html">bemap-leaflet/bemap-map-leaflet-marker.js</a>, <a href="bemap-leaflet_bemap-map-leaflet-marker.js.html#line175">line 175</a>
     </li></ul></dd>
     
 
@@ -10179,7 +10179,7 @@ false`). The dashboard's active-effects bar consumes this.
     
 
     
-    <h4 class="name" id="onMultiMarkers"><span class="type-signature">(abstract) </span>onMultiMarkers<span class="signature">(eventType, callback, options)</span><span class="type-signature"> &rarr; {<a href="bemap.Listener.html">bemap.Listener</a>}</span></h4>
+    <h4 class="name" id="onMultiMarkers"><span class="type-signature"></span>onMultiMarkers<span class="signature">(eventType, callback, options)</span><span class="type-signature"> &rarr; {<a href="bemap.Listener.html">bemap.Listener</a>}</span></h4>
     
 
     
@@ -10187,7 +10187,7 @@ false`). The dashboard's active-effects bar consumes this.
 
 
 <div class="description">
-    Set the listner when an specified eventType occur on all bemap.MultiMarker.
+    Attach a listener to every multimarker's child markers (they are ordinaryL.markers) so a click on any point fires with that child as bemapObject —matching the MapLibre backend's onMultiMarkers behaviour.
 </div>
 
 
@@ -10239,7 +10239,7 @@ false`). The dashboard's active-effects bar consumes this.
 
             
 
-            <td class="description last">Event type.</td>
+            <td class="description last"></td>
         </tr>
 
     
@@ -10262,7 +10262,7 @@ false`). The dashboard's active-effects bar consumes this.
 
             
 
-            <td class="description last">Function will be called when the specified eventType is occur.</td>
+            <td class="description last"></td>
         </tr>
 
     
@@ -10285,7 +10285,7 @@ false`). The dashboard's active-effects bar consumes this.
 
             
 
-            <td class="description last">options.</td>
+            <td class="description last"></td>
         </tr>
 
     
@@ -10304,8 +10304,10 @@ false`). The dashboard's active-effects bar consumes this.
     
 
     
-    <dt class="inherited-from">Inherited From:</dt>
-    <dd class="inherited-from"><ul class="dummy"><li>
+
+    
+    <dt class="tag-overrides">Overrides:</dt>
+    <dd class="tag-overrides"><ul class="dummy"><li>
         <a href="bemap.Map.html#onMultiMarkers">bemap.Map#onMultiMarkers</a>
     </li></ul></dd>
     
@@ -10327,11 +10329,9 @@ false`). The dashboard's active-effects bar consumes this.
     
 
     
-
-    
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line903">line 903</a>
+        <a href="bemap-leaflet_bemap-map-leaflet-marker.js.html">bemap-leaflet/bemap-map-leaflet-marker.js</a>, <a href="bemap-leaflet_bemap-map-leaflet-marker.js.html#line262">line 262</a>
     </li></ul></dd>
     
 
@@ -10359,10 +10359,6 @@ false`). The dashboard's active-effects bar consumes this.
 <h5>Returns:</h5>
 
         
-<div class="param-desc">
-    this.
-</div>
-
 
 
 <dl>
@@ -11681,7 +11677,7 @@ false`). The dashboard's active-effects bar consumes this.
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-leaflet_bemap-map-leaflet-circle.js.html">bemap-leaflet/bemap-map-leaflet-circle.js</a>, <a href="bemap-leaflet_bemap-map-leaflet-circle.js.html#line88">line 88</a>
+        <a href="bemap-leaflet_bemap-map-leaflet-circle.js.html">bemap-leaflet/bemap-map-leaflet-circle.js</a>, <a href="bemap-leaflet_bemap-map-leaflet-circle.js.html#line111">line 111</a>
     </li></ul></dd>
     
 
@@ -12333,7 +12329,7 @@ false`). The dashboard's active-effects bar consumes this.
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-leaflet_bemap-map-leaflet-marker.js.html">bemap-leaflet/bemap-map-leaflet-marker.js</a>, <a href="bemap-leaflet_bemap-map-leaflet-marker.js.html#line141">line 141</a>
+        <a href="bemap-leaflet_bemap-map-leaflet-marker.js.html">bemap-leaflet/bemap-map-leaflet-marker.js</a>, <a href="bemap-leaflet_bemap-map-leaflet-marker.js.html#line157">line 157</a>
     </li></ul></dd>
     
 
@@ -12391,7 +12387,7 @@ false`). The dashboard's active-effects bar consumes this.
     
 
     
-    <h4 class="name" id="removeMultimarker"><span class="type-signature">(abstract) </span>removeMultimarker<span class="signature">(multimarker)</span><span class="type-signature"> &rarr; {<a href="bemap.Map.html">bemap.Map</a>}</span></h4>
+    <h4 class="name" id="removeMultimarker"><span class="type-signature"></span>removeMultimarker<span class="signature">(multimarker)</span><span class="type-signature"> &rarr; {<a href="bemap.LeafletMap.html">bemap.LeafletMap</a>}</span></h4>
     
 
     
@@ -12399,7 +12395,7 @@ false`). The dashboard's active-effects bar consumes this.
 
 
 <div class="description">
-    Remove a multimarker from the layer
+    Remove a multimarker (and its child markers) from the map.
 </div>
 
 
@@ -12470,8 +12466,10 @@ false`). The dashboard's active-effects bar consumes this.
     
 
     
-    <dt class="inherited-from">Inherited From:</dt>
-    <dd class="inherited-from"><ul class="dummy"><li>
+
+    
+    <dt class="tag-overrides">Overrides:</dt>
+    <dd class="tag-overrides"><ul class="dummy"><li>
         <a href="bemap.Map.html#removeMultimarker">bemap.Map#removeMultimarker</a>
     </li></ul></dd>
     
@@ -12493,11 +12491,9 @@ false`). The dashboard's active-effects bar consumes this.
     
 
     
-
-    
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line759">line 759</a>
+        <a href="bemap-leaflet_bemap-map-leaflet-marker.js.html">bemap-leaflet/bemap-map-leaflet-marker.js</a>, <a href="bemap-leaflet_bemap-map-leaflet-marker.js.html#line237">line 237</a>
     </li></ul></dd>
     
 
@@ -12537,7 +12533,7 @@ false`). The dashboard's active-effects bar consumes this.
     </dt>
     <dd>
         
-<span class="param-type"><a href="bemap.Map.html">bemap.Map</a></span>
+<span class="param-type"><a href="bemap.LeafletMap.html">bemap.LeafletMap</a></span>
 
 
     </dd>
@@ -13728,7 +13724,7 @@ false`). The dashboard's active-effects bar consumes this.
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-leaflet_bemap-map-leaflet-marker.js.html">bemap-leaflet/bemap-map-leaflet-marker.js</a>, <a href="bemap-leaflet_bemap-map-leaflet-marker.js.html#line129">line 129</a>
+        <a href="bemap-leaflet_bemap-map-leaflet-marker.js.html">bemap-leaflet/bemap-map-leaflet-marker.js</a>, <a href="bemap-leaflet_bemap-map-leaflet-marker.js.html#line145">line 145</a>
     </li></ul></dd>
     
 
@@ -16033,6 +16029,165 @@ the map container so the engine-specific selectors all hit at once.
     
 
     
+    <h4 class="name" id="updateCircleCenter"><span class="type-signature">(protected) </span>updateCircleCenter<span class="signature">(circle)</span><span class="type-signature"> &rarr; {<a href="bemap.LeafletMap.html">bemap.LeafletMap</a>}</span></h4>
+    
+
+    
+
+
+
+<div class="description">
+    Sync the bemap.Circle's coordinate from its native L.circle centre. Called bybemap.Circle.getCenter() (e.g. inside a drag callback) to read back the liveposition. LeafletMap previously lacked this method, so getCenter() threw"this.map.updateCircleCenter is not a function" on a Leaflet map after acircle drag (PMT-37). Mirrors the OpenLayers / MapLibre contract.
+</div>
+
+
+
+
+
+
+
+
+
+    <h5>Parameters:</h5>
+    
+
+<table class="params">
+    <thead>
+    <tr>
+        
+        <th>Name</th>
+        
+
+        <th>Type</th>
+
+        
+
+        
+
+        <th class="last">Description</th>
+    </tr>
+    </thead>
+
+    <tbody>
+    
+
+        <tr>
+            
+                <td class="name"><code>circle</code></td>
+            
+
+            <td class="type">
+            
+                
+<span class="param-type"><a href="bemap.Circle.html">bemap.Circle</a></span>
+
+
+            
+            </td>
+
+            
+
+            
+
+            <td class="description last"></td>
+        </tr>
+
+    
+    </tbody>
+</table>
+
+
+
+
+
+
+<dl class="details">
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+    <dt class="tag-source">Source:</dt>
+    <dd class="tag-source"><ul class="dummy"><li>
+        <a href="bemap-leaflet_bemap-map-leaflet-circle.js.html">bemap-leaflet/bemap-map-leaflet-circle.js</a>, <a href="bemap-leaflet_bemap-map-leaflet-circle.js.html#line93">line 93</a>
+    </li></ul></dd>
+    
+
+    
+
+    
+
+    
+</dl>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<h5>Returns:</h5>
+
+        
+<div class="param-desc">
+    this
+</div>
+
+
+
+<dl>
+    <dt>
+        Type
+    </dt>
+    <dd>
+        
+<span class="param-type"><a href="bemap.LeafletMap.html">bemap.LeafletMap</a></span>
+
+
+    </dd>
+</dl>
+
+    
+
+
+
+
+
+        
+            
+
+    
+
+    
     <h4 class="name" id="updateGeoJsonSource"><span class="type-signature"></span>updateGeoJsonSource<span class="signature">(id, data)</span><span class="type-signature"> &rarr; {<a href="bemap.Map.html">bemap.Map</a>}</span></h4>
     
 
@@ -16934,7 +17089,7 @@ the map container so the engine-specific selectors all hit at once.
 <br class="clear">
 
 <footer>
-    Documentation generated by <a href="https://github.com/jsdoc/jsdoc">JSDoc 3.6.3</a> on Wed Jul 08 2026 16:03:31 GMT+0200 (heure d’été d’Europe centrale)
+    Documentation generated by <a href="https://github.com/jsdoc/jsdoc">JSDoc 3.6.3</a> on Thu Jul 09 2026 14:44:14 GMT+0200 (heure d’été d’Europe centrale)
 </footer>
 
 <script> prettyPrint(); </script>

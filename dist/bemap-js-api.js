@@ -5932,9 +5932,13 @@ bemap.MapLibreMap = function(context, target, options) {
         // Pass the WRAPPER (_authSelf), not _authSelf.native. handle401
         // calls `arg.setStyle(spec)` internally — when arg is the wrapper,
         // bemap.MapLibreMap.prototype.setStyle attaches the
-        // `once('styledata', () => _overlayCatalog.replayOnto(self))`
-        // listener so every polyline / marker / popup / heatmap registered
-        // before the 401 storm gets re-added on the new style.
+        // `once('idle', () => _overlayCatalog.replayOnto(self))`
+        // listener so every SOURCE/LAYER overlay (polyline / polygon / circle /
+        // raster / heatmap) registered before the 401 storm gets re-added on
+        // the new style. (DOM overlays — markers / popups — live in the map
+        // container, survive setStyle untouched, and are intentionally NOT in
+        // the replay set; replaying them would duplicate them — see
+        // TilesOverlayCatalog / PMT-28.)
         // Previously we passed .native → wrapper.setStyle bypassed → no
         // replay → 24 of 33 polylines silently dropped (the ones added
         // before the post-401 setStyle wiped them).
@@ -6359,7 +6363,15 @@ bemap.MapLibreMap.prototype._colorToRgba = function(color) {
 };
 
 bemap.MapLibreMap.prototype._addOwnToProperties = function(bemapObject) {
-  var id = this._uniqueId('obj');
+  if (!bemapObject) return;
+  // Idempotent: reuse an existing id instead of minting a new one. When the
+  // overlay catalog replays an add after a setStyle (e.g. the live charte load
+  // on a tilesHost page), a fresh id would give a polyline/polygon/circle a NEW
+  // source/layer id that escapes addPolyline's `getLayer()` dedupe guard and
+  // paints a DUPLICATE layer over the original — the "two polylines, drag one
+  // and the other moves" symptom (PMT-28). Keeping the id stable makes the
+  // guard fire so replay is a no-op for an overlay that is already present.
+  var id = bemapObject._bemapId || this._uniqueId('obj');
   bemapObject._bemapId = id;
   this._featureRegistry[id] = bemapObject;
 };
@@ -10430,6 +10442,9 @@ bemap.CircleStyle.prototype.setBorderWidth = function(borderWidth) {
  * @param {bemap.Color} options.color Set the background color of the clustered marker.
  * @param {bemap.Color} options.textColor Set the color of the text inside the clustered marker.
  * @param {int} options.textSize Set the size of the text inside the clustered marker.
+ * @param {Array<String>} options.textFont (MapLibre only) Font stack for the cluster-count label,
+ *   e.g. `['Noto Sans Regular']`. Must be a font your map's glyphs endpoint serves. When unset,
+ *   MapLibre picks a served default (Noto Sans on BeNomad Tiles).
  */
 bemap.clusterStyle = function(options) {
     var opts = options || {};
@@ -10481,6 +10496,14 @@ bemap.clusterStyle = function(options) {
      * @protected
      */
     this.textSize = opts.textSize ? opts.textSize : 2;
+
+    /**
+     * MapLibre-only font stack for the cluster-count label. null → the SDK
+     * picks a font the map's glyphs endpoint serves.
+     * @type {Array<String>|null}
+     * @protected
+     */
+    this.textFont = opts.textFont ? opts.textFont : null;
 
     /**
      * @type {Object}
@@ -14911,6 +14934,20 @@ bemap.OlMap.prototype.editPolygon = function(polygon, callback) {
 };
 
 /**
+ * True when `native` is an OpenLayers image style (ol.style.Icon) built by this
+ * backend. Duck-typed on getImage() rather than `instanceof ol.style.Icon`, so a
+ * second OL bundle or a different load order can't defeat the check and force a
+ * rebuild loop (PMT-29). A foreign native (e.g. a Leaflet icon on a bemap.Icon
+ * shared across engines) lacks getImage() and is rebuilt.
+ * @private
+ * @param {object} native
+ * @return {boolean}
+ */
+bemap.OlMap._isOwnIcon = function (native) {
+  return !!(native && typeof native.getImage === 'function');
+};
+
+/**
  * Add a marker to the layer
  * @public
  * @param {bemap.Marker} marker
@@ -14935,7 +14972,9 @@ bemap.OlMap.prototype.addMarker = function(marker, options) {
 
     marker.native.getGeometry().transform(bemap.Map.PROJ.EPSG_WGS84, this.native.getView().getProjection());
 
-    if (marker.icon !== null && marker.icon.native === null) {
+    // Rebuild if the cached native isn't an OL icon — a bemap.Icon shared with a
+    // Leaflet/other panel may hold a foreign native (PMT-29 cross-engine cache).
+    if (marker.icon && !bemap.OlMap._isOwnIcon(marker.icon.native)) {
       this.buildIcon(marker.icon);
     }
 
@@ -15093,7 +15132,7 @@ bemap.OlMap.prototype.addMultiMarker = function(multimarker, options) {
 
     multimarker.native.getGeometry().transform(bemap.Map.PROJ.EPSG_WGS84, this.native.getView().getProjection());
 
-    if (multimarker.icon.native === null) {
+    if (multimarker.icon && !bemap.OlMap._isOwnIcon(multimarker.icon.native)) {
       this.buildIcon(multimarker.icon);
     }
 
@@ -15697,6 +15736,29 @@ bemap.LeafletMap.prototype.setCoordinateCircle = function(circle) {
  */
 bemap.LeafletMap.prototype.setRadiusCircle = function(circle) {
   circle.native.setRadius(circle.getRadius());
+  return this;
+};
+
+/**
+ * Sync the bemap.Circle's coordinate from its native L.circle centre. Called by
+ * bemap.Circle.getCenter() (e.g. inside a drag callback) to read back the live
+ * position. LeafletMap previously lacked this method, so getCenter() threw
+ * "this.map.updateCircleCenter is not a function" on a Leaflet map after a
+ * circle drag (PMT-37). Mirrors the OpenLayers / MapLibre contract.
+ * @protected
+ * @param {bemap.Circle} circle
+ * @return {bemap.LeafletMap} this
+ */
+bemap.LeafletMap.prototype.updateCircleCenter = function(circle) {
+  if (circle && circle.native && typeof circle.native.getLatLng === 'function') {
+    var ll = circle.native.getLatLng();
+    var coord = circle.coordinate;
+    if (coord && bemap.inheritsof(coord, bemap.Coordinate)) {
+      coord.setLon(ll.lng).setLat(ll.lat);
+    } else {
+      circle.coordinate = new bemap.Coordinate(ll.lng, ll.lat);
+    }
+  }
   return this;
 };
 
@@ -16318,6 +16380,19 @@ bemap.LeafletMap.prototype._colorToHex = function(color) {
 };
 
 /**
+ * True when `native` is a Leaflet icon (L.Icon / L.DivIcon) built by this
+ * backend — duck-typed on createIcon(). A foreign native (e.g. an ol.style.Icon
+ * left on a bemap.Icon shared with an OpenLayers panel) lacks createIcon(), so
+ * L.marker would throw "icon.createIcon is not a function" — rebuild it (PMT-29).
+ * @private
+ * @param {object} native
+ * @return {boolean}
+ */
+bemap.LeafletMap._isOwnIcon = function (native) {
+  return !!(native && typeof native.createIcon === 'function');
+};
+
+/**
  * Add a marker to the layer
  * @public
  * @param {bemap.Marker} marker
@@ -16382,7 +16457,10 @@ bemap.LeafletMap.prototype.addMarker = function(marker, options) {
     };
 
     if (icon) {
-       if (!icon.native) {
+       // Rebuild if the cached native isn't a Leaflet icon. A bemap.Icon shared
+       // across engines may already carry another engine's native (e.g. an
+       // ol.style.Icon from an OpenLayers panel) — see _isOwnIcon (PMT-29).
+       if (!bemap.LeafletMap._isOwnIcon(icon.native)) {
          nativeIcon = _buildIcon(icon);
          icon.native = nativeIcon;
        }
@@ -16390,7 +16468,7 @@ bemap.LeafletMap.prototype.addMarker = function(marker, options) {
      } else if (bemap.inheritsof(l, bemap.ClusterLayer)) {
 
        icon = l.style.icon;
-       if (icon && !icon.native) {
+       if (icon && !bemap.LeafletMap._isOwnIcon(icon.native)) {
          nativeIcon = _buildIcon(icon);
          icon.native = nativeIcon;
 
@@ -16497,6 +16575,81 @@ bemap.LeafletMap.prototype.onMarker = function(marker, eventType, callback, opti
     bemapObject: marker
   });
   return listener;
+};
+
+/**
+ * Add a multimarker to the map. Leaflet has no native multi-point marker, so —
+ * exactly like the MapLibre backend — each point is rendered as its own child
+ * bemap.Marker (id "<multimarkerId>_<i>"). Previously LeafletMap had NO
+ * addMultiMarker at all, so `map.addMultiMarker(mm)` hit the base no-op and the
+ * multimarker was silently dropped — the engines rendered different marker
+ * counts for the same code (PMT-28). Now all three engines draw the same points.
+ * @public
+ * @param {bemap.MultiMarker} multimarker
+ * @param {object} options
+ * @return {bemap.LeafletMap} this
+ */
+bemap.LeafletMap.prototype.addMultiMarker = function(multimarker, options) {
+  if (!multimarker || !bemap.inheritsof(multimarker, bemap.MultiMarker)) return this;
+  multimarker._childMarkers = [];
+  var coords = multimarker.getCoordinates();
+  for (var i = 0; i < coords.length; i++) {
+    // icon + id only (no name/textStyle) — matches the MapLibre backend's child
+    // markers, so a MultiMarker renders identically on both (no per-child label).
+    var m = new bemap.Marker(coords[i], {
+      icon: multimarker.icon,
+      id: (multimarker.id !== undefined && multimarker.id !== null) ? multimarker.id + '_' + i : null
+    });
+    this.addMarker(m, options);
+    multimarker._childMarkers.push(m);
+  }
+  if (multimarker.map === null) multimarker.map = this;
+  if (!this._multiMarkers) this._multiMarkers = [];
+  this._multiMarkers.push(multimarker);
+  return this;
+};
+
+/**
+ * Remove a multimarker (and its child markers) from the map.
+ * @public
+ * @param {bemap.MultiMarker} multimarker
+ * @return {bemap.LeafletMap} this
+ */
+bemap.LeafletMap.prototype.removeMultimarker = function(multimarker) {
+  if (multimarker && multimarker._childMarkers) {
+    for (var i = 0; i < multimarker._childMarkers.length; i++) {
+      this.removeMarker(multimarker._childMarkers[i]);
+    }
+    multimarker._childMarkers = [];
+  }
+  if (multimarker) multimarker.map = null;
+  if (this._multiMarkers) {
+    var idx = this._multiMarkers.indexOf(multimarker);
+    if (idx > -1) this._multiMarkers.splice(idx, 1);
+  }
+  return this;
+};
+
+/**
+ * Attach a listener to every multimarker's child markers (they are ordinary
+ * L.markers) so a click on any point fires with that child as bemapObject —
+ * matching the MapLibre backend's onMultiMarkers behaviour.
+ * @public
+ * @param {bemap.Map.EventType} eventType
+ * @param {function} callback
+ * @param {object} options
+ * @return {bemap.Listener}
+ */
+bemap.LeafletMap.prototype.onMultiMarkers = function(eventType, callback, options) {
+  var mm = this._multiMarkers || [];
+  var last = new bemap.Listener();
+  for (var i = 0; i < mm.length; i++) {
+    var children = mm[i]._childMarkers || [];
+    for (var j = 0; j < children.length; j++) {
+      last = this.onMarker(children[j], eventType, callback, options);
+    }
+  }
+  return last;
 };
 
 /**
@@ -17471,7 +17624,12 @@ bemap.MapLibreMap.prototype.addCircle = function(circle, options) {
     }
   };
 
-  if (this.native.isStyleLoaded()) { addToMap(); } else { this.native.on('load', addToMap); }
+  // Schedule via _enqueueStyleOp (same robust path as addPolyline) so the layer
+  // is (re-)added on every style-ready — including after the post-login charte
+  // setStyle. The old `on('load', addToMap)` only fired once on the initial
+  // style, so a circle added before the charte load was left off the new style
+  // (not rendered, not query-able → not draggable) while polyline survived (PMT-38).
+  this._enqueueStyleOp(circle._maplibreFillLayerId, addToMap);
 
   circle.native = { sourceId: circle._maplibreSourceId };
   if (circle.map === null) circle.map = this;
@@ -17620,16 +17778,26 @@ bemap.MapLibreMap.prototype.addClusterPoints = function(clusterLayer, points, op
       }
     });
 
-    // Cluster count labels
+    // Cluster count labels. Pick a font the map's glyphs endpoint actually
+    // serves (see _resolveClusterFont): Noto Sans on BeNomad Tiles — MapLibre's
+    // default "Open Sans Regular, Arial Unicode MS Regular" 404s there (PMT-43)
+    // — but left UNSET on other/unknown glyphs (e.g. the demotiles fallback
+    // serves Open Sans, not Noto) so a bare-PMTiles map does not regress.
+    // Override via the cluster style `textFont`.
+    var countGlyphs = null;
+    try { countGlyphs = _this.native.getStyle && _this.native.getStyle().glyphs; } catch (e) { /* ignore */ }
+    var countLayout = {
+      'text-field': '{point_count_abbreviated}',
+      'text-size': cs && cs.textSize ? cs.textSize * 6 : 12
+    };
+    var countFont = _this._resolveClusterFont(cs && cs.textFont, countGlyphs, _this.ctx && _this.ctx.tilesHost);
+    if (countFont) countLayout['text-font'] = countFont;
     _this.native.addLayer({
       id: countId,
       type: 'symbol',
       source: sourceId,
       filter: ['has', 'point_count'],
-      layout: {
-        'text-field': '{point_count_abbreviated}',
-        'text-size': cs && cs.textSize ? cs.textSize * 6 : 12
-      },
+      layout: countLayout,
       paint: {
         'text-color': textColor
       }
@@ -17669,6 +17837,26 @@ bemap.MapLibreMap.prototype.addClusterPoints = function(clusterLayer, points, op
   if (this.native.isStyleLoaded()) { addToMap(); } else { this.native.on('load', addToMap); }
 
   return this;
+};
+
+/**
+ * Resolve the cluster-count label font (PMT-43). An explicit `csTextFont`
+ * (cluster style `textFont`) always wins. Otherwise pin ['Noto Sans Regular']
+ * ONLY when the map's glyphs endpoint is the BeNomad tiles host (which serves
+ * Noto Sans, not MapLibre's default Open Sans); for any other/unknown glyphs
+ * endpoint (e.g. the demotiles fallback, which serves Open Sans) return null so
+ * the cluster-count layer keeps MapLibre's implicit default and does not 404 —
+ * avoiding a regression on the SDK's own fallback path.
+ * @private
+ * @param {Array<String>=} csTextFont Cluster style textFont override.
+ * @param {String=} glyphs Resolved glyphs URL of the current style.
+ * @param {String=} tilesHost ctx.tilesHost.
+ * @return {Array<String>|null}
+ */
+bemap.MapLibreMap.prototype._resolveClusterFont = function (csTextFont, glyphs, tilesHost) {
+  if (csTextFont) return csTextFont;
+  if (glyphs && tilesHost && String(glyphs).indexOf(tilesHost) !== -1) return ['Noto Sans Regular'];
+  return null;
 };
 
 /**
@@ -18259,7 +18447,11 @@ bemap.MapLibreMap.prototype.addMarker = function(marker, options) {
   var el = null;
   if (marker.icon && marker.icon.src) {
     el = document.createElement('div');
-    el.style.cursor = 'pointer';
+    // No cursor here: a plain (click-only) marker keeps the default arrow. The
+    // finger/"hand" (pointer) cursor is applied in draggableMarker ONLY when the
+    // marker is made draggable — matching the OpenLayers/Leaflet backends
+    // (PMT-28). The old code forced 'pointer' on EVERY marker, so even
+    // non-draggable ones looked grabbable.
     var img = document.createElement('img');
     img.src = marker.icon.src;
 
@@ -18642,6 +18834,10 @@ bemap.MapLibreMap.prototype.setCoordinateMarker = function(marker) {
 bemap.MapLibreMap.prototype.draggableMarker = function(marker, callback, options) {
   if (marker && marker.native) {
     marker.native.setDraggable(true);
+    // Draggable markers show the finger/"hand" (pointer) cursor; plain markers
+    // keep the default arrow (addMarker sets no cursor). Matches OL/Leaflet (PMT-28).
+    var _dragEl = (typeof marker.native.getElement === 'function') ? marker.native.getElement() : null;
+    if (_dragEl) _dragEl.style.cursor = 'pointer';
     if (!marker.events) marker.events = {};
     if (!marker.callback) marker.callback = {};
     marker.events.draggable = true;
@@ -18790,7 +18986,10 @@ bemap.MapLibreMap.prototype.addPolygon = function(polygon, options) {
     }
   };
 
-  if (this.native.isStyleLoaded()) { addToMap(); } else { this.native.on('load', addToMap); }
+  // Same robust scheduling as addPolyline (re-adds on every style-ready, incl.
+  // after the charte setStyle) instead of the once-only `on('load')` that left
+  // a polygon added before the charte load off the new style (PMT-38).
+  this._enqueueStyleOp(polygon._maplibreFillLayerId, addToMap);
 
   polygon.native = { sourceId: polygon._maplibreSourceId };
   if (polygon.map === null) polygon.map = this;
@@ -20685,16 +20884,19 @@ bemap.TilesOverlayCatalog.prototype.entries = function () {
 (function () {
   if (typeof bemap === 'undefined' || typeof bemap.MapLibreMap !== 'function') return;
 
-  // Map of public add method → (type label, id resolver, factory args).
-  // `id` is the bemap object reference itself (used as a Map key —
-  // identity comparison is what we want here, not value equality).
+  // Map of public add method → (type label). Only overlays backed by a
+  // MapLibre SOURCE/LAYER belong here — those are what `setStyle()` wipes and
+  // must be replayed. Markers, multimarkers and popups are DOM overlays
+  // (maplibregl.Marker / maplibregl.Popup) that live in the map's marker/popup
+  // container, NOT in the style — `setStyle()` leaves them untouched. Replaying
+  // them would create a SECOND element (the first orphaned on the map) and
+  // repoint `marker.native` to a fresh instance that was never `setDraggable`'d
+  // — the "duplicate markers that can't be dragged" bug (PMT-28). So they are
+  // intentionally EXCLUDED from the replay set.
   var overlayMethods = [
-    { add: 'addMarker',      remove: 'removeMarker',      type: 'marker' },
-    { add: 'addMultiMarker', remove: 'removeMultimarker', type: 'multimarker' },
     { add: 'addPolyline',    remove: 'removePolyline',    type: 'polyline' },
     { add: 'addPolygon',     remove: 'removePolygon',     type: 'polygon' },
     { add: 'addCircle',      remove: 'removeCircle',      type: 'circle' },
-    { add: 'addPopup',       remove: 'removePopup',       type: 'popup' },
     { add: 'addRasterLayer', remove: 'removeLayer',       type: 'rasterlayer' },
     { add: 'addHeatmap',     remove: 'removeHeatmap',     type: 'heatmap' }
   ];

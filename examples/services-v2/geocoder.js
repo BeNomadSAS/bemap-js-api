@@ -143,7 +143,7 @@
         });
         // Default to the dashboard's selected geoserver when it is one of these.
         var saved = null;
-        try { saved = localStorage.getItem('bemap-geoserver'); } catch (e) { /* ignore */ }
+        try { saved = String(localStorage.getItem('bemap-geoserver') || '').toLowerCase(); } catch (e) { /* ignore */ }
         if (saved && available.indexOf(saved) > -1) geoserverSel.value = saved;
         geoserverSel.disabled = (available.length < 2);   // no point offering a single-item select
         if (goBtn) goBtn.disabled = false;

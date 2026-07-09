@@ -127,6 +127,15 @@
 
         // Flutter SDK wire shape: single destinations[] (first=start, last=end, between=vias).
         var criterias = [document.getElementById('rt-crit').value];
+
+        // ECO_ENERGY requires a full vehicle ENERGY profile (routingEnergyVehicleFeature)
+        // the server mandates — this basic demo doesn't collect one, so the option is
+        // disabled in the UI. Guard here too (PMT-36) so a friendlier hint is shown
+        // instead of the raw "Vehicle profile (vp) is required!" server error.
+        if (criterias.indexOf(bemap.RoutingCriteria.ECO_ENERGY) !== -1) {
+            setStatus('ECO_ENERGY needs a full vehicle energy profile — use the EV Smart Routing example.', 'error');
+            return;
+        }
         if (document.getElementById('rt-avoid-toll').checked) criterias.push(bemap.RoutingCriteria.AVOID_TOLLS);
         if (document.getElementById('rt-avoid-hw').checked) criterias.push(bemap.RoutingCriteria.AVOID_MOTORWAYS);
 

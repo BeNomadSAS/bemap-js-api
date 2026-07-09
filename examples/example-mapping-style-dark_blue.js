@@ -5,6 +5,10 @@
  *   Use the single-call shortcut: `defaultLayers({ styles: 'darkblue' })`.
  *   Calling `addLayer(BemapLayer)` AFTER `defaultLayers()` would stack a
  *   second opaque WMS tile layer on top — the shortcut above avoids that.
+ *   NOTE: the `darkblue` NAMED WMS style is only served by the `here`
+ *   geoserver. On other geoservers (e.g. `osm`) there is no dark-blue style,
+ *   so OL/Leaflet fall back to their default WMS render. MapLibre (below) is
+ *   dark blue on any geoserver because it paints the vector charte itself.
  *
  * • MapLibre: let the library load the default BeNomad vector style (tiny
  *   fallback then the live charte from the Worker — PMTiles source URL + JWT
@@ -25,6 +29,10 @@
 onLoaded = function() {
 
   var ctx = bemapMainCtx;
+  // The `darkblue` named WMS style is only served by the `here` geoserver, so
+  // the OL/Leaflet (WMS) panels are only actually dark blue on that geoserver.
+  var currentGeoserver = (ctx && typeof ctx.getGeoserver === 'function') ? ctx.getGeoserver() : null;
+  var darkblueWmsAvailable = (currentGeoserver === 'here');
   var benomadFR = { lon: 7.13397, lat: 43.6358 };
   var benomadUS = { lon: -122.4327353, lat: 37.7751336 };
   var startLon = -50, startLat = 43.6358, startZoom = 3;
@@ -71,7 +79,9 @@ onLoaded = function() {
     var mkOl = makeMarkers();
     olMap.addMarker(mkOl[0]);
     olMap.addMarker(mkOl[1]);
-    postLog('OL', 'ok', 'rendered with WMS styles=darkblue, 2 markers added');
+    postLog('OL', darkblueWmsAvailable ? 'ok' : 'info', darkblueWmsAvailable
+      ? 'rendered dark-blue via WMS styles=darkblue, 2 markers added'
+      : 'WMS "darkblue" style is only on the "here" geoserver — current geoserver "' + currentGeoserver + '" has none, so OL shows its DEFAULT WMS render (2 markers added). Pick the "here" geoserver for dark blue.');
   } catch (e) { postLog('OL', 'err', e.message); }
 
   /* ============================================================
@@ -85,7 +95,9 @@ onLoaded = function() {
     var mkLf = makeMarkers();
     lfMap.addMarker(mkLf[0]);
     lfMap.addMarker(mkLf[1]);
-    postLog('Leaflet', 'ok', 'rendered with WMS styles=darkblue, 2 markers added');
+    postLog('Leaflet', darkblueWmsAvailable ? 'ok' : 'info', darkblueWmsAvailable
+      ? 'rendered dark-blue via WMS styles=darkblue, 2 markers added'
+      : 'WMS "darkblue" style is only on the "here" geoserver — current geoserver "' + currentGeoserver + '" has none, so Leaflet shows its DEFAULT WMS render (2 markers added). Pick the "here" geoserver for dark blue.');
   } catch (e) { postLog('Leaflet', 'err', e.message); }
 
   /* ============================================================

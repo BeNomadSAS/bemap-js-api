@@ -25,7 +25,8 @@ enum constant. Cross-checked against the BeMap server source
 ```js
 var ctx = new bemap.Context({
     login: 'your-login', password: 'your-password',
-    host: 'bemap-beta.benomad.com', secure: true,
+    host: 'bemap.benomad.com', secure: true,   // prod (default)
+    // preprod: bemap-preprod.benomad.com · beta: bemap-beta.benomad.com (test / validation)
     geoserver: 'osm'
 });
 
@@ -944,7 +945,7 @@ like `'osm'`) so a new map version rolls out without a client change.
 alias. An explicit `tilesFile` (per-call or on the Context) always wins.
 
 ```js
-var ctx = new bemap.Context({ tilesHost: 'mptiles-api-beta.benomad.net', login: 'u', password: 'p' });
+var ctx = new bemap.Context({ tilesHost: 'mptiles-api.benomad.net', login: 'u', password: 'p' });
 // ctx.tilesFile === 'default'  → server chooses the map
 ctx.tilesFile = 'here';        // or pin the HERE alias
 var map = new bemap.MapLibreMap(ctx, 'map');

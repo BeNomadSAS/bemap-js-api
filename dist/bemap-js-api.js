@@ -260,11 +260,12 @@ bemap.Context = function (options) {
   this.protocol = opts.secure ? 'https' : 'http';
 
   /**
-   * Define the host name of BeMap server. By default "bemap-beta.benomad.com".
+   * Define the host name of BeMap server. By default "bemap.benomad.com"
+   * (production; the same service also answers at "bemap-prod.benomad.com").
    * @protected
    * @type {string}
    */
-  this.host = opts.host || 'bemap-beta.benomad.com';
+  this.host = opts.host || 'bemap.benomad.com';
 
   /**
    * Define the path of bgis context. The string must be start with / character. By default "/bgis/".
@@ -328,7 +329,7 @@ bemap.Context = function (options) {
   this.chargingStationProvider = opts.chargingStationProvider || null;
 
   /**
-   * BeNomad Tiles Worker host, e.g. `'mptiles-api-beta.benomad.net'`. When set,
+   * BeNomad Tiles Worker host, e.g. `'mptiles-api.benomad.net'`. When set,
    * `bemap.MapLibreMap` will route its background through PMTiles instead of
    * WMS. Leaflet and OpenLayers ignore this field and keep WMS unchanged.
    * @public
@@ -544,7 +545,7 @@ bemap.Context.prototype.getTilesAuth = function () {
 
 /**
  * Return the base URL of the BeNomad Tiles Worker, e.g.
- * `'https://mptiles-api-beta.benomad.net'`.
+ * `'https://mptiles-api.benomad.net'`.
  * @public
  * @since 2.0.0
  * @return {string|null}
@@ -5569,12 +5570,19 @@ bemap.MapLibreMap = function(context, target, options) {
   //   '200'  → `?r=` slices; the Worker returns cacheable 200s (browser HTTP cache;
   //            needs a Worker that serves the slice route — BeNomad Tiles does).
   //   'range'→ classic HTTP Range (206) via pmtiles' stock source (today's path).
-  // `tilesSliceTimeoutMs` / `tilesSliceMaxRetries` / `tilesSliceConcurrency` tune the
-  // shared gate. All page-level defaults, applied here BEFORE the archive is wired.
+  // `tilesSliceTimeoutMs` (pre-header TTFB) / `tilesSliceBodyTimeoutMs` (post-header
+  // safety cap) / `tilesSliceMaxRetries` / `tilesSliceRetryBackoffMs` /
+  // `tilesSliceConcurrency` tune the shared gate. All page-level defaults,
+  // applied here BEFORE the archive is wired.
   bemap.MapLibreMap._applyTilesSliceOpts(opts);
   // Optional callback fired by setTileGateActive() so an embedder's UI can
   // reflect the live gate state (the SDK ships no UI — see the example page).
   this._onTileGateChange = (typeof opts.onTileGateChange === 'function') ? opts.onTileGateChange : null;
+  // Debounce (ms) for the recoverable-tile-error refresh safety net installed
+  // below (`tilesErrorRefreshMs`, default 4000; 0 disables). MapLibre never
+  // re-requests an errored tile on its own — see the 'error' listener.
+  this._tilesErrorRefreshMs = (opts.tilesErrorRefreshMs != null) ? +opts.tilesErrorRefreshMs : 4000;
+  this._tileRefreshTimer = null;
   this._featureRegistry = {};   // _bemapId → bemap object
   this._markerElements = {};    // _bemapId → { element, bemapObject }
   this._geoJsonLayerIds = [];   // track all GeoJSON layer IDs for hit-testing
@@ -5955,6 +5963,24 @@ bemap.MapLibreMap = function(context, target, options) {
           message: 'BeNomad Tiles: rate limited'
         }));
       }
+    });
+  }
+
+  // Terminal safety net for RECOVERABLE tile failures. MapLibre does NOT
+  // re-request an errored tile on its own, so once the RangeGate's retries are
+  // exhausted (TTFB timeout → AbortError, the Worker's ~3 s deadline → 504,
+  // 429/5xx, a network blip) the tile would stay grey until the next zoom
+  // change. Schedule ONE debounced refresh of the tile-backed sources instead.
+  // 401/403 are auth — handled above by TilesAuth — and stay untouched. The
+  // smart-abort gate makes this rare (~0.1 % of tiles under heavy panning);
+  // this is the last line of defence, not the primary recovery. Policy proven
+  // in mp-tiles-demo: 0 permanent grey tiles.
+  if (this._hasTilesConfig || opts.tiles) {
+    var _healSelf = this;
+    this.native.on('error', function (e) {
+      var err = e && e.error;
+      if (!bemap.MapLibreMap._isRecoverableTileError(err)) return;
+      _healSelf._scheduleTileRefresh();
     });
   }
 
@@ -6802,7 +6828,9 @@ bemap.MapLibreMap._applyTilesSliceOpts = function (opts) {
   if (typeof bemap.PMTilesSliceSource === 'function' && bemap.PMTilesSliceSource.defaultGate) {
     var g = bemap.PMTilesSliceSource.defaultGate;
     if (opts.tilesSliceTimeoutMs != null) g.timeoutMs = opts.tilesSliceTimeoutMs;
+    if (opts.tilesSliceBodyTimeoutMs != null) g.bodyTimeoutMs = opts.tilesSliceBodyTimeoutMs;
     if (opts.tilesSliceMaxRetries != null) g.maxRetries = opts.tilesSliceMaxRetries;
+    if (Array.isArray(opts.tilesSliceRetryBackoffMs)) g.retryBackoffMs = opts.tilesSliceRetryBackoffMs.slice();
     if (opts.tilesSliceConcurrency != null) g.concurrency = (opts.tilesSliceConcurrency > 0 ? opts.tilesSliceConcurrency : 0);
     if (opts.tileGate != null) g.setActive(opts.tileGate !== false);
   }
@@ -6880,8 +6908,10 @@ bemap.MapLibreMap.prototype.getTilesConfig = function () {
     tileGate: gate ? {
       active: gate.isActive(),
       concurrency: gate.concurrency,      // 0 = uncapped
-      timeoutMs: gate.timeoutMs,
-      maxRetries: gate.maxRetries
+      timeoutMs: gate.timeoutMs,          // pre-header (TTFB) timeout
+      bodyTimeoutMs: gate.bodyTimeoutMs,  // post-header body safety cap
+      maxRetries: gate.maxRetries,
+      retryBackoffMs: (gate.retryBackoffMs || []).slice()
     } : null,
     tilesAuth: null,
     serviceWorker: { enabled: false, path: null }
@@ -6943,11 +6973,89 @@ bemap.MapLibreMap.prototype.setTilesSliceMode = function (mode) {
 };
 
 /**
+ * Classify a MapLibre 'error' payload as a RECOVERABLE tile failure — one a
+ * debounced source refresh can heal. Auth statuses (401/403) are excluded
+ * (TilesAuth owns those); other definite HTTP statuses except 408/429/5xx
+ * (e.g. 404) are permanent and excluded too. Status-less errors count when
+ * they look like a timeout / abort / network blip.
+ * @private
+ * @param {Object} err the `e.error` from MapLibre's 'error' event
+ * @return {Boolean}
+ */
+bemap.MapLibreMap._isRecoverableTileError = function (err) {
+  if (!err) return false;
+  var status = err.status || (err.statusText ? parseInt(err.statusText, 10) : 0) || 0;
+  if (status === 401 || status === 403) return false;   // auth — TilesAuth owns these
+  // Transient server: 429 (rate limit), 5xx (incl. the Worker's 3 s deadline
+  // → 504), 408 (request timeout). The gate already retried; refresh heals.
+  if (status === 408 || status === 429 || (status >= 500 && status <= 599)) return true;
+  if (status > 0) return false;                         // other definite HTTP status (404…) — permanent
+  var name = err.name || '';
+  if (name === 'AbortError' || name === 'TimeoutError') return true;   // gate TTFB timeout / aborted fetch
+  if (name === 'TypeError') return true;                               // fetch network failure
+  var msg = String(err.message || '');
+  // Status-less wrapped messages (pmtiles / slice source): transient codes or
+  // timeout / abort / network wording.
+  return /\b(?:408|429|5\d\d)\b/.test(msg) ||
+    /\btime[d]?[\s-]?out\b|\btimeout\b|\baborted?\b|failed to fetch|networkerror|network error|load failed/i.test(msg);
+};
+
+/**
+ * Schedule ONE debounced (`tilesErrorRefreshMs`, default 4000 ms) refresh of
+ * the tile-backed sources — the terminal safety net after a recoverable tile
+ * failure. Repeated errors inside the window coalesce into the single pending
+ * refresh; `tilesErrorRefreshMs: 0` disables the net entirely.
+ * @private
+ * @return {bemap.MapLibreMap} this
+ */
+bemap.MapLibreMap.prototype._scheduleTileRefresh = function () {
+  if (!(this._tilesErrorRefreshMs > 0)) return this;    // disabled by config
+  if (this._tileRefreshTimer) return this;              // one pending refresh at a time
+  var self = this;
+  this._tileRefreshTimer = setTimeout(function () {
+    self._tileRefreshTimer = null;
+    self._refreshTileSources();
+  }, this._tilesErrorRefreshMs);
+  return this;
+};
+
+/**
+ * Re-request errored tiles on every tile-backed source of the current style:
+ * `map.refreshTiles(sourceId)` (MapLibre ≥ 5) with a `source.setUrl(url)`
+ * fallback. GeoJSON overlays are skipped — they cannot grey out. Best-effort:
+ * every step is guarded, a failure on one source never blocks the others.
+ * @private
+ * @return {bemap.MapLibreMap} this
+ */
+bemap.MapLibreMap.prototype._refreshTileSources = function () {
+  var map = this.native;
+  if (!map || typeof map.getStyle !== 'function') return this;
+  var style = null;
+  try { style = map.getStyle(); } catch (e) { return this; }
+  var sources = (style && style.sources) || {};
+  for (var id in sources) {
+    if (!Object.prototype.hasOwnProperty.call(sources, id)) continue;
+    var type = sources[id] && sources[id].type;
+    if (type !== 'vector' && type !== 'raster' && type !== 'raster-dem') continue;
+    var refreshed = false;
+    try {
+      if (typeof map.refreshTiles === 'function') { map.refreshTiles(id); refreshed = true; }
+    } catch (e2) { /* fall through to setUrl below */ }
+    if (refreshed) continue;
+    try {
+      var src = (typeof map.getSource === 'function') ? map.getSource(id) : null;
+      if (src && typeof src.setUrl === 'function' && src.url) src.setUrl(src.url);
+    } catch (e3) { /* best-effort only */ }
+  }
+  return this;
+};
+
+/**
  * Load BeMap PMTiles vector tiles. Auto-authenticates using bemap.Context credentials.
  *
  * Usage:
  *   map.loadBeMapTiles();  // uses defaults + context credentials
- *   map.loadBeMapTiles({ url: 'https://mptiles-api-beta.benomad.net', tilesFile: 'Europe.pmtiles', style: 'style_liberty.json' });
+ *   map.loadBeMapTiles({ url: 'https://mptiles-api.benomad.net', tilesFile: 'Europe.pmtiles', style: 'style_liberty.json' });
  *   map.loadBeMapTiles({ token: 'existing-jwt' });  // skip login
  *
  * @deprecated Since 2.0.0 — prefer `ctx.tilesHost` on the Context, which
@@ -8140,6 +8248,9 @@ bemap.MapLibreMap.prototype.remove = function () {
   try { if (this._tilesAuth) this._tilesAuth.destroy(); } catch (e) {}
   try { if (this._browserCache) this._browserCache.destroy(); } catch (e) {}
   try { if (this._overlayCatalog) this._overlayCatalog.clear(); } catch (e) {}
+  // Pending recoverable-tile-error refresh — firing after removal would touch
+  // a dead map.
+  try { if (this._tileRefreshTimer) { clearTimeout(this._tileRefreshTimer); this._tileRefreshTimer = null; } } catch (e) {}
   try { this._disconnectTargetResizeObserver(); } catch (e) {}
   this.stopSpinGlobe();
   if (typeof _origRemoveMapLibre === 'function') return _origRemoveMapLibre.apply(this, arguments);
@@ -16568,6 +16679,11 @@ bemap.LeafletMap.prototype.onMarker = function(marker, eventType, callback, opti
     });
     callback(mapEvent);
   });
+  // Give the marker a real hit area — the no-size (divIcon) path renders the
+  // <img> at `pointer-events:none` inside a 0×0 wrapper, so a click passes
+  // straight through and this listener would never fire (PMT-47). draggableMarker
+  // applies the same fix for drag; here it's for click/hover events.
+  this._enableMarkerHitArea(marker);
   var listener = new bemap.Listener({
     native: nativeListener,
     callback: callback,
@@ -16575,6 +16691,27 @@ bemap.LeafletMap.prototype.onMarker = function(marker, eventType, callback, opti
     bemapObject: marker
   });
   return listener;
+};
+
+/**
+ * Give a divIcon marker a real pointer HIT AREA. addMarker renders the no-size
+ * (divIcon) marker with the <img> at `pointer-events:none` inside a 0×0 wrapper,
+ * so pointer events pass straight through and neither onMarker's click nor a
+ * hover ever fires (PMT-47). Re-enable pointer events on the marker's icon
+ * image. No-op for the explicit-size L.icon path (already interactive) and
+ * before the marker is on the map (no `_icon` yet). Cursor is intentionally
+ * left untouched — a hand cursor is reserved for draggable markers.
+ * @private
+ * @param {bemap.Marker} marker
+ * @return {bemap.LeafletMap} this
+ */
+bemap.LeafletMap.prototype._enableMarkerHitArea = function (marker) {
+  var el = marker && marker.native && marker.native._icon;
+  if (el) {
+    var imgs = el.getElementsByTagName('img');
+    for (var i = 0; i < imgs.length; i++) imgs[i].style.pointerEvents = 'auto';
+  }
+  return this;
 };
 
 /**
@@ -19607,10 +19744,21 @@ bemap.RecoverablePromiseCache.prototype.prune = function () {
  *    `?r=` slice route — BeNomad Tiles does on all envs.
  *
  * 2. `bemap.RangeGate` — an optional per-request resilience wrapper: a
- *    concurrency cap (off by default), a per-attempt `AbortController` timeout
- *    that spans the body read, and one retry on a transient failure — NEVER
- *    retrying a caller cancel (pan/zoom). It combines the caller's pmtiles
- *    `signal` with the timeout signal via `AbortSignal.any`. Live-toggleable.
+ *    concurrency cap (off by default), a per-attempt TTFB (pre-header) timeout
+ *    with SMART-ABORT semantics, and retries with backoff on a transient
+ *    failure — NEVER retrying a caller cancel (pan/zoom). SMART ABORT: every
+ *    attempt runs on a PRIVATE `AbortController`; the caller's (pan/zoom)
+ *    cancel and the TTFB timer may kill the socket ONLY BEFORE the response
+ *    headers arrive (nothing transferred yet — cheap). Once headers are in the
+ *    socket is never physically aborted — killing a streaming tile body
+ *    poisons the browser's shared H2/H3 connection and stalls 15–25 % of
+ *    follow-up requests (see GREY-TILES-ROOT-CAUSE.md in the Worker repo) —
+ *    the body drains to completion (warming the browser cache), a caller
+ *    cancel is honoured LOGICALLY afterwards (reject `AbortError`, discard
+ *    the bytes), and a generous body safety cap (`bodyTimeoutMs`) replaces
+ *    any body-spanning kill, guarding only a truly dead socket.
+ *    Live-toggleable. Policy proven in mp-tiles-demo: 0 permanent grey tiles,
+ *    +15 % bandwidth, worst tile ≤ 4 s.
  *
  * Both are wired by `bemap.MapLibreMap` per `opts.tilesSliceMode` (default
  * `'200'`) and the `tilesSlice*` knobs. Auth composes for free: `getBytes` uses
@@ -19622,38 +19770,6 @@ bemap.RecoverablePromiseCache.prototype.prune = function () {
  * @public
  */
 
-var _bemapNoop = function () {};
-
-/**
- * Combine two `AbortSignal`s into one that aborts when EITHER does. Prefers the
- * native `AbortSignal.any` (self-cleaning); falls back to a manual controller;
- * degrades to the caller signal when neither exists. Returns `{ signal, cleanup }`
- * — the caller MUST call `cleanup()` when the attempt settles, so the fallback's
- * listeners are removed from the (possibly long-lived) caller signal instead of
- * accumulating across retries.
- * @private
- */
-function _bemapCombineSignals(a, b) {
-  if (!a) return { signal: b || undefined, cleanup: _bemapNoop };
-  if (!b) return { signal: a, cleanup: _bemapNoop };
-  if (typeof AbortSignal !== 'undefined' && typeof AbortSignal.any === 'function') {
-    try { return { signal: AbortSignal.any([a, b]), cleanup: _bemapNoop }; } catch (e) { /* fall through */ }
-  }
-  if (typeof AbortController === 'function') {
-    var ctl = new AbortController();
-    var onAbort = function () { try { ctl.abort(); } catch (e) {} };
-    if (a.aborted || b.aborted) { onAbort(); return { signal: ctl.signal, cleanup: _bemapNoop }; }
-    try { a.addEventListener('abort', onAbort); b.addEventListener('abort', onAbort); } catch (e) {}
-    return {
-      signal: ctl.signal,
-      cleanup: function () {
-        try { a.removeEventListener('abort', onAbort); b.removeEventListener('abort', onAbort); } catch (e) {}
-      }
-    };
-  }
-  return { signal: a, cleanup: _bemapNoop };
-}
-
 function _bemapAbortError() {
   var e = new Error('The operation was aborted.');
   e.name = 'AbortError';
@@ -19661,25 +19777,40 @@ function _bemapAbortError() {
 }
 
 /**
- * Optional resilience gate for tile reads: concurrency cap + per-attempt timeout
- * + one retry. When inactive (`setActive(false)` or `?nogate`) it is a pure
- * pass-through (raw fetch). Read live per request, so toggling takes effect
- * without a reload.
+ * Optional resilience gate for tile reads: concurrency cap + per-attempt TTFB
+ * timeout with smart-abort semantics + retries with backoff. When inactive
+ * (`setActive(false)` or `?nogate`) it is a pure pass-through (raw fetch).
+ * Read live per request, so toggling takes effect without a reload.
  *
  * @public
  * @since 2.0.0
  * @constructor
  * @param {Object} [options]
  * @param {Number} [options.concurrency=0] Max in-flight reads (0 = uncapped).
- * @param {Number} [options.timeoutMs=3500] Per-attempt timeout spanning the body read (0 = none).
- * @param {Number} [options.maxRetries=1] Retries on a transient failure (429/5xx/network); never on a caller cancel.
+ * @param {Number} [options.timeoutMs=3500] Per-attempt TTFB (pre-header) timeout (0 = none).
+ *   Must stay ABOVE the Worker's ~3000 ms tile deadline so its 504 is received
+ *   (and retried) instead of the socket being aborted just before it lands.
+ *   Once headers arrive this timer is disarmed — see `bodyTimeoutMs`.
+ * @param {Number} [options.bodyTimeoutMs=20000] Post-header BODY safety cap (0 = none).
+ *   Generous ON PURPOSE: physically aborting a streaming tile body poisons the
+ *   browser's shared H2/H3 connection; tile bodies are small and normally finish
+ *   in well under a second — this cap only guards a truly dead socket.
+ * @param {Number} [options.maxRetries=3] Retries on a transient failure
+ *   (429/5xx/timeout/network); never on a caller cancel. 1 → 3 (2026-07 fix):
+ *   a single retry left ~1 in 25 tiles permanently grey under pan bursts;
+ *   three retries bring the residual to ~0.1 %.
+ * @param {Number[]} [options.retryBackoffMs=[200,500,1000]] Backoff (ms) before
+ *   retries #1/#2/#3… (the last entry repeats) — gives a strained connection
+ *   time to heal before the re-attempt.
  * @param {Boolean} [options.active=true] Whether the gate is engaged.
  */
 bemap.RangeGate = function (options) {
   var o = options || {};
   this.concurrency = (typeof o.concurrency === 'number' && o.concurrency > 0) ? o.concurrency : 0;
   this.timeoutMs = (typeof o.timeoutMs === 'number' && o.timeoutMs >= 0) ? o.timeoutMs : 3500;
-  this.maxRetries = (typeof o.maxRetries === 'number' && o.maxRetries >= 0) ? o.maxRetries : 1;
+  this.bodyTimeoutMs = (typeof o.bodyTimeoutMs === 'number' && o.bodyTimeoutMs >= 0) ? o.bodyTimeoutMs : 20000;
+  this.maxRetries = (typeof o.maxRetries === 'number' && o.maxRetries >= 0) ? o.maxRetries : 3;
+  this.retryBackoffMs = Array.isArray(o.retryBackoffMs) ? o.retryBackoffMs.slice() : [200, 500, 1000];
   this._active = (o.active !== false);
   this._inFlight = 0;
   this._queue = [];
@@ -19724,10 +19855,25 @@ bemap.RangeGate.prototype._release = function () {
 };
 
 /**
- * Run one tile-read attempt through the gate. `attemptFn(signal)` must perform
- * the whole read (fetch + body) and resolve/reject; the timeout spans it.
+ * Run one tile-read attempt through the gate. `attemptFn(signal, headersReceived)`
+ * must perform the whole read (fetch + body) and resolve/reject.
+ *
+ * SMART ABORT: `signal` is the gate's PRIVATE per-attempt `AbortController`
+ * signal — the TTFB timer and a caller (pan/zoom) cancel abort it ONLY until
+ * the attempt calls `headersReceived()` (do so the moment the response headers
+ * are in). From that point the socket is protected: the body drains to
+ * completion under the generous `bodyTimeoutMs` safety cap, and a caller
+ * cancel is honoured LOGICALLY once the attempt settles (reject `AbortError`,
+ * discard the result — bytes already warmed the browser cache). An `attemptFn`
+ * that never calls `headersReceived` keeps the legacy whole-attempt timeout.
+ *
+ * Retries (up to `maxRetries`, spaced by `retryBackoffMs`) apply to transient
+ * failures only — 429/5xx, a network `TypeError`, a timeout `AbortError` —
+ * and NEVER to a caller cancel. Each attempt takes its own concurrency slot
+ * (a retry re-queues at the back instead of squatting a permit across its
+ * backoff sleep).
  * @public
- * @param {Function} attemptFn `function(signal) => Promise`
+ * @param {Function} attemptFn `function(signal, headersReceived) => Promise`
  * @param {AbortSignal} [callerSignal] the pmtiles cancellation signal
  * @return {Promise}
  */
@@ -19737,44 +19883,84 @@ bemap.RangeGate.prototype.run = function (attemptFn, callerSignal) {
   if (!this._active) return Promise.resolve().then(function () { return attemptFn(callerSignal); });
 
   var capped = this.concurrency > 0;
-  var acquire = capped ? this._acquire() : Promise.resolve();
 
-  return acquire.then(function () {
-    var attempt = 0;
-    function tryOnce() {
-      if (callerSignal && callerSignal.aborted) return Promise.reject(_bemapAbortError());
-      var useTimeout = self.timeoutMs > 0 && typeof AbortController === 'function';
-      var tc = useTimeout ? new AbortController() : null;
-      var timer = tc ? setTimeout(function () { try { tc.abort(); } catch (e) {} }, self.timeoutMs) : null;
-      var combined = _bemapCombineSignals(callerSignal, tc && tc.signal);
-      function _cleanup() { if (timer) clearTimeout(timer); combined.cleanup(); }
-      return Promise.resolve().then(function () { return attemptFn(combined.signal); }).then(
-        function (r) { _cleanup(); return r; },
-        function (err) {
-          _cleanup();
-          // A caller cancel (pan/zoom) must NEVER be retried.
-          if (callerSignal && callerSignal.aborted) throw err;
-          // Retry only genuinely TRANSIENT failures — and NOT a status-less
-          // programming/logic error (which would otherwise be retried and its
-          // real cause masked, since `undefined == null`):
-          //   - HTTP 429 / 5xx (has err.status),
-          //   - a network failure (fetch rejects with a TypeError),
-          //   - a per-attempt TIMEOUT (our AbortController → AbortError; the
-          //     caller-cancel case was already excluded above).
-          var status = err && err.status;
-          var name = err && err.name;
-          var retryable = (status === 429) || (status >= 500) ||
-            (status == null && (name === 'TypeError' || name === 'AbortError'));
-          if (attempt < self.maxRetries && retryable) { attempt++; return tryOnce(); }
-          throw err;
-        }
+  function attemptOnce() {
+    var acquire = capped ? self._acquire() : Promise.resolve();
+    return acquire.then(function () {
+      return Promise.resolve().then(function () {
+        if (callerSignal && callerSignal.aborted) throw _bemapAbortError();
+        // OUR socket handle — never the caller's signal directly, so a caller
+        // cancel can be downgraded to a logical one once headers arrive.
+        var ctrl = (typeof AbortController === 'function') ? new AbortController() : null;
+        var headersIn = false;
+        var bodyTimer = null;
+        // TTFB timer: may abort the socket ONLY before headers.
+        var ttfbTimer = (ctrl && self.timeoutMs > 0)
+          ? setTimeout(function () { if (!headersIn) { try { ctrl.abort(); } catch (e) {} } }, self.timeoutMs)
+          : null;
+        // Caller cancel: physical only before headers; logical afterwards.
+        var onCallerAbort = function () { if (!headersIn && ctrl) { try { ctrl.abort(); } catch (e) {} } };
+        if (ctrl && callerSignal) { try { callerSignal.addEventListener('abort', onCallerAbort); } catch (e) {} }
+        // Called by attemptFn the moment response headers arrive: disarm the
+        // TTFB timer and protect the socket (physically aborting a streaming
+        // body poisons the browser's shared H2/H3 connection); the generous
+        // body cap only guards a truly dead socket.
+        var settled = false;
+        var headersReceived = function () {
+          if (headersIn || settled) return;
+          headersIn = true;
+          if (ttfbTimer) { clearTimeout(ttfbTimer); ttfbTimer = null; }
+          if (ctrl && self.bodyTimeoutMs > 0) {
+            bodyTimer = setTimeout(function () { try { ctrl.abort(); } catch (e) {} }, self.bodyTimeoutMs);
+          }
+        };
+        var cleanup = function () {
+          settled = true;
+          if (ttfbTimer) clearTimeout(ttfbTimer);
+          if (bodyTimer) clearTimeout(bodyTimer);
+          if (ctrl && callerSignal) { try { callerSignal.removeEventListener('abort', onCallerAbort); } catch (e) {} }
+        };
+        return Promise.resolve()
+          .then(function () { return attemptFn(ctrl ? ctrl.signal : callerSignal, headersReceived); })
+          .then(function (r) {
+            cleanup();
+            // LOGICAL cancel: the read completed cleanly (browser cache warmed,
+            // connection unharmed) but the caller no longer wants it — discard.
+            if (callerSignal && callerSignal.aborted) throw _bemapAbortError();
+            return r;
+          }, function (err) { cleanup(); throw err; });
+      }).then(
+        function (r) { if (capped) self._release(); return r; },
+        function (e) { if (capped) self._release(); throw e; }
       );
-    }
-    return tryOnce();
-  }).then(
-    function (r) { if (capped) self._release(); return r; },
-    function (e) { if (capped) self._release(); throw e; }
-  );
+    });
+  }
+
+  var attempt = 0;
+  function tryOnce() {
+    return attemptOnce().then(null, function (err) {
+      // A caller cancel (pan/zoom) must NEVER be retried.
+      if (callerSignal && callerSignal.aborted) throw err;
+      // Retry only genuinely TRANSIENT failures — and NOT a status-less
+      // programming/logic error (which would otherwise be retried and its
+      // real cause masked, since `undefined == null`):
+      //   - HTTP 429 / 5xx (has err.status),
+      //   - a network failure (fetch rejects with a TypeError),
+      //   - a per-attempt TIMEOUT (our AbortController → AbortError; the
+      //     caller-cancel case was already excluded above).
+      var status = err && err.status;
+      var name = err && err.name;
+      var retryable = (status === 429) || (status >= 500) ||
+        (status == null && (name === 'TypeError' || name === 'AbortError'));
+      if (attempt >= self.maxRetries || !retryable) throw err;
+      var backoff = self.retryBackoffMs;
+      var ms = (backoff && backoff.length) ? backoff[Math.min(attempt, backoff.length - 1)] : 0;
+      attempt++;
+      if (!(ms > 0)) return tryOnce();
+      return new Promise(function (res) { setTimeout(res, ms); }).then(tryOnce);
+    });
+  }
+  return tryOnce();
 };
 
 /**
@@ -19812,14 +19998,23 @@ bemap.PMTilesSliceSource.prototype.getBytes = function (offset, length, signal /
   var sep = (url.indexOf('?') === -1) ? '?' : '&';
   var sliceUrl = url + sep + 'r=' + offset + '-' + (offset + length - 1);
 
-  function attempt(sig) {
+  function attempt(sig, headersReceived) {
     // window.fetch → bemap.TilesAuth injects auth (credentials/header/token).
     // No Range header → RangeFetchPolicy's no-store does NOT apply → 200 stays cacheable.
     return fetch(sliceUrl, sig ? { signal: sig } : {}).then(function (res) {
+      // Headers are in — tell the gate to protect the socket (smart abort):
+      // from here the body always drains; only the generous body cap remains.
+      if (typeof headersReceived === 'function') headersReceived();
       if (!res.ok) {
-        var e = new Error('PMTilesSliceSource: HTTP ' + res.status + ' for ' + sliceUrl);
-        e.status = res.status;
-        throw e;
+        // Drain the (tiny) error body before rejecting — an unread body keeps
+        // the connection slot busy; the rejection carries the real status so
+        // the gate can decide retryability (429/5xx yes, 4xx no).
+        var fail = function () {
+          var e = new Error('PMTilesSliceSource: HTTP ' + res.status + ' for ' + sliceUrl);
+          e.status = res.status;
+          throw e;
+        };
+        return res.arrayBuffer().then(fail, fail);
       }
       return res.arrayBuffer().then(function (buf) {
         if (buf.byteLength !== length) {

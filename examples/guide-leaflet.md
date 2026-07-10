@@ -2,6 +2,8 @@
 
 Leaflet is a lightweight, mobile-friendly map backend. It uses the same WMS tiles from the BeMap server.
 
+> **Environments.** Examples use **production** (`bemap.benomad.com`, the default). For integration testing / validation, use `bemap-preprod.benomad.com` (preprod) or `bemap-beta.benomad.com` (beta).
+
 ---
 
 ## 1. Basic WMS Map
@@ -12,7 +14,7 @@ var ctx = new bemap.Context({
     "login": 'your-login',
     "password": 'your-password',
     "secure": true,
-    "host": 'bemap-beta.benomad.com'
+    "host": 'bemap.benomad.com'
 });
 
 var map = new bemap.LeafletMap(ctx, 'map1', {
@@ -81,7 +83,7 @@ var ctx = new bemap.Context({
     "login": 'your-login',
     "password": 'your-password',
     "secure": true,
-    "host": 'bemap-beta.benomad.com'
+    "host": 'bemap.benomad.com'
 });
 
 var map = new bemap.LeafletMap(ctx, 'map1').defaultLayers().move(2.3412, 48.85693, 13);

@@ -39,7 +39,7 @@
   var ENVIRONMENTS = {
     beta:    { label: 'Beta',    host: 'bemap-beta.benomad.com',    tilesHost: 'mptiles-api-beta.benomad.net' },
     preprod: { label: 'Preprod', host: 'bemap-preprod.benomad.com', tilesHost: 'mptiles-api-preprod.benomad.net' },
-    prod:    { label: 'Prod',    host: 'bemap.benomad.com',         tilesHost: 'mptiles-api.benomad.net' }
+    prod:    { label: 'Prod',    host: 'bemap.benomad.com',         tilesHost: 'mptiles-api.benomad.net' }  // alias: bemap-prod.benomad.com
   };
   var savedEnv = (function () {
     try { return (typeof localStorage !== 'undefined') ? localStorage.getItem(ENV_STORAGE_KEY) : null; }

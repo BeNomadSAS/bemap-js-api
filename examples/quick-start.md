@@ -25,7 +25,12 @@ var ctx = new bemap.Context({
     // after login, and authenticates every tile request (tilesAuth 'auto' by
     // default: same-site→cookie, cross-site→header; pin 'cookie'/'header'/'query'
     // to force a wire). Leaflet / OL ignore tilesHost and stay on WMS.
-    "tilesHost":  'mptiles-api-beta.benomad.net'
+    // Environments — prod is the default; preprod & beta are for integration
+    // testing / validation. Pair each API host with its matching tiles host:
+    //   prod (default):  bemap.benomad.com    + mptiles-api.benomad.net   (prod also: bemap-prod.benomad.com)
+    //   preprod:         bemap-preprod.benomad.com + mptiles-api-preprod.benomad.net
+    //   beta:            bemap-beta.benomad.com    + mptiles-api-beta.benomad.net
+    "tilesHost":  'mptiles-api.benomad.net'
 });
 ```
 
@@ -87,7 +92,7 @@ var map = new bemap.MapLibreMap(bemapMainCtx, 'map1', {
 
 The library:
 
-- POSTs the Context credentials to `https://mptiles-api-beta.benomad.net/api/login` and caches the JWT.
+- POSTs the Context credentials to `https://mptiles-api.benomad.net/api/login` and caches the JWT.
 - Authenticates every tile request with **`auto`** by default: same site as `tilesHost` ⇒ cookie (`credentials:'include'`, no preflight), cross-site ⇒ `X-Session-Token` header (incognito-safe). Pin `tilesAuth:'cookie'` / `'header'` / `'query'` on the Context/options to force a specific wire.
 - Renews the token 5 minutes before expiry, and on every `401` the next request gets a fresh token transparently.
 - Paints a tiny font-free fallback instantly, then loads the **live default style from the Worker** after login (full charte with bilingual place labels + Worker fonts). Change the charte server-side and every app picks it up — no rebuild.

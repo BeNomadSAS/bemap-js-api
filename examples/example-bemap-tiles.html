@@ -34,7 +34,7 @@ var ctx = new bemap.Context({
   secure:    bemapMainCtx.protocol === 'https',
   login:     bemapMainCtx.login,
   password:  bemapMainCtx.password,
-  tilesHost: 'mptiles-api-beta.benomad.net'
+  tilesHost: bemapMainCtx.tilesHost   // follows the env picked in the Credentials window
 });
 
 var map = new bemap.MapLibreMap(ctx, 'map', { zoom: 5 });

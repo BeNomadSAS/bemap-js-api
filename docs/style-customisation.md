@@ -53,9 +53,13 @@ Pass the URL on the constructor:
 
 ```js
 var map = new bemap.MapLibreMap(ctx, 'map', {
-  style: 'https://mptiles-api-beta.benomad.net/styles/style_charte_single.json'
+  style: 'https://mptiles-api.benomad.net/styles/style_charte_single.json'
 });
 ```
+
+> The style host must match your environment's tiles host — prod (default):
+> `mptiles-api.benomad.net`; preprod: `mptiles-api-preprod.benomad.net`; beta:
+> `mptiles-api-beta.benomad.net`.
 
 URLs that match `ctx.tilesHost` go through the same auth path — the
 Worker's HttpOnly session cookie by default (`credentials:'include'`), or
@@ -125,7 +129,7 @@ Custom styles (URL or inline object) keep their own `glyphs` unless you set
 map.setStyle({ version: 8, sources: {}, layers: [] });
 
 // URL — fetched + resolved asynchronously, still returns `this`
-map.setStyle('https://mptiles-api-beta.benomad.net/styles/style_apple.json');
+map.setStyle('https://mptiles-api.benomad.net/styles/style_apple.json');
 ```
 
 `setStyle` is **overlay-preserving** — every marker, polyline, polygon,

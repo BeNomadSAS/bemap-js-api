@@ -61,7 +61,7 @@
             <p style="font-size:11px;color:var(--bn-text-dark-muted);margin:0;line-height:1.5">
               The library bundles only a tiny font-free fallback (<code>bemap.fallbackStyle</code>); the
               real charte loads from the Worker after login. Any URL inside a style that begins with
-              <code>https://mptiles-api-beta.benomad.net</code> automatically gets the
+              your <code>tilesHost</code> automatically gets the
               <code>X-Session-Token</code> header — no manual fetch wiring required.
             </p>
           </section>
@@ -77,13 +77,13 @@ var ctx = new bemap.Context({
   secure:    bemapMainCtx.protocol === 'https',
   login:     bemapMainCtx.login,
   password:  bemapMainCtx.password,
-  tilesHost: 'mptiles-api-beta.benomad.net'
+  tilesHost: bemapMainCtx.tilesHost   // follows the env picked in the Credentials window
 });
 
 // Each preset is a real, runnable MapLibre Style spec. The PMTiles source
 // URL is the same in every preset; only the colors differ — proving that
 // "your own style" is a flat JSON edit.
-var TILE_URL = 'pmtiles://https://mptiles-api-beta.benomad.net/OSM_250901_WORLD.pmtiles';
+var TILE_URL = 'pmtiles://https://' + bemapMainCtx.tilesHost + '/OSM_250901_WORLD.pmtiles';
 
 function styleSkeleton(layers) {
   return {

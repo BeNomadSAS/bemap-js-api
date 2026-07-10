@@ -17,7 +17,12 @@ var ctx = new bemap.Context({
     "authInPost": false,
     "geoserver":  'default',
     // BeNomad Tiles v2.0 — MapLibre uses it, Leaflet/OL ignore it.
-    "tilesHost":  'mptiles-api-beta.benomad.net'
+    // Environments — prod is the default; preprod & beta are for integration
+    // testing / validation. Pair each API host with its matching tiles host:
+    //   prod (default):  bemap.benomad.com    + mptiles-api.benomad.net   (prod also: bemap-prod.benomad.com)
+    //   preprod:         bemap-preprod.benomad.com + mptiles-api-preprod.benomad.net
+    //   beta:            bemap-beta.benomad.com    + mptiles-api-beta.benomad.net
+    "tilesHost":  'mptiles-api.benomad.net'
 });
 ```
 
@@ -133,7 +138,7 @@ The Context object is the same — only the constructor class changes.
             "password": 'your-bemap-password',
             "secure":   true,
             "host":     'bemap.benomad.com',
-            "tilesHost": 'mptiles-api-beta.benomad.net'
+            "tilesHost": 'mptiles-api.benomad.net'
         });
         var map = new bemap.MapLibreMap(ctx, 'map1').move(2.3412, 48.85693, 12);
     </script>

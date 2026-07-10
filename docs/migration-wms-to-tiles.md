@@ -57,7 +57,9 @@ After:
 var ctx = new bemap.Context({
   host: 'bemap.benomad.com', secure: true,
   login: 'l', password: 'p',
-  tilesHost: 'mptiles-api.benomad.net',     // NEW — pair with host's env (prod here)
+  tilesHost: 'mptiles-api.benomad.net',     // NEW — prod (default). Pair host+tiles per env:
+  //   preprod: bemap-preprod.benomad.com + mptiles-api-preprod.benomad.net
+  //   beta:    bemap-beta.benomad.com    + mptiles-api-beta.benomad.net   (test / validation)
   // tilesFile optional: omit for the server-resolved 'default' (or ctx.geoserver)
   tilesFile: 'OSM_250901_WORLD.pmtiles'     // NEW — or pin an exact tileset
 });
@@ -96,9 +98,12 @@ is the explicit switch.
   `map.getBrowserCacheStats()`. See [Browser cache](#page-../docs/browser-cache.md).
 - **Self-healing + resilient reads** — `recoverableCache:true` (default)
   recovers a failed header/directory read instead of a permanent hole; the
-  `RangeGate` adds a per-request timeout + one retry (tunable via
-  `tilesSliceTimeoutMs`, `tilesSliceMaxRetries`, `tilesSliceConcurrency`,
-  `tileGate`). Try every knob in
+  `RangeGate` adds a smart-abort TTFB timeout + 3 retries with backoff
+  (tunable via `tilesSliceTimeoutMs`, `tilesSliceBodyTimeoutMs`,
+  `tilesSliceMaxRetries`, `tilesSliceRetryBackoffMs`, `tilesSliceConcurrency`,
+  `tileGate`); and a debounced tile-source refresh (`tilesErrorRefreshMs`,
+  default 4 s) heals any tile whose retries were all exhausted. Try every
+  knob in
   [`examples/example-maplibre-tiles-perf.html`](#nav-example-maplibre-tiles-perf.html).
 - **MapLibre-only methods** — call them directly on the map:
   `setProjection('globe')`, `setPitch(60)`, `setBearing(45)`,

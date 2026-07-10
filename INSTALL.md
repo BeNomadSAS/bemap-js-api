@@ -6,6 +6,11 @@ For developing the library itself, see the "Building from source" section at the
 > 🏃 **Just want to see it run first?** Double-click **`start.bat`** (Windows) or **`./start.sh`**
 > (macOS / Linux), then open <http://localhost:8080/examples/>. Running & publishing in full:
 > **[DEPLOY.md](DEPLOY.md)**.
+>
+> 🤖 **Using an AI assistant (Claude / Cursor / Copilot)?** Point it at the
+> **`benomad-tiles-integration/`** skill shipped in this package — copy-paste
+> templates (web SDK, raw MapLibre, Flutter, backend token proxy) plus an
+> api-contract + troubleshooting reference tuned to get integration right the first try.
 
 ---
 
@@ -74,12 +79,22 @@ whatever your bundler serves). Pick only the engine files you actually use.
     host: 'bemap.benomad.com', secure: true,
     login: 'your-bemap-login',
     password: 'your-bemap-password',
-    tilesHost: 'mptiles-api-beta.benomad.net'
+    tilesHost: 'mptiles-api.benomad.net'
   });
   var map = new bemap.MapLibreMap(ctx, 'map');
   map.move(2.35, 48.85, 12);
 </script>
 ```
+
+> **Environments.** The examples above use **production** (the default). Two more
+> environments exist for integration testing and validation — always pair an API
+> host with its matching tiles host, and never mix hosts across environments:
+>
+> | Environment | `host` (BeMap API) | `tilesHost` (BeNomad Tiles) |
+> | --- | --- | --- |
+> | **Production** (default) | `bemap.benomad.com` (or `bemap-prod.benomad.com`) | `mptiles-api.benomad.net` |
+> | **Preprod** (staging) | `bemap-preprod.benomad.com` | `mptiles-api-preprod.benomad.net` |
+> | **Beta** (testing) | `bemap-beta.benomad.com` | `mptiles-api-beta.benomad.net` |
 
 If `pmtiles.js` is missing the library prints a loud red console error with
 the exact tag to add. Same for `maplibre-gl.js` / `maplibre-gl.css`.
@@ -230,17 +245,17 @@ npx grunt              # default: clean + concat + minify + copy
 | `npx grunt scripts:dev` | Concat sources into `dist/bemap-js-api.js` + emit SW |
 | `npx grunt scripts:dist` | Minify + copy vendored libs into `dist/` |
 | `npx grunt doc` | Generate JSDoc into `dist/doc/` |
-| `npx grunt test` | Karma + ChromeHeadless — runs 1004 specs |
+| `npx grunt test` | Karma + ChromeHeadless — runs 2,287 specs |
 | `npx grunt monitoring` | Watch sources, rebuild on save |
 | `npx grunt package` | Full build + JSDoc + zip → `package/bemap-js-api.zip` |
 
 ### Tests
 
-`npx grunt test` runs the full Karma suite (1004 specs across 32 files):
+`npx grunt test` runs the full Karma suite (2,287 specs across 88 files):
 
-- 19 unit-test files covering every public class
+- unit-test files covering every public class + engine
 - 3 retrocompat suites (BFleet, EVMove5, BeMap-Doc) — must NOT be edited
-- 11 legacy test files
+- legacy + integration/e2e test files
 
 ### Source layout
 

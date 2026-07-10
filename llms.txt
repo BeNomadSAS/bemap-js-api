@@ -5,6 +5,14 @@
 > assistants (Claude, Cursor, Copilot, ChatGPT, …) can ingest to write
 > correct, idiomatic BeMap code in one shot.
 
+> **Dedicated integration skill.** This package also ships a customer-facing
+> `benomad-tiles-integration/` skill (Claude / Cursor / Copilot-ready) with
+> copy-paste templates — web SDK, raw MapLibre + PMTiles Range, Flutter / mobile,
+> backend token proxy — plus `references/api-contract.md` and
+> `references/troubleshooting.md`. For any "embed a BeNomad map / authenticate
+> tiles / debug 401·403·CORS·gzip" task, read `benomad-tiles-integration/SKILL.md`
+> first — it is the corrected, hands-on source of truth.
+
 ## What this library is
 
 BeMap JS API is BeNomad's commercial JavaScript SDK for embedding
@@ -15,7 +23,7 @@ uniform API. Same code, three engines.
 - License: commercial — see [LICENSE.md](LICENSE.md)
 - Distribution: pre-built bundle in `dist/` — no Node runtime required at
   consumer site.
-- Bundle size: ~308 KB (`dist/bemap-js-api.js`), ~109 KB minified
+- Bundle size: ~1.1 MB (`dist/bemap-js-api.js`), ~440 KB minified
   (`dist/bemap-js-api.min.js`).
 - Versions: v1.x = WMS only · v2.x = WMS + BeNomad Tiles (vector PMTiles)
   + Service Worker tile cache + MapLibre GL.
@@ -30,7 +38,8 @@ uniform API. Same code, three engines.
    The full list is in `dist/doc/index.html` (JSDoc).
 2. **Never break retrocompatibility.** BFleet, EVMove5, zone-optimizer
    and BeMap-Doc consume this library. The signatures in
-   `src-test/test-retro-*.js` are contracts. 1004 specs gate every merge.
+   `src-test/test-retro-*.js` are contracts. The full suite (2,287 specs)
+   gates every merge.
 3. **The map class IS the switch** between WMS and BeNomad Tiles:
    - `bemap.LeafletMap(ctx, target)` → WMS, always.
    - `bemap.Ol3Map(ctx, target)` → WMS, always.
@@ -61,7 +70,10 @@ uniform API. Same code, three engines.
     var ctx = new bemap.Context({
       host: 'bemap.benomad.com', secure: true,
       login: 'your-login', password: 'your-password',
-      tilesHost: 'mptiles-api-beta.benomad.net'
+      // Environments — prod (default) shown; preprod & beta exist for testing:
+      //   preprod: bemap-preprod.benomad.com + mptiles-api-preprod.benomad.net
+      //   beta:    bemap-beta.benomad.com    + mptiles-api-beta.benomad.net
+      tilesHost: 'mptiles-api.benomad.net'
     });
     var map = new bemap.MapLibreMap(ctx, 'map');
     map.move(2.35, 48.85, 12);
@@ -156,24 +168,48 @@ The library translates these to the engine's native names internally.
 `BACKGROUND`, `MARKER`, `ROUTE`, `POLYLINE`. `defaultLayers()` creates
 all four. Idempotent — safe to call twice.
 
-### Services (v2 API)
+### Services
 
-Use these directly via `new bemap.GeocoderV2(ctx)` etc., or the v1
-classes (`bemap.Geocoder`, `bemap.Autocomplete`, …) for retrocompat.
+> **Naming trap — read this before writing service code.** Only routing has
+> a `V2`-suffixed class: **`bemap.RoutingV2`**. **Every other service uses its
+> plain class name** — there is **no** `GeocoderV2`, `ReverseGeocoderV2`,
+> `AutocompleteV2`, `GeoAutocompleteV2`, `IsochroneV2`, `TraceRouteV2`,
+> `NearPoiV2`, `ChargingStationsV2`, `EvSmartRoutingV2`, `EvVehiclesV2`,
+> `ChargingTimeV2`, or `EvReachableAreaV2`. Writing `new bemap.GeocoderV2(ctx)`
+> throws `bemap.GeocoderV2 is not a constructor`. The list below is exhaustive
+> for the shipped bundle — do not add a `V2` suffix to anything but Routing.
 
-- `bemap.GeocoderV2(ctx)` — `.geocode({ query, lang?, limit? }) → Promise`
-- `bemap.ReverseGeocoderV2(ctx)` — `.reverse({ lon, lat, lang? }) → Promise`
-- `bemap.AutocompleteV2(ctx)` — `.suggest({ query, position?, lang? }) → Promise`
-- `bemap.GeoAutocompleteV2(ctx)` — `.suggest({ query, lang? }) → Promise`
-- `bemap.RoutingV2(ctx)` — `.route({ origin, destination, waypoints?, profile? }) → Promise`
-- `bemap.IsochroneV2(ctx)` — `.isochrone({ lon, lat, durations|distances }) → Promise`
-- `bemap.TraceRouteV2(ctx)` — `.trace({ coordinates, ... }) → Promise`
-- `bemap.NearPoiV2(ctx)` — `.search({ lon, lat, radius, category? }) → Promise`
-- `bemap.ChargingStationsV2(ctx)` — `.search(...) → Promise`
-- `bemap.EvSmartRoutingV2(ctx)` — `.route(...) → Promise`
-- `bemap.EvVehiclesV2(ctx)` — `.list() → Promise`
-- `bemap.ChargingTimeV2(ctx)` — `.compute(...) → Promise`
-- `bemap.EvReachableAreaV2(ctx)` — `.compute(...) → Promise`
+The modern services take a **typed request object** and return a **Promise**.
+The v1 services (kept for retrocompat) use `{ success, failed }` callbacks.
+All are constructed as `new bemap.<Class>(ctx)`.
+
+**Search & geocoding**
+
+- `bemap.Geocoder(ctx)` — `.geocode(new bemap.GeocodingRequest({ place, language?, proximity?, boundingBox?, addressDetails? }))` → `Promise`; `.reverseGeocode(coordinate, radius?)` → `Promise`. (Legacy `{ searchInfo, success, failed }` callback form still works.)
+- `bemap.ReverseGeocoder(ctx)` — `.revGeo(new bemap.ReverseGeocodingRequest({ coordinate, radius?, language? }))` → `Promise`
+- `bemap.Autocomplete(ctx)` — `.autocomplete(new bemap.AutocompleteGeocodingRequest({ place, language?, coordinate? }))` → `Promise`; `.attachToInput(inputEl, opts)` wires a debounced typeahead widget.
+- `bemap.GeoAutocomplete(ctx)` — `.autocomplete(new bemap.AutocompleteGeocodingRequest({ … }))` → `Promise`
+- `bemap.NearPoiSearch(ctx)` — `.nearPoi(coordinate | new bemap.NearPoiRequest({ … }), filters?)` → `Promise`
+
+**Routing**
+
+- `bemap.RoutingV2(ctx)` — `.calculate(new bemap.RoutingRequest({ destinations, routingVehicleProfile?, routingCriterias?, … }))` → `Promise`; convenience wrappers `.matrix(origins, destinations, opts?)` and `.isochrone(origin, { budget }, opts?)`.
+- `bemap.TraceRoute(ctx)` — `.compute(new bemap.TraceRouteRequest({ … }))` → `Promise` (map-matching from a GPS trace).
+- `bemap.Routing(ctx)` — v1 routing, `.compute({ success, failed })` callbacks; retrocompat.
+- `bemap.Isochrone(ctx)` — v1 isochrone, `.compute({ success, failed })` callbacks; retrocompat. Prefer `RoutingV2.isochrone(...)` for new code.
+
+**EV**
+
+- `bemap.ChargingStations(ctx)` — `.search(new bemap.ChargingStationSearchRequest({ … }))` → `Promise`; `.getConnectorTypes()` → `Promise`
+- `bemap.EvVehicles(ctx)` — `.brands()`, `.list(filters?)`, `.get(vehicleKey)` → `Promise`
+- `bemap.EvSmartRouting(ctx)` — `.calculate(new bemap.EvSmartRoutingRequest({ … }))` → `Promise`; `.getBrands()`, `.getVehicles(filters?)`
+- `bemap.ChargingTime(ctx)` — `.estimate(new bemap.ChargingTimeRequest({ … }))` → `Promise`
+- `bemap.EvReachableArea(ctx)` — `.compute(new bemap.EvReachableAreaRequest({ … }))` → `Promise`
+- `bemap.EvseRouting(ctx)` — v1 EVSE routing, `.compute({ success, failed })` callbacks; retrocompat.
+
+> Exact request-object fields + response shapes: `docs/services-v2/SERVICES.md`
+> and the JSDoc in `dist/doc/index.html`. Per-service runnable demos live in
+> `examples/services-v2/`.
 
 ## Anti-patterns AI assistants should refuse / rewrite
 
@@ -184,7 +220,7 @@ classes (`bemap.Geocoder`, `bemap.Autocomplete`, …) for retrocompat.
   on the bemap wrapper now. Use the wrapper.
 - **Patching `window.fetch` to inject tokens** — v2 uses MapLibre's
   `transformRequest`. Never recommend the fetch patch.
-- **Hardcoding `mptiles-api-beta.benomad.net` in customer code** — that's the
+- **Hardcoding `mptiles-api.benomad.net` in customer code** — that's the
   default. Customer code should rely on `ctx.tilesHost` (let
   RuntimeConfig handle it) or pass their own host explicitly.
 - **Manual `serviceWorker.register('/bemap-sw-tiles.js')`** — the library
@@ -204,12 +240,20 @@ classes (`bemap.Geocoder`, `bemap.Autocomplete`, …) for retrocompat.
   verification + the six diagnostic console logs the library emits.
 - `docs/migration-wms-to-tiles.md` — upgrade an existing v1 app to v2
   (one Context flag + class swap).
+- `docs/integration-tiles-token-provider.md` — keep BeNomad credentials
+  server-side; mint short-lived JWTs from your backend (browser apps).
+- `docs/integration-zxy-tiles-mobile.md` — server / mobile / fleet: the
+  ZXY vector-tile endpoint + the `Content-Encoding: gzip` decode rule
+  (decompress exactly once).
 - `docs/style-customisation.md` — custom MapLibre styles via
   `opts.style`, registry resolution, bilingual labels.
 - `docs/attributions-widget.md` — the BeNomad attribution widget.
 - `docs/services-v2/` — per-service guides (geocoding, routing, POI, EV).
 - `dist/doc/index.html` — JSDoc API reference (every public class with
   signatures + parameter types).
+- `benomad-tiles-integration/SKILL.md` — customer-facing integration skill:
+  3 paths (web SDK / raw MapLibre / mobile-fleet), copy-paste `templates/`,
+  and `references/` (api-contract, troubleshooting). AI-assistant-ready.
 
 ## Build pipeline (only relevant when an AI agent works on the source tree)
 
@@ -218,7 +262,7 @@ classes (`bemap.Geocoder`, `bemap.Autocomplete`, …) for retrocompat.
 - `npx grunt scripts:dist` → minify + copy vendored libs into `dist/`.
 - `npx grunt package` → full clean rebuild + JSDoc + zip
   (`package/bemap-js-api.zip`).
-- `npx grunt test` → Karma + ChromeHeadless (1004 specs, gating).
+- `npx grunt test` → Karma + ChromeHeadless (2,287 specs, gating).
 
 ## Where to look first when asked something
 
@@ -246,4 +290,5 @@ classes (`bemap.Geocoder`, `bemap.Autocomplete`, …) for retrocompat.
 - Latest: **v2.0.0** (see [CHANGELOG.md](CHANGELOG.md)).
 - BeNomad Tiles features (`MapLibreMap`, SW cache, JWT auth) require v2.
 - v1 consumers (BFleet, EVMove5, zone-optimizer, BeMap-Doc) keep
-  working on v2 unchanged — 1004 retrocompat specs gate every release.
+  working on v2 unchanged — the full suite (2,287 specs, including the
+  `test-retro-*` contracts) gates every release.

@@ -18,11 +18,12 @@ var ctx = new bemap.Context({
     "authInPost": false,
     "geoserver":  'default',
     // BeNomad Tiles v2.0 — MapLibreMap reads this, paints a tiny fallback,
-    // then loads the live BeNomad charte from the Worker after login. Pair
-    // tilesHost with the API host per env:
-    //   prod:    bemap.benomad.com         + mptiles-api.benomad.net
-    //   preprod: bemap-preprod.benomad.com + mptiles-api-preprod.benomad.net
-    //   beta:    bemap-beta.benomad.com    + mptiles-api-beta.benomad.net
+    // then loads the live BeNomad charte from the Worker after login.
+    // Environments — prod is the default; preprod & beta are for integration
+    // testing / validation. Pair each API host with its matching tiles host:
+    //   prod (default):  bemap.benomad.com    + mptiles-api.benomad.net   (prod also: bemap-prod.benomad.com)
+    //   preprod:         bemap-preprod.benomad.com + mptiles-api-preprod.benomad.net
+    //   beta:            bemap-beta.benomad.com    + mptiles-api-beta.benomad.net
     "tilesHost":  'mptiles-api.benomad.net'
 });
 
@@ -46,7 +47,7 @@ What happens behind the scenes:
 - The token is renewed 5 minutes before expiry; on any `401` the next request transparently gets a fresh token.
 - A tiny font-free fallback paints instantly; then the **live default style loads from the Worker after login** (full charte with bilingual place labels + Worker fonts). Update the charte server-side and every app picks it up with no redeploy.
 - Tiles are fetched as cacheable **HTTP 200 slices** (`tilesSliceMode:'200'`, the default) that the **browser HTTP cache stores natively** — repeat visits are free with **no Service Worker**. For classic HTTP Range (`tilesSliceMode:'range'`), `dist/bemap-sw-tiles.js` is auto-registered (copy it to your site root once). See [Browser cache](#page-../docs/browser-cache.md).
-- **Resilient by default**: `recoverableCache:true` self-heals a failed tile read (no permanent holes); the `RangeGate` adds a per-request timeout + one retry — all tunable (`tilesSliceTimeoutMs`, `tilesSliceMaxRetries`, `tilesSliceConcurrency`, `tileGate`) and live-toggleable. Explore every option in [`example-maplibre-tiles-perf.html`](#nav-example-maplibre-tiles-perf.html).
+- **Resilient by default**: `recoverableCache:true` self-heals a failed tile read (no permanent holes); the `RangeGate` adds a smart-abort TTFB timeout + 3 retries with backoff, and a debounced tile refresh (`tilesErrorRefreshMs`) heals anything that still slips through — all tunable (`tilesSliceTimeoutMs`, `tilesSliceBodyTimeoutMs`, `tilesSliceMaxRetries`, `tilesSliceRetryBackoffMs`, `tilesSliceConcurrency`, `tileGate`) and live-toggleable. Explore every option in [`example-maplibre-tiles-perf.html`](#nav-example-maplibre-tiles-perf.html).
 
 > Never commit production credentials. The runnable demos on this site use the dashboard-loaded `bemapMainCtx` from `examples/context.js`.
 

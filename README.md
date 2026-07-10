@@ -57,12 +57,20 @@ var ctx = new bemap.Context({
     login:    "<your account>",
     password: "<your password>",
     secure:   true,
-    host:     "bemap-beta.benomad.com"
+    host:     "bemap.benomad.com"
 });
 
 var map = new bemap.LeafletMap(ctx, "map-div").defaultLayers().move(2.35, 48.85, 12);
 map.addMarker(new bemap.Marker(new bemap.Coordinate(2.35, 48.85)));
 ```
+
+> **Environments.** This snippet uses **production** (the default). Two more environments exist for integration testing and validation — pair the API host with its matching tiles host, never mixing across environments:
+>
+> | Environment | `host` (BeMap API) | `tilesHost` (BeNomad Tiles) |
+> |---|---|---|
+> | **Production** (default) | `bemap.benomad.com` (or `bemap-prod.benomad.com`) | `mptiles-api.benomad.net` |
+> | **Preprod** (staging) | `bemap-preprod.benomad.com` | `mptiles-api-preprod.benomad.net` |
+> | **Beta** (testing) | `bemap-beta.benomad.com` | `mptiles-api-beta.benomad.net` |
 
 The **same code runs on all three engines** — switch the constructor, switch the backend:
 
@@ -94,6 +102,7 @@ The **same code runs on all three engines** — switch the constructor, switch t
 | 📖 **API reference** | open **`dist/doc/index.html`** — full JSDoc for every class & method |
 | 🧩 **Integrate into your app** | **[INSTALL.md](INSTALL.md)** — bundlers, frameworks, the Service Worker |
 | 🚀 **Publish online** | **[DEPLOY.md](DEPLOY.md)** — host the dashboard / your app + the one CORS rule |
+| 🤖 **AI-assisted integration** | **`benomad-tiles-integration/`** — a Claude / Cursor / Copilot skill: 3 integration paths, copy-paste templates (web SDK, raw MapLibre, Flutter, backend proxy), api-contract + troubleshooting |
 
 ---
 

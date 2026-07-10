@@ -5,7 +5,7 @@ onLoaded = function () {
 
   map.addLayer(new bemap.WmsLayer({
     name: "traffic",
-    url: "http://bemap-beta.benomad.com/bgis/wms?",
+    url: bemapMainCtx.getBaseUrl() + "wms?",
     styles: "traffic",
     transparent: true,
     format: 'image/png24'

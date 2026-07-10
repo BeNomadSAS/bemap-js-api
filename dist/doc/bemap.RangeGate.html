@@ -50,10 +50,10 @@
 
 
 <div class="description">
-    Optional resilience gate for tile reads: concurrency cap + per-attempt timeout
-+ one retry. When inactive (`setActive(false)` or `?nogate`) it is a pure
-pass-through (raw fetch). Read live per request, so toggling takes effect
-without a reload.
+    Optional resilience gate for tile reads: concurrency cap + per-attempt TTFB
+timeout with smart-abort semantics + retries with backoff. When inactive
+(`setActive(false)` or `?nogate`) it is a pure pass-through (raw fetch).
+Read live per request, so toggling takes effect without a reload.
 </div>
 
 
@@ -218,7 +218,52 @@ without a reload.
                 </td>
             
 
-            <td class="description last">Per-attempt timeout spanning the body read (0 = none).</td>
+            <td class="description last">Per-attempt TTFB (pre-header) timeout (0 = none).
+  Must stay ABOVE the Worker's ~3000 ms tile deadline so its 504 is received
+  (and retried) instead of the socket being aborted just before it lands.
+  Once headers arrive this timer is disarmed — see `bodyTimeoutMs`.</td>
+        </tr>
+
+    
+
+        <tr>
+            
+                <td class="name"><code>bodyTimeoutMs</code></td>
+            
+
+            <td class="type">
+            
+                
+<span class="param-type">Number</span>
+
+
+            
+            </td>
+
+            
+                <td class="attributes">
+                
+                    &lt;optional><br>
+                
+
+                
+
+                
+                </td>
+            
+
+            
+                <td class="default">
+                
+                    20000
+                
+                </td>
+            
+
+            <td class="description last">Post-header BODY safety cap (0 = none).
+  Generous ON PURPOSE: physically aborting a streaming tile body poisons the
+  browser's shared H2/H3 connection; tile bodies are small and normally finish
+  in well under a second — this cap only guards a truly dead socket.</td>
         </tr>
 
     
@@ -252,12 +297,56 @@ without a reload.
             
                 <td class="default">
                 
-                    1
+                    3
                 
                 </td>
             
 
-            <td class="description last">Retries on a transient failure (429/5xx/network); never on a caller cancel.</td>
+            <td class="description last">Retries on a transient failure
+  (429/5xx/timeout/network); never on a caller cancel. 1 → 3 (2026-07 fix):
+  a single retry left ~1 in 25 tiles permanently grey under pan bursts;
+  three retries bring the residual to ~0.1 %.</td>
+        </tr>
+
+    
+
+        <tr>
+            
+                <td class="name"><code>retryBackoffMs</code></td>
+            
+
+            <td class="type">
+            
+                
+<span class="param-type">Array.&lt;Number></span>
+
+
+            
+            </td>
+
+            
+                <td class="attributes">
+                
+                    &lt;optional><br>
+                
+
+                
+
+                
+                </td>
+            
+
+            
+                <td class="default">
+                
+                    [200,500,1000]
+                
+                </td>
+            
+
+            <td class="description last">Backoff (ms) before
+  retries #1/#2/#3… (the last entry repeats) — gives a strained connection
+  time to heal before the re-attempt.</td>
         </tr>
 
     
@@ -347,7 +436,7 @@ without a reload.
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-maplibre_bemap-pmtiles-slice-source.js.html">bemap-maplibre/bemap-pmtiles-slice-source.js</a>, <a href="bemap-maplibre_bemap-pmtiles-slice-source.js.html#line86">line 86</a>
+        <a href="bemap-maplibre_bemap-pmtiles-slice-source.js.html">bemap-maplibre/bemap-pmtiles-slice-source.js</a>, <a href="bemap-maplibre_bemap-pmtiles-slice-source.js.html#line78">line 78</a>
     </li></ul></dd>
     
 
@@ -451,7 +540,7 @@ without a reload.
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-maplibre_bemap-pmtiles-slice-source.js.html">bemap-maplibre/bemap-pmtiles-slice-source.js</a>, <a href="bemap-maplibre_bemap-pmtiles-slice-source.js.html#line98">line 98</a>
+        <a href="bemap-maplibre_bemap-pmtiles-slice-source.js.html">bemap-maplibre/bemap-pmtiles-slice-source.js</a>, <a href="bemap-maplibre_bemap-pmtiles-slice-source.js.html#line92">line 92</a>
     </li></ul></dd>
     
 
@@ -495,8 +584,23 @@ without a reload.
 
 
 <div class="description">
-    Run one tile-read attempt through the gate. `attemptFn(signal)` must perform
-the whole read (fetch + body) and resolve/reject; the timeout spans it.
+    Run one tile-read attempt through the gate. `attemptFn(signal, headersReceived)`
+must perform the whole read (fetch + body) and resolve/reject.
+
+SMART ABORT: `signal` is the gate's PRIVATE per-attempt `AbortController`
+signal — the TTFB timer and a caller (pan/zoom) cancel abort it ONLY until
+the attempt calls `headersReceived()` (do so the moment the response headers
+are in). From that point the socket is protected: the body drains to
+completion under the generous `bodyTimeoutMs` safety cap, and a caller
+cancel is honoured LOGICALLY once the attempt settles (reject `AbortError`,
+discard the result — bytes already warmed the browser cache). An `attemptFn`
+that never calls `headersReceived` keeps the legacy whole-attempt timeout.
+
+Retries (up to `maxRetries`, spaced by `retryBackoffMs`) apply to transient
+failures only — 429/5xx, a network `TypeError`, a timeout `AbortError` —
+and NEVER to a caller cancel. Each attempt takes its own concurrency slot
+(a retry re-queues at the back instead of squatting a permit across its
+backoff sleep).
 </div>
 
 
@@ -558,7 +662,7 @@ the whole read (fetch + body) and resolve/reject; the timeout spans it.
 
             
 
-            <td class="description last">`function(signal) => Promise`</td>
+            <td class="description last">`function(signal, headersReceived) => Promise`</td>
         </tr>
 
     
@@ -632,7 +736,7 @@ the whole read (fetch + body) and resolve/reject; the timeout spans it.
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-maplibre_bemap-pmtiles-slice-source.js.html">bemap-maplibre/bemap-pmtiles-slice-source.js</a>, <a href="bemap-maplibre_bemap-pmtiles-slice-source.js.html#line142">line 142</a>
+        <a href="bemap-maplibre_bemap-pmtiles-slice-source.js.html">bemap-maplibre/bemap-pmtiles-slice-source.js</a>, <a href="bemap-maplibre_bemap-pmtiles-slice-source.js.html#line151">line 151</a>
     </li></ul></dd>
     
 
@@ -738,7 +842,7 @@ the whole read (fetch + body) and resolve/reject; the timeout spans it.
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-maplibre_bemap-pmtiles-slice-source.js.html">bemap-maplibre/bemap-pmtiles-slice-source.js</a>, <a href="bemap-maplibre_bemap-pmtiles-slice-source.js.html#line101">line 101</a>
+        <a href="bemap-maplibre_bemap-pmtiles-slice-source.js.html">bemap-maplibre/bemap-pmtiles-slice-source.js</a>, <a href="bemap-maplibre_bemap-pmtiles-slice-source.js.html#line95">line 95</a>
     </li></ul></dd>
     
 
@@ -826,7 +930,7 @@ the whole read (fetch + body) and resolve/reject; the timeout spans it.
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-maplibre_bemap-pmtiles-slice-source.js.html">bemap-maplibre/bemap-pmtiles-slice-source.js</a>, <a href="bemap-maplibre_bemap-pmtiles-slice-source.js.html#line111">line 111</a>
+        <a href="bemap-maplibre_bemap-pmtiles-slice-source.js.html">bemap-maplibre/bemap-pmtiles-slice-source.js</a>, <a href="bemap-maplibre_bemap-pmtiles-slice-source.js.html#line105">line 105</a>
     </li></ul></dd>
     
 
@@ -872,13 +976,13 @@ the whole read (fetch + body) and resolve/reject; the timeout spans it.
 </div>
 
 <nav>
-    <h2><a href="index.html">Home</a></h2><h3>Classes</h3><ul><li><a href="bemap.AclDetailsResponse.html">AclDetailsResponse</a></li><li><a href="bemap.AclLabel.html">AclLabel</a></li><li><a href="bemap.AclService.html">AclService</a></li><li><a href="bemap.Address.html">Address</a></li><li><a href="bemap.AttributionWidget.html">AttributionWidget</a></li><li><a href="bemap.Autocomplete.html">Autocomplete</a></li><li><a href="bemap.AutocompleteElement.html">AutocompleteElement</a></li><li><a href="bemap.AutocompleteGeocodingRequest.html">AutocompleteGeocodingRequest</a></li><li><a href="bemap.AutocompleteGeocodingResponse.html">AutocompleteGeocodingResponse</a></li><li><a href="bemap.BemapLayer.html">BemapLayer</a></li><li><a href="bemap.BoundingBox.html">BoundingBox</a></li><li><a href="bemap.BrowserCache.html">BrowserCache</a></li><li><a href="bemap.BuildingsLayer.html">BuildingsLayer</a></li><li><a href="bemap.ChargingPoint.html">ChargingPoint</a></li><li><a href="bemap.ChargingStation.html">ChargingStation</a></li><li><a href="bemap.ChargingStationPool.html">ChargingStationPool</a></li><li><a href="bemap.ChargingStations.html">ChargingStations</a></li><li><a href="bemap.ChargingStationSearchRequest.html">ChargingStationSearchRequest</a></li><li><a href="bemap.ChargingStationSearchResponse.html">ChargingStationSearchResponse</a></li><li><a href="bemap.ChargingStationStep.html">ChargingStationStep</a></li><li><a href="bemap.ChargingTime.html">ChargingTime</a></li><li><a href="bemap.ChargingTimeRequest.html">ChargingTimeRequest</a></li><li><a href="bemap.ChargingTimeResponse.html">ChargingTimeResponse</a></li><li><a href="bemap.Circle.html">Circle</a></li><li><a href="bemap.CircleStyle.html">CircleStyle</a></li><li><a href="bemap.clusterStyle.html">clusterStyle</a></li><li><a href="bemap.Color.html">Color</a></li><li><a href="bemap.CondMaxSpeed.html">CondMaxSpeed</a></li><li><a href="bemap.Context.html">Context</a></li><li><a href="bemap.Coordinate.html">Coordinate</a></li><li><a href="bemap.CoordinateSat.html">CoordinateSat</a></li><li><a href="bemap.Destination.html">Destination</a></li><li><a href="bemap.Error.html">Error</a></li><li><a href="bemap.EvBrand.html">EvBrand</a></li><li><a href="bemap.EvReachableArea.html">EvReachableArea</a></li><li><a href="bemap.EvReachableAreaRequest.html">EvReachableAreaRequest</a></li><li><a href="bemap.EvReachableAreaResponse.html">EvReachableAreaResponse</a></li><li><a href="bemap.EvseRouting.html">EvseRouting</a></li><li><a href="bemap.EvSmartRouting.html">EvSmartRouting</a></li><li><a href="bemap.EvSmartRoutingRequest.html">EvSmartRoutingRequest</a></li><li><a href="bemap.EvSmartRoutingResponse.html">EvSmartRoutingResponse</a></li><li><a href="bemap.EvStepPoint.html">EvStepPoint</a></li><li><a href="bemap.EvVehicle.html">EvVehicle</a></li><li><a href="bemap.EvVehicles.html">EvVehicles</a></li><li><a href="bemap.Exception.html">Exception</a></li><li><a href="bemap.GeoAutocomplete.html">GeoAutocomplete</a></li><li><a href="bemap.Geocoder.html">Geocoder</a></li><li><a href="bemap.GeocodingItem.html">GeocodingItem</a></li><li><a href="bemap.GeocodingRequest.html">GeocodingRequest</a></li><li><a href="bemap.GeocodingResponse.html">GeocodingResponse</a></li><li><a href="bemap.GeoSearchInfo.html">GeoSearchInfo</a></li><li><a href="bemap.GeoServerInfoResponse.html">GeoServerInfoResponse</a></li><li><a href="bemap.GeoServerInfoService.html">GeoServerInfoService</a></li><li><a href="bemap.GeoServerServiceInfo.html">GeoServerServiceInfo</a></li><li><a href="bemap.GeoServerServiceLimit.html">GeoServerServiceLimit</a></li><li><a href="bemap.HeatmapLayer.html">HeatmapLayer</a></li><li><a href="bemap.Icon.html">Icon</a></li><li><a href="bemap.Isochrone.html">Isochrone</a></li><li><a href="bemap.Layer.html">Layer</a></li><li><a href="bemap.LeafletMap.html">LeafletMap</a></li><li><a href="bemap.LineStyle.html">LineStyle</a></li><li><a href="bemap.Listener.html">Listener</a></li><li><a href="bemap.Map.html">Map</a></li><li><a href="bemap.MapEvent.html">MapEvent</a></li><li><a href="bemap.MapLibreMap.html">MapLibreMap</a></li><li><a href="bemap.Marker.html">Marker</a></li><li><a href="bemap.MultiMarker.html">MultiMarker</a></li><li><a href="bemap.NearPoint.html">NearPoint</a></li><li><a href="bemap.NearPoiRequest.html">NearPoiRequest</a></li><li><a href="bemap.NearPoiResponse.html">NearPoiResponse</a></li><li><a href="bemap.NearPoiSearch.html">NearPoiSearch</a></li><li><a href="bemap.Object.html">Object</a></li><li><a href="bemap.Ol3Map.html">Ol3Map</a></li><li><a href="bemap.OlMap.html">OlMap</a></li><li><a href="bemap.OsmLayer.html">OsmLayer</a></li><li><a href="bemap.PMTilesLayer.html">PMTilesLayer</a></li><li><a href="bemap.PMTilesSliceSource.html">PMTilesSliceSource</a></li><li><a href="bemap.Polygon.html">Polygon</a></li><li><a href="bemap.PolygonStyle.html">PolygonStyle</a></li><li><a href="bemap.Polyline.html">Polyline</a></li><li><a href="bemap.Popup.html">Popup</a></li><li><a href="bemap.PostalAddress.html">PostalAddress</a></li><li><a href="bemap.RangeGate.html">RangeGate</a></li><li><a href="bemap.RasterLayer.html">RasterLayer</a></li><li><a href="bemap.RecoverablePromiseCache.html">RecoverablePromiseCache</a></li><li><a href="bemap.ReverseGeocoder.html">ReverseGeocoder</a></li><li><a href="bemap.ReverseGeocodingRequest.html">ReverseGeocodingRequest</a></li><li><a href="bemap.RevGeoSearchInfo.html">RevGeoSearchInfo</a></li><li><a href="bemap.RoadFeature.html">RoadFeature</a></li><li><a href="bemap.Route.html">Route</a></li><li><a href="bemap.Route.Event.html">Event</a></li><li><a href="bemap.Route.RoutesheetInstruction.html">RoutesheetInstruction</a></li><li><a href="bemap.Routing.html">Routing</a></li><li><a href="bemap.RoutingDestination.html">RoutingDestination</a></li><li><a href="bemap.RoutingInstruction.html">RoutingInstruction</a></li><li><a href="bemap.RoutingRequest.html">RoutingRequest</a></li><li><a href="bemap.RoutingResponse.html">RoutingResponse</a></li><li><a href="bemap.RoutingRoute.html">RoutingRoute</a></li><li><a href="bemap.RoutingSummary.html">RoutingSummary</a></li><li><a href="bemap.RoutingV2.html">RoutingV2</a></li><li><a href="bemap.RoutingVehicleProfile.html">RoutingVehicleProfile</a></li><li><a href="bemap.RoutingWaypoint.html">RoutingWaypoint</a></li><li><a href="bemap.Service.html">Service</a></li><li><a href="bemap.TextStyle.html">TextStyle</a></li><li><a href="bemap.TilesAuth.html">TilesAuth</a></li><li><a href="bemap.TilesOverlayCatalog.html">TilesOverlayCatalog</a></li><li><a href="global.html#bemap#.TraceRoute">TraceRoute</a></li><li><a href="bemap.TraceRouteDestination.html">TraceRouteDestination</a></li><li><a href="bemap.TraceRouteRequest.html">TraceRouteRequest</a></li><li><a href="bemap.VectorLayer.html">VectorLayer</a></li><li><a href="bemap.VectorTileLayer.html">VectorTileLayer</a></li><li><a href="bemap.WmsLayer.html">WmsLayer</a></li></ul><h3>Global</h3><ul><li><a href="global.html#_bemapNoop">_bemapNoop</a></li><li><a href="global.html#AC">AC</a></li><li><a href="global.html#AC_SINGLE_PHASE">AC_SINGLE_PHASE</a></li><li><a href="global.html#AC_THREE_PHASES">AC_THREE_PHASES</a></li><li><a href="global.html#bemap">bemap</a></li><li><a href="global.html#DC">DC</a></li><li><a href="global.html#NA">NA</a></li></ul>
+    <h2><a href="index.html">Home</a></h2><h3>Classes</h3><ul><li><a href="bemap.AclDetailsResponse.html">AclDetailsResponse</a></li><li><a href="bemap.AclLabel.html">AclLabel</a></li><li><a href="bemap.AclService.html">AclService</a></li><li><a href="bemap.Address.html">Address</a></li><li><a href="bemap.AttributionWidget.html">AttributionWidget</a></li><li><a href="bemap.Autocomplete.html">Autocomplete</a></li><li><a href="bemap.AutocompleteElement.html">AutocompleteElement</a></li><li><a href="bemap.AutocompleteGeocodingRequest.html">AutocompleteGeocodingRequest</a></li><li><a href="bemap.AutocompleteGeocodingResponse.html">AutocompleteGeocodingResponse</a></li><li><a href="bemap.BemapLayer.html">BemapLayer</a></li><li><a href="bemap.BoundingBox.html">BoundingBox</a></li><li><a href="bemap.BrowserCache.html">BrowserCache</a></li><li><a href="bemap.BuildingsLayer.html">BuildingsLayer</a></li><li><a href="bemap.ChargingPoint.html">ChargingPoint</a></li><li><a href="bemap.ChargingStation.html">ChargingStation</a></li><li><a href="bemap.ChargingStationPool.html">ChargingStationPool</a></li><li><a href="bemap.ChargingStations.html">ChargingStations</a></li><li><a href="bemap.ChargingStationSearchRequest.html">ChargingStationSearchRequest</a></li><li><a href="bemap.ChargingStationSearchResponse.html">ChargingStationSearchResponse</a></li><li><a href="bemap.ChargingStationStep.html">ChargingStationStep</a></li><li><a href="bemap.ChargingTime.html">ChargingTime</a></li><li><a href="bemap.ChargingTimeRequest.html">ChargingTimeRequest</a></li><li><a href="bemap.ChargingTimeResponse.html">ChargingTimeResponse</a></li><li><a href="bemap.Circle.html">Circle</a></li><li><a href="bemap.CircleStyle.html">CircleStyle</a></li><li><a href="bemap.clusterStyle.html">clusterStyle</a></li><li><a href="bemap.Color.html">Color</a></li><li><a href="bemap.CondMaxSpeed.html">CondMaxSpeed</a></li><li><a href="bemap.Context.html">Context</a></li><li><a href="bemap.Coordinate.html">Coordinate</a></li><li><a href="bemap.CoordinateSat.html">CoordinateSat</a></li><li><a href="bemap.Destination.html">Destination</a></li><li><a href="bemap.Error.html">Error</a></li><li><a href="bemap.EvBrand.html">EvBrand</a></li><li><a href="bemap.EvReachableArea.html">EvReachableArea</a></li><li><a href="bemap.EvReachableAreaRequest.html">EvReachableAreaRequest</a></li><li><a href="bemap.EvReachableAreaResponse.html">EvReachableAreaResponse</a></li><li><a href="bemap.EvseRouting.html">EvseRouting</a></li><li><a href="bemap.EvSmartRouting.html">EvSmartRouting</a></li><li><a href="bemap.EvSmartRoutingRequest.html">EvSmartRoutingRequest</a></li><li><a href="bemap.EvSmartRoutingResponse.html">EvSmartRoutingResponse</a></li><li><a href="bemap.EvStepPoint.html">EvStepPoint</a></li><li><a href="bemap.EvVehicle.html">EvVehicle</a></li><li><a href="bemap.EvVehicles.html">EvVehicles</a></li><li><a href="bemap.Exception.html">Exception</a></li><li><a href="bemap.GeoAutocomplete.html">GeoAutocomplete</a></li><li><a href="bemap.Geocoder.html">Geocoder</a></li><li><a href="bemap.GeocodingItem.html">GeocodingItem</a></li><li><a href="bemap.GeocodingRequest.html">GeocodingRequest</a></li><li><a href="bemap.GeocodingResponse.html">GeocodingResponse</a></li><li><a href="bemap.GeoSearchInfo.html">GeoSearchInfo</a></li><li><a href="bemap.GeoServerInfoResponse.html">GeoServerInfoResponse</a></li><li><a href="bemap.GeoServerInfoService.html">GeoServerInfoService</a></li><li><a href="bemap.GeoServerServiceInfo.html">GeoServerServiceInfo</a></li><li><a href="bemap.GeoServerServiceLimit.html">GeoServerServiceLimit</a></li><li><a href="bemap.HeatmapLayer.html">HeatmapLayer</a></li><li><a href="bemap.Icon.html">Icon</a></li><li><a href="bemap.Isochrone.html">Isochrone</a></li><li><a href="bemap.Layer.html">Layer</a></li><li><a href="bemap.LeafletMap.html">LeafletMap</a></li><li><a href="bemap.LineStyle.html">LineStyle</a></li><li><a href="bemap.Listener.html">Listener</a></li><li><a href="bemap.Map.html">Map</a></li><li><a href="bemap.MapEvent.html">MapEvent</a></li><li><a href="bemap.MapLibreMap.html">MapLibreMap</a></li><li><a href="bemap.Marker.html">Marker</a></li><li><a href="bemap.MultiMarker.html">MultiMarker</a></li><li><a href="bemap.NearPoint.html">NearPoint</a></li><li><a href="bemap.NearPoiRequest.html">NearPoiRequest</a></li><li><a href="bemap.NearPoiResponse.html">NearPoiResponse</a></li><li><a href="bemap.NearPoiSearch.html">NearPoiSearch</a></li><li><a href="bemap.Object.html">Object</a></li><li><a href="bemap.Ol3Map.html">Ol3Map</a></li><li><a href="bemap.OlMap.html">OlMap</a></li><li><a href="bemap.OsmLayer.html">OsmLayer</a></li><li><a href="bemap.PMTilesLayer.html">PMTilesLayer</a></li><li><a href="bemap.PMTilesSliceSource.html">PMTilesSliceSource</a></li><li><a href="bemap.Polygon.html">Polygon</a></li><li><a href="bemap.PolygonStyle.html">PolygonStyle</a></li><li><a href="bemap.Polyline.html">Polyline</a></li><li><a href="bemap.Popup.html">Popup</a></li><li><a href="bemap.PostalAddress.html">PostalAddress</a></li><li><a href="bemap.RangeGate.html">RangeGate</a></li><li><a href="bemap.RasterLayer.html">RasterLayer</a></li><li><a href="bemap.RecoverablePromiseCache.html">RecoverablePromiseCache</a></li><li><a href="bemap.ReverseGeocoder.html">ReverseGeocoder</a></li><li><a href="bemap.ReverseGeocodingRequest.html">ReverseGeocodingRequest</a></li><li><a href="bemap.RevGeoSearchInfo.html">RevGeoSearchInfo</a></li><li><a href="bemap.RoadFeature.html">RoadFeature</a></li><li><a href="bemap.Route.html">Route</a></li><li><a href="bemap.Route.Event.html">Event</a></li><li><a href="bemap.Route.RoutesheetInstruction.html">RoutesheetInstruction</a></li><li><a href="bemap.Routing.html">Routing</a></li><li><a href="bemap.RoutingDestination.html">RoutingDestination</a></li><li><a href="bemap.RoutingInstruction.html">RoutingInstruction</a></li><li><a href="bemap.RoutingRequest.html">RoutingRequest</a></li><li><a href="bemap.RoutingResponse.html">RoutingResponse</a></li><li><a href="bemap.RoutingRoute.html">RoutingRoute</a></li><li><a href="bemap.RoutingSummary.html">RoutingSummary</a></li><li><a href="bemap.RoutingV2.html">RoutingV2</a></li><li><a href="bemap.RoutingVehicleProfile.html">RoutingVehicleProfile</a></li><li><a href="bemap.RoutingWaypoint.html">RoutingWaypoint</a></li><li><a href="bemap.Service.html">Service</a></li><li><a href="bemap.TextStyle.html">TextStyle</a></li><li><a href="bemap.TilesAuth.html">TilesAuth</a></li><li><a href="bemap.TilesOverlayCatalog.html">TilesOverlayCatalog</a></li><li><a href="global.html#bemap#.TraceRoute">TraceRoute</a></li><li><a href="bemap.TraceRouteDestination.html">TraceRouteDestination</a></li><li><a href="bemap.TraceRouteRequest.html">TraceRouteRequest</a></li><li><a href="bemap.VectorLayer.html">VectorLayer</a></li><li><a href="bemap.VectorTileLayer.html">VectorTileLayer</a></li><li><a href="bemap.WmsLayer.html">WmsLayer</a></li></ul><h3>Global</h3><ul><li><a href="global.html#_bemapAbortError">_bemapAbortError</a></li><li><a href="global.html#AC">AC</a></li><li><a href="global.html#AC_SINGLE_PHASE">AC_SINGLE_PHASE</a></li><li><a href="global.html#AC_THREE_PHASES">AC_THREE_PHASES</a></li><li><a href="global.html#bemap">bemap</a></li><li><a href="global.html#DC">DC</a></li><li><a href="global.html#NA">NA</a></li></ul>
 </nav>
 
 <br class="clear">
 
 <footer>
-    Documentation generated by <a href="https://github.com/jsdoc/jsdoc">JSDoc 3.6.3</a> on Thu Jul 09 2026 15:06:16 GMT+0200 (heure d’été d’Europe centrale)
+    Documentation generated by <a href="https://github.com/jsdoc/jsdoc">JSDoc 3.6.3</a> on Fri Jul 10 2026 14:21:30 GMT+0200 (heure d’été d’Europe centrale)
 </footer>
 
 <script> prettyPrint(); </script>

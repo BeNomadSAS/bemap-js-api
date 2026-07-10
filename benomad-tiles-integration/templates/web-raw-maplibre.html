@@ -1,0 +1,66 @@
+<!doctype html>
+<!-- ============================================================================
+     Path B — raw MapLibre GL + pmtiles.js, basemap only (no BeMap SDK).
+     Use only if you are already committed to raw MapLibre. Otherwise prefer the
+     SDK (web-sdk.html): it handles token refresh, header auth and cache for you.
+
+     Auth here uses the ?token= query on the pmtiles:// URL — the simplest method
+     that works with pmtiles.js Range requests. Header auth (X-Session-Token) is
+     more secure but needs request plumbing the SDK already provides.
+============================================================================ -->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <!-- SECURITY: these CDN URLs float on major versions. For production, pin the
+       exact version and add integrity="sha384-…" crossorigin="anonymous" to each
+       tag, OR (preferred) self-host the bundles like the SDK path does under
+       /dist/. Loading un-pinned CDN scripts exposes you to CDN compromise. -->
+  <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@5/dist/maplibre-gl.css">
+  <script src="https://unpkg.com/maplibre-gl@5/dist/maplibre-gl.js"></script>
+  <script src="https://unpkg.com/pmtiles@4/dist/pmtiles.js"></script>
+</head>
+<body>
+  <div id="map" style="position:absolute;inset:0"></div>
+  <script>
+    var TILES = 'https://mptiles-api-beta.benomad.net';
+    var LOGIN = 'YOUR_LOGIN', PASS = 'YOUR_PASSWORD';   // demo/eval only
+
+    function b64(s) { return btoa(unescape(encodeURIComponent(s))); }
+
+    async function login() {
+      var r = await fetch(TILES + '/api/login', { method: 'POST', headers: { 'Authorization': 'Basic ' + b64(LOGIN + ':' + PASS) } });
+      if (!r.ok) throw new Error('login HTTP ' + r.status);
+      return (await r.json()).token;
+    }
+
+    async function resolveStyle(token) {
+      // Fetch the server style and substitute the two placeholders.
+      var raw = await (await fetch(TILES + '/api/default-style?token=' + token)).json();
+      var srcPh = (raw.metadata && raw.metadata.source_placeholder) || 'TILES_SOURCE';
+      raw.sources = raw.sources || {};
+      raw.sources['tiles'] = Object.assign({}, raw.sources[srcPh], {
+        type: 'vector',
+        url: 'pmtiles://' + TILES + '/default.pmtiles?token=' + token,
+        maxzoom: 14
+      });
+      if (srcPh !== 'tiles') delete raw.sources[srcPh];
+      (raw.layers || []).forEach(function (l) { if (l.source === srcPh) l.source = 'tiles'; });
+      return raw;
+    }
+
+    (async function () {
+      var token = await login();
+      maplibregl.addProtocol('pmtiles', new pmtiles.Protocol().tile);
+      var style = await resolveStyle(token);           // or build your own style object
+      var map = new maplibregl.Map({ container: 'map', style: style, center: [2.35, 48.85], zoom: 12 });
+      map.on('error', function (e) { console.error('maplibre error', e && e.error); });
+
+      // Token expires in ~1 h: re-login and re-apply the style with a fresh token.
+      setInterval(async function () {
+        try { var t = await login(); map.setStyle(await resolveStyle(t)); } catch (e) { console.warn('refresh failed', e); }
+      }, 55 * 60 * 1000);
+    })();
+  </script>
+</body>
+</html>

@@ -41,7 +41,10 @@ consumers don't pay for a SW they don't need.
 var ctx = new bemap.Context({
   host: 'bemap.benomad.com', secure: true,
   login: '...', password: '...',
-  tilesHost: 'mptiles-api-beta.benomad.net'   // <-- this is the switch
+  // Environments — prod (default) shown; preprod & beta exist for testing:
+  //   preprod: bemap-preprod.benomad.com + mptiles-api-preprod.benomad.net
+  //   beta:    bemap-beta.benomad.com    + mptiles-api-beta.benomad.net
+  tilesHost: 'mptiles-api.benomad.net'   // <-- this is the switch
 });
 new bemap.MapLibreMap(ctx, 'map');       // SW registers automatically
 ```
@@ -346,20 +349,28 @@ injects the configured auth (cookie / header / `?token=`); and a 200-slice has n
 > `tilesSliceMode: 'range'`. A slice read against a non-slicing Worker fails with
 > a clear `HTTP <status>` error (it does not silently corrupt tiles).
 
-### Resilience gate (`tileGate`) — timeout + retry (+ optional cap)
+### Resilience gate (`tileGate`) — smart-abort timeout + retries (+ optional cap)
 
-Slice reads run through `bemap.RangeGate`: a per-request `AbortController` timeout
-that spans the body read, and one retry on a transient failure (429 / 5xx /
-network) — **never** on a caller cancel (pan/zoom). An optional concurrency cap is
-**off by default** (the origin is fast, so uncapped is smoother; the cap is a
-tradeoff you opt into).
+Slice reads run through `bemap.RangeGate` with **smart-abort** semantics: each
+attempt gets a private `AbortController`; a caller cancel (pan/zoom) or the TTFB
+timeout may abort the socket **only before the response headers arrive**. Once
+headers are in, the socket is never killed (aborting a streaming body poisons the
+browser's shared H2/H3 connection) — the body drains to completion, a caller
+cancel is honoured *logically* afterwards (the bytes are discarded but the browser
+cache stays warm), and a generous body safety cap guards only a truly dead socket.
+Transient failures (429 / 5xx / timeout / network) are retried with backoff —
+**never** on a caller cancel. An optional concurrency cap is **off by default**
+(the origin is fast, so uncapped is smoother; the cap is a tradeoff you opt into).
 
 | Option | Default | Effect |
 | --- | --- | --- |
 | `tileGate` | `true` | Master switch for timeout+retry(+cap). `false` → raw fetch. |
-| `tilesSliceTimeoutMs` | `3500` | Per-request timeout (spans the body read). `0` = none. |
-| `tilesSliceMaxRetries` | `1` | Retries on a transient failure; never on a pan/zoom cancel. |
+| `tilesSliceTimeoutMs` | `3500` | Per-attempt TTFB (pre-header) timeout. Keep above the Worker's ~3000 ms tile deadline so its 504 is received (and retried) instead of aborted. `0` = none. |
+| `tilesSliceBodyTimeoutMs` | `20000` | Post-header body safety cap. Generous on purpose — only guards a truly dead socket. `0` = none. |
+| `tilesSliceMaxRetries` | `3` | Retries on a transient failure; never on a pan/zoom cancel. |
+| `tilesSliceRetryBackoffMs` | `[200, 500, 1000]` | Backoff (ms) before retries #1/#2/#3… (last entry repeats). |
 | `tilesSliceConcurrency` | `0` | In-flight cap. `0` = uncapped. `>0` caps concurrent reads (FIFO). |
+| `tilesErrorRefreshMs` | `4000` | Terminal safety net: debounced refresh of the tile sources after a *recoverable* tile error (timeout / 504 / network) — MapLibre never re-requests an errored tile on its own. `0` disables. |
 
 ### Runtime toggles + config readout
 

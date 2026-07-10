@@ -107,7 +107,7 @@ var ctxTiles = new bemap.Context({
   secure:    bemapMainCtx.protocol === 'https',
   login:     bemapMainCtx.login,
   password:  bemapMainCtx.password,
-  tilesHost: 'mptiles-api-beta.benomad.net'
+  tilesHost: bemapMainCtx.tilesHost   // follows the env picked in the Credentials window
 });
 
 // Each map constructor auto-creates an AttributionWidget and stashes it on

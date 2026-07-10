@@ -75,6 +75,16 @@ maps and service calls** need two things:
 > In your own production app you usually serve from your own domain and add that one
 > origin to the allow-list once.
 
+**Environments.** Point your Context at the environment you're deploying against —
+**production** is the default; **preprod** and **beta** exist for integration
+testing and validation. Always pair the API host with its matching tiles host:
+
+| Environment | `host` (BeMap API) | `tilesHost` (BeNomad Tiles) |
+|---|---|---|
+| **Production** (default) | `bemap.benomad.com` (or `bemap-prod.benomad.com`) | `mptiles-api.benomad.net` |
+| **Preprod** (staging) | `bemap-preprod.benomad.com` | `mptiles-api-preprod.benomad.net` |
+| **Beta** (testing) | `bemap-beta.benomad.com` | `mptiles-api-beta.benomad.net` |
+
 ---
 
 ## Cheat sheet

@@ -43,10 +43,21 @@
  *    `?r=` slice route — BeNomad Tiles does on all envs.
  *
  * 2. `bemap.RangeGate` — an optional per-request resilience wrapper: a
- *    concurrency cap (off by default), a per-attempt `AbortController` timeout
- *    that spans the body read, and one retry on a transient failure — NEVER
- *    retrying a caller cancel (pan/zoom). It combines the caller's pmtiles
- *    `signal` with the timeout signal via `AbortSignal.any`. Live-toggleable.
+ *    concurrency cap (off by default), a per-attempt TTFB (pre-header) timeout
+ *    with SMART-ABORT semantics, and retries with backoff on a transient
+ *    failure — NEVER retrying a caller cancel (pan/zoom). SMART ABORT: every
+ *    attempt runs on a PRIVATE `AbortController`; the caller's (pan/zoom)
+ *    cancel and the TTFB timer may kill the socket ONLY BEFORE the response
+ *    headers arrive (nothing transferred yet — cheap). Once headers are in the
+ *    socket is never physically aborted — killing a streaming tile body
+ *    poisons the browser's shared H2/H3 connection and stalls 15–25 % of
+ *    follow-up requests (see GREY-TILES-ROOT-CAUSE.md in the Worker repo) —
+ *    the body drains to completion (warming the browser cache), a caller
+ *    cancel is honoured LOGICALLY afterwards (reject `AbortError`, discard
+ *    the bytes), and a generous body safety cap (`bodyTimeoutMs`) replaces
+ *    any body-spanning kill, guarding only a truly dead socket.
+ *    Live-toggleable. Policy proven in mp-tiles-demo: 0 permanent grey tiles,
+ *    +15 % bandwidth, worst tile ≤ 4 s.
  *
  * Both are wired by `bemap.MapLibreMap` per `opts.tilesSliceMode` (default
  * `'200'`) and the `tilesSlice*` knobs. Auth composes for free: `getBytes` uses
@@ -58,38 +69,6 @@
  * @public
  */
 
-var _bemapNoop = function () {};
-
-/**
- * Combine two `AbortSignal`s into one that aborts when EITHER does. Prefers the
- * native `AbortSignal.any` (self-cleaning); falls back to a manual controller;
- * degrades to the caller signal when neither exists. Returns `{ signal, cleanup }`
- * — the caller MUST call `cleanup()` when the attempt settles, so the fallback's
- * listeners are removed from the (possibly long-lived) caller signal instead of
- * accumulating across retries.
- * @private
- */
-function _bemapCombineSignals(a, b) {
-  if (!a) return { signal: b || undefined, cleanup: _bemapNoop };
-  if (!b) return { signal: a, cleanup: _bemapNoop };
-  if (typeof AbortSignal !== 'undefined' &amp;&amp; typeof AbortSignal.any === 'function') {
-    try { return { signal: AbortSignal.any([a, b]), cleanup: _bemapNoop }; } catch (e) { /* fall through */ }
-  }
-  if (typeof AbortController === 'function') {
-    var ctl = new AbortController();
-    var onAbort = function () { try { ctl.abort(); } catch (e) {} };
-    if (a.aborted || b.aborted) { onAbort(); return { signal: ctl.signal, cleanup: _bemapNoop }; }
-    try { a.addEventListener('abort', onAbort); b.addEventListener('abort', onAbort); } catch (e) {}
-    return {
-      signal: ctl.signal,
-      cleanup: function () {
-        try { a.removeEventListener('abort', onAbort); b.removeEventListener('abort', onAbort); } catch (e) {}
-      }
-    };
-  }
-  return { signal: a, cleanup: _bemapNoop };
-}
-
 function _bemapAbortError() {
   var e = new Error('The operation was aborted.');
   e.name = 'AbortError';
@@ -97,25 +76,40 @@ function _bemapAbortError() {
 }
 
 /**
- * Optional resilience gate for tile reads: concurrency cap + per-attempt timeout
- * + one retry. When inactive (`setActive(false)` or `?nogate`) it is a pure
- * pass-through (raw fetch). Read live per request, so toggling takes effect
- * without a reload.
+ * Optional resilience gate for tile reads: concurrency cap + per-attempt TTFB
+ * timeout with smart-abort semantics + retries with backoff. When inactive
+ * (`setActive(false)` or `?nogate`) it is a pure pass-through (raw fetch).
+ * Read live per request, so toggling takes effect without a reload.
  *
  * @public
  * @since 2.0.0
  * @constructor
  * @param {Object} [options]
  * @param {Number} [options.concurrency=0] Max in-flight reads (0 = uncapped).
- * @param {Number} [options.timeoutMs=3500] Per-attempt timeout spanning the body read (0 = none).
- * @param {Number} [options.maxRetries=1] Retries on a transient failure (429/5xx/network); never on a caller cancel.
+ * @param {Number} [options.timeoutMs=3500] Per-attempt TTFB (pre-header) timeout (0 = none).
+ *   Must stay ABOVE the Worker's ~3000 ms tile deadline so its 504 is received
+ *   (and retried) instead of the socket being aborted just before it lands.
+ *   Once headers arrive this timer is disarmed — see `bodyTimeoutMs`.
+ * @param {Number} [options.bodyTimeoutMs=20000] Post-header BODY safety cap (0 = none).
+ *   Generous ON PURPOSE: physically aborting a streaming tile body poisons the
+ *   browser's shared H2/H3 connection; tile bodies are small and normally finish
+ *   in well under a second — this cap only guards a truly dead socket.
+ * @param {Number} [options.maxRetries=3] Retries on a transient failure
+ *   (429/5xx/timeout/network); never on a caller cancel. 1 → 3 (2026-07 fix):
+ *   a single retry left ~1 in 25 tiles permanently grey under pan bursts;
+ *   three retries bring the residual to ~0.1 %.
+ * @param {Number[]} [options.retryBackoffMs=[200,500,1000]] Backoff (ms) before
+ *   retries #1/#2/#3… (the last entry repeats) — gives a strained connection
+ *   time to heal before the re-attempt.
  * @param {Boolean} [options.active=true] Whether the gate is engaged.
  */
 bemap.RangeGate = function (options) {
   var o = options || {};
   this.concurrency = (typeof o.concurrency === 'number' &amp;&amp; o.concurrency > 0) ? o.concurrency : 0;
   this.timeoutMs = (typeof o.timeoutMs === 'number' &amp;&amp; o.timeoutMs >= 0) ? o.timeoutMs : 3500;
-  this.maxRetries = (typeof o.maxRetries === 'number' &amp;&amp; o.maxRetries >= 0) ? o.maxRetries : 1;
+  this.bodyTimeoutMs = (typeof o.bodyTimeoutMs === 'number' &amp;&amp; o.bodyTimeoutMs >= 0) ? o.bodyTimeoutMs : 20000;
+  this.maxRetries = (typeof o.maxRetries === 'number' &amp;&amp; o.maxRetries >= 0) ? o.maxRetries : 3;
+  this.retryBackoffMs = Array.isArray(o.retryBackoffMs) ? o.retryBackoffMs.slice() : [200, 500, 1000];
   this._active = (o.active !== false);
   this._inFlight = 0;
   this._queue = [];
@@ -160,10 +154,25 @@ bemap.RangeGate.prototype._release = function () {
 };
 
 /**
- * Run one tile-read attempt through the gate. `attemptFn(signal)` must perform
- * the whole read (fetch + body) and resolve/reject; the timeout spans it.
+ * Run one tile-read attempt through the gate. `attemptFn(signal, headersReceived)`
+ * must perform the whole read (fetch + body) and resolve/reject.
+ *
+ * SMART ABORT: `signal` is the gate's PRIVATE per-attempt `AbortController`
+ * signal — the TTFB timer and a caller (pan/zoom) cancel abort it ONLY until
+ * the attempt calls `headersReceived()` (do so the moment the response headers
+ * are in). From that point the socket is protected: the body drains to
+ * completion under the generous `bodyTimeoutMs` safety cap, and a caller
+ * cancel is honoured LOGICALLY once the attempt settles (reject `AbortError`,
+ * discard the result — bytes already warmed the browser cache). An `attemptFn`
+ * that never calls `headersReceived` keeps the legacy whole-attempt timeout.
+ *
+ * Retries (up to `maxRetries`, spaced by `retryBackoffMs`) apply to transient
+ * failures only — 429/5xx, a network `TypeError`, a timeout `AbortError` —
+ * and NEVER to a caller cancel. Each attempt takes its own concurrency slot
+ * (a retry re-queues at the back instead of squatting a permit across its
+ * backoff sleep).
  * @public
- * @param {Function} attemptFn `function(signal) => Promise`
+ * @param {Function} attemptFn `function(signal, headersReceived) => Promise`
  * @param {AbortSignal} [callerSignal] the pmtiles cancellation signal
  * @return {Promise}
  */
@@ -173,44 +182,84 @@ bemap.RangeGate.prototype.run = function (attemptFn, callerSignal) {
   if (!this._active) return Promise.resolve().then(function () { return attemptFn(callerSignal); });
 
   var capped = this.concurrency > 0;
-  var acquire = capped ? this._acquire() : Promise.resolve();
 
-  return acquire.then(function () {
-    var attempt = 0;
-    function tryOnce() {
-      if (callerSignal &amp;&amp; callerSignal.aborted) return Promise.reject(_bemapAbortError());
-      var useTimeout = self.timeoutMs > 0 &amp;&amp; typeof AbortController === 'function';
-      var tc = useTimeout ? new AbortController() : null;
-      var timer = tc ? setTimeout(function () { try { tc.abort(); } catch (e) {} }, self.timeoutMs) : null;
-      var combined = _bemapCombineSignals(callerSignal, tc &amp;&amp; tc.signal);
-      function _cleanup() { if (timer) clearTimeout(timer); combined.cleanup(); }
-      return Promise.resolve().then(function () { return attemptFn(combined.signal); }).then(
-        function (r) { _cleanup(); return r; },
-        function (err) {
-          _cleanup();
-          // A caller cancel (pan/zoom) must NEVER be retried.
-          if (callerSignal &amp;&amp; callerSignal.aborted) throw err;
-          // Retry only genuinely TRANSIENT failures — and NOT a status-less
-          // programming/logic error (which would otherwise be retried and its
-          // real cause masked, since `undefined == null`):
-          //   - HTTP 429 / 5xx (has err.status),
-          //   - a network failure (fetch rejects with a TypeError),
-          //   - a per-attempt TIMEOUT (our AbortController → AbortError; the
-          //     caller-cancel case was already excluded above).
-          var status = err &amp;&amp; err.status;
-          var name = err &amp;&amp; err.name;
-          var retryable = (status === 429) || (status >= 500) ||
-            (status == null &amp;&amp; (name === 'TypeError' || name === 'AbortError'));
-          if (attempt &lt; self.maxRetries &amp;&amp; retryable) { attempt++; return tryOnce(); }
-          throw err;
-        }
+  function attemptOnce() {
+    var acquire = capped ? self._acquire() : Promise.resolve();
+    return acquire.then(function () {
+      return Promise.resolve().then(function () {
+        if (callerSignal &amp;&amp; callerSignal.aborted) throw _bemapAbortError();
+        // OUR socket handle — never the caller's signal directly, so a caller
+        // cancel can be downgraded to a logical one once headers arrive.
+        var ctrl = (typeof AbortController === 'function') ? new AbortController() : null;
+        var headersIn = false;
+        var bodyTimer = null;
+        // TTFB timer: may abort the socket ONLY before headers.
+        var ttfbTimer = (ctrl &amp;&amp; self.timeoutMs > 0)
+          ? setTimeout(function () { if (!headersIn) { try { ctrl.abort(); } catch (e) {} } }, self.timeoutMs)
+          : null;
+        // Caller cancel: physical only before headers; logical afterwards.
+        var onCallerAbort = function () { if (!headersIn &amp;&amp; ctrl) { try { ctrl.abort(); } catch (e) {} } };
+        if (ctrl &amp;&amp; callerSignal) { try { callerSignal.addEventListener('abort', onCallerAbort); } catch (e) {} }
+        // Called by attemptFn the moment response headers arrive: disarm the
+        // TTFB timer and protect the socket (physically aborting a streaming
+        // body poisons the browser's shared H2/H3 connection); the generous
+        // body cap only guards a truly dead socket.
+        var settled = false;
+        var headersReceived = function () {
+          if (headersIn || settled) return;
+          headersIn = true;
+          if (ttfbTimer) { clearTimeout(ttfbTimer); ttfbTimer = null; }
+          if (ctrl &amp;&amp; self.bodyTimeoutMs > 0) {
+            bodyTimer = setTimeout(function () { try { ctrl.abort(); } catch (e) {} }, self.bodyTimeoutMs);
+          }
+        };
+        var cleanup = function () {
+          settled = true;
+          if (ttfbTimer) clearTimeout(ttfbTimer);
+          if (bodyTimer) clearTimeout(bodyTimer);
+          if (ctrl &amp;&amp; callerSignal) { try { callerSignal.removeEventListener('abort', onCallerAbort); } catch (e) {} }
+        };
+        return Promise.resolve()
+          .then(function () { return attemptFn(ctrl ? ctrl.signal : callerSignal, headersReceived); })
+          .then(function (r) {
+            cleanup();
+            // LOGICAL cancel: the read completed cleanly (browser cache warmed,
+            // connection unharmed) but the caller no longer wants it — discard.
+            if (callerSignal &amp;&amp; callerSignal.aborted) throw _bemapAbortError();
+            return r;
+          }, function (err) { cleanup(); throw err; });
+      }).then(
+        function (r) { if (capped) self._release(); return r; },
+        function (e) { if (capped) self._release(); throw e; }
       );
-    }
-    return tryOnce();
-  }).then(
-    function (r) { if (capped) self._release(); return r; },
-    function (e) { if (capped) self._release(); throw e; }
-  );
+    });
+  }
+
+  var attempt = 0;
+  function tryOnce() {
+    return attemptOnce().then(null, function (err) {
+      // A caller cancel (pan/zoom) must NEVER be retried.
+      if (callerSignal &amp;&amp; callerSignal.aborted) throw err;
+      // Retry only genuinely TRANSIENT failures — and NOT a status-less
+      // programming/logic error (which would otherwise be retried and its
+      // real cause masked, since `undefined == null`):
+      //   - HTTP 429 / 5xx (has err.status),
+      //   - a network failure (fetch rejects with a TypeError),
+      //   - a per-attempt TIMEOUT (our AbortController → AbortError; the
+      //     caller-cancel case was already excluded above).
+      var status = err &amp;&amp; err.status;
+      var name = err &amp;&amp; err.name;
+      var retryable = (status === 429) || (status >= 500) ||
+        (status == null &amp;&amp; (name === 'TypeError' || name === 'AbortError'));
+      if (attempt >= self.maxRetries || !retryable) throw err;
+      var backoff = self.retryBackoffMs;
+      var ms = (backoff &amp;&amp; backoff.length) ? backoff[Math.min(attempt, backoff.length - 1)] : 0;
+      attempt++;
+      if (!(ms > 0)) return tryOnce();
+      return new Promise(function (res) { setTimeout(res, ms); }).then(tryOnce);
+    });
+  }
+  return tryOnce();
 };
 
 /**
@@ -248,14 +297,23 @@ bemap.PMTilesSliceSource.prototype.getBytes = function (offset, length, signal /
   var sep = (url.indexOf('?') === -1) ? '?' : '&amp;';
   var sliceUrl = url + sep + 'r=' + offset + '-' + (offset + length - 1);
 
-  function attempt(sig) {
+  function attempt(sig, headersReceived) {
     // window.fetch → bemap.TilesAuth injects auth (credentials/header/token).
     // No Range header → RangeFetchPolicy's no-store does NOT apply → 200 stays cacheable.
     return fetch(sliceUrl, sig ? { signal: sig } : {}).then(function (res) {
+      // Headers are in — tell the gate to protect the socket (smart abort):
+      // from here the body always drains; only the generous body cap remains.
+      if (typeof headersReceived === 'function') headersReceived();
       if (!res.ok) {
-        var e = new Error('PMTilesSliceSource: HTTP ' + res.status + ' for ' + sliceUrl);
-        e.status = res.status;
-        throw e;
+        // Drain the (tiny) error body before rejecting — an unread body keeps
+        // the connection slot busy; the rejection carries the real status so
+        // the gate can decide retryability (429/5xx yes, 4xx no).
+        var fail = function () {
+          var e = new Error('PMTilesSliceSource: HTTP ' + res.status + ' for ' + sliceUrl);
+          e.status = res.status;
+          throw e;
+        };
+        return res.arrayBuffer().then(fail, fail);
       }
       return res.arrayBuffer().then(function (buf) {
         if (buf.byteLength !== length) {
@@ -299,13 +357,13 @@ bemap.PMTilesSliceSource.defaultGate = new bemap.RangeGate({
 </div>
 
 <nav>
-    <h2><a href="index.html">Home</a></h2><h3>Classes</h3><ul><li><a href="bemap.AclDetailsResponse.html">AclDetailsResponse</a></li><li><a href="bemap.AclLabel.html">AclLabel</a></li><li><a href="bemap.AclService.html">AclService</a></li><li><a href="bemap.Address.html">Address</a></li><li><a href="bemap.AttributionWidget.html">AttributionWidget</a></li><li><a href="bemap.Autocomplete.html">Autocomplete</a></li><li><a href="bemap.AutocompleteElement.html">AutocompleteElement</a></li><li><a href="bemap.AutocompleteGeocodingRequest.html">AutocompleteGeocodingRequest</a></li><li><a href="bemap.AutocompleteGeocodingResponse.html">AutocompleteGeocodingResponse</a></li><li><a href="bemap.BemapLayer.html">BemapLayer</a></li><li><a href="bemap.BoundingBox.html">BoundingBox</a></li><li><a href="bemap.BrowserCache.html">BrowserCache</a></li><li><a href="bemap.BuildingsLayer.html">BuildingsLayer</a></li><li><a href="bemap.ChargingPoint.html">ChargingPoint</a></li><li><a href="bemap.ChargingStation.html">ChargingStation</a></li><li><a href="bemap.ChargingStationPool.html">ChargingStationPool</a></li><li><a href="bemap.ChargingStations.html">ChargingStations</a></li><li><a href="bemap.ChargingStationSearchRequest.html">ChargingStationSearchRequest</a></li><li><a href="bemap.ChargingStationSearchResponse.html">ChargingStationSearchResponse</a></li><li><a href="bemap.ChargingStationStep.html">ChargingStationStep</a></li><li><a href="bemap.ChargingTime.html">ChargingTime</a></li><li><a href="bemap.ChargingTimeRequest.html">ChargingTimeRequest</a></li><li><a href="bemap.ChargingTimeResponse.html">ChargingTimeResponse</a></li><li><a href="bemap.Circle.html">Circle</a></li><li><a href="bemap.CircleStyle.html">CircleStyle</a></li><li><a href="bemap.clusterStyle.html">clusterStyle</a></li><li><a href="bemap.Color.html">Color</a></li><li><a href="bemap.CondMaxSpeed.html">CondMaxSpeed</a></li><li><a href="bemap.Context.html">Context</a></li><li><a href="bemap.Coordinate.html">Coordinate</a></li><li><a href="bemap.CoordinateSat.html">CoordinateSat</a></li><li><a href="bemap.Destination.html">Destination</a></li><li><a href="bemap.Error.html">Error</a></li><li><a href="bemap.EvBrand.html">EvBrand</a></li><li><a href="bemap.EvReachableArea.html">EvReachableArea</a></li><li><a href="bemap.EvReachableAreaRequest.html">EvReachableAreaRequest</a></li><li><a href="bemap.EvReachableAreaResponse.html">EvReachableAreaResponse</a></li><li><a href="bemap.EvseRouting.html">EvseRouting</a></li><li><a href="bemap.EvSmartRouting.html">EvSmartRouting</a></li><li><a href="bemap.EvSmartRoutingRequest.html">EvSmartRoutingRequest</a></li><li><a href="bemap.EvSmartRoutingResponse.html">EvSmartRoutingResponse</a></li><li><a href="bemap.EvStepPoint.html">EvStepPoint</a></li><li><a href="bemap.EvVehicle.html">EvVehicle</a></li><li><a href="bemap.EvVehicles.html">EvVehicles</a></li><li><a href="bemap.Exception.html">Exception</a></li><li><a href="bemap.GeoAutocomplete.html">GeoAutocomplete</a></li><li><a href="bemap.Geocoder.html">Geocoder</a></li><li><a href="bemap.GeocodingItem.html">GeocodingItem</a></li><li><a href="bemap.GeocodingRequest.html">GeocodingRequest</a></li><li><a href="bemap.GeocodingResponse.html">GeocodingResponse</a></li><li><a href="bemap.GeoSearchInfo.html">GeoSearchInfo</a></li><li><a href="bemap.GeoServerInfoResponse.html">GeoServerInfoResponse</a></li><li><a href="bemap.GeoServerInfoService.html">GeoServerInfoService</a></li><li><a href="bemap.GeoServerServiceInfo.html">GeoServerServiceInfo</a></li><li><a href="bemap.GeoServerServiceLimit.html">GeoServerServiceLimit</a></li><li><a href="bemap.HeatmapLayer.html">HeatmapLayer</a></li><li><a href="bemap.Icon.html">Icon</a></li><li><a href="bemap.Isochrone.html">Isochrone</a></li><li><a href="bemap.Layer.html">Layer</a></li><li><a href="bemap.LeafletMap.html">LeafletMap</a></li><li><a href="bemap.LineStyle.html">LineStyle</a></li><li><a href="bemap.Listener.html">Listener</a></li><li><a href="bemap.Map.html">Map</a></li><li><a href="bemap.MapEvent.html">MapEvent</a></li><li><a href="bemap.MapLibreMap.html">MapLibreMap</a></li><li><a href="bemap.Marker.html">Marker</a></li><li><a href="bemap.MultiMarker.html">MultiMarker</a></li><li><a href="bemap.NearPoint.html">NearPoint</a></li><li><a href="bemap.NearPoiRequest.html">NearPoiRequest</a></li><li><a href="bemap.NearPoiResponse.html">NearPoiResponse</a></li><li><a href="bemap.NearPoiSearch.html">NearPoiSearch</a></li><li><a href="bemap.Object.html">Object</a></li><li><a href="bemap.Ol3Map.html">Ol3Map</a></li><li><a href="bemap.OlMap.html">OlMap</a></li><li><a href="bemap.OsmLayer.html">OsmLayer</a></li><li><a href="bemap.PMTilesLayer.html">PMTilesLayer</a></li><li><a href="bemap.PMTilesSliceSource.html">PMTilesSliceSource</a></li><li><a href="bemap.Polygon.html">Polygon</a></li><li><a href="bemap.PolygonStyle.html">PolygonStyle</a></li><li><a href="bemap.Polyline.html">Polyline</a></li><li><a href="bemap.Popup.html">Popup</a></li><li><a href="bemap.PostalAddress.html">PostalAddress</a></li><li><a href="bemap.RangeGate.html">RangeGate</a></li><li><a href="bemap.RasterLayer.html">RasterLayer</a></li><li><a href="bemap.RecoverablePromiseCache.html">RecoverablePromiseCache</a></li><li><a href="bemap.ReverseGeocoder.html">ReverseGeocoder</a></li><li><a href="bemap.ReverseGeocodingRequest.html">ReverseGeocodingRequest</a></li><li><a href="bemap.RevGeoSearchInfo.html">RevGeoSearchInfo</a></li><li><a href="bemap.RoadFeature.html">RoadFeature</a></li><li><a href="bemap.Route.html">Route</a></li><li><a href="bemap.Route.Event.html">Event</a></li><li><a href="bemap.Route.RoutesheetInstruction.html">RoutesheetInstruction</a></li><li><a href="bemap.Routing.html">Routing</a></li><li><a href="bemap.RoutingDestination.html">RoutingDestination</a></li><li><a href="bemap.RoutingInstruction.html">RoutingInstruction</a></li><li><a href="bemap.RoutingRequest.html">RoutingRequest</a></li><li><a href="bemap.RoutingResponse.html">RoutingResponse</a></li><li><a href="bemap.RoutingRoute.html">RoutingRoute</a></li><li><a href="bemap.RoutingSummary.html">RoutingSummary</a></li><li><a href="bemap.RoutingV2.html">RoutingV2</a></li><li><a href="bemap.RoutingVehicleProfile.html">RoutingVehicleProfile</a></li><li><a href="bemap.RoutingWaypoint.html">RoutingWaypoint</a></li><li><a href="bemap.Service.html">Service</a></li><li><a href="bemap.TextStyle.html">TextStyle</a></li><li><a href="bemap.TilesAuth.html">TilesAuth</a></li><li><a href="bemap.TilesOverlayCatalog.html">TilesOverlayCatalog</a></li><li><a href="global.html#bemap#.TraceRoute">TraceRoute</a></li><li><a href="bemap.TraceRouteDestination.html">TraceRouteDestination</a></li><li><a href="bemap.TraceRouteRequest.html">TraceRouteRequest</a></li><li><a href="bemap.VectorLayer.html">VectorLayer</a></li><li><a href="bemap.VectorTileLayer.html">VectorTileLayer</a></li><li><a href="bemap.WmsLayer.html">WmsLayer</a></li></ul><h3>Global</h3><ul><li><a href="global.html#_bemapNoop">_bemapNoop</a></li><li><a href="global.html#AC">AC</a></li><li><a href="global.html#AC_SINGLE_PHASE">AC_SINGLE_PHASE</a></li><li><a href="global.html#AC_THREE_PHASES">AC_THREE_PHASES</a></li><li><a href="global.html#bemap">bemap</a></li><li><a href="global.html#DC">DC</a></li><li><a href="global.html#NA">NA</a></li></ul>
+    <h2><a href="index.html">Home</a></h2><h3>Classes</h3><ul><li><a href="bemap.AclDetailsResponse.html">AclDetailsResponse</a></li><li><a href="bemap.AclLabel.html">AclLabel</a></li><li><a href="bemap.AclService.html">AclService</a></li><li><a href="bemap.Address.html">Address</a></li><li><a href="bemap.AttributionWidget.html">AttributionWidget</a></li><li><a href="bemap.Autocomplete.html">Autocomplete</a></li><li><a href="bemap.AutocompleteElement.html">AutocompleteElement</a></li><li><a href="bemap.AutocompleteGeocodingRequest.html">AutocompleteGeocodingRequest</a></li><li><a href="bemap.AutocompleteGeocodingResponse.html">AutocompleteGeocodingResponse</a></li><li><a href="bemap.BemapLayer.html">BemapLayer</a></li><li><a href="bemap.BoundingBox.html">BoundingBox</a></li><li><a href="bemap.BrowserCache.html">BrowserCache</a></li><li><a href="bemap.BuildingsLayer.html">BuildingsLayer</a></li><li><a href="bemap.ChargingPoint.html">ChargingPoint</a></li><li><a href="bemap.ChargingStation.html">ChargingStation</a></li><li><a href="bemap.ChargingStationPool.html">ChargingStationPool</a></li><li><a href="bemap.ChargingStations.html">ChargingStations</a></li><li><a href="bemap.ChargingStationSearchRequest.html">ChargingStationSearchRequest</a></li><li><a href="bemap.ChargingStationSearchResponse.html">ChargingStationSearchResponse</a></li><li><a href="bemap.ChargingStationStep.html">ChargingStationStep</a></li><li><a href="bemap.ChargingTime.html">ChargingTime</a></li><li><a href="bemap.ChargingTimeRequest.html">ChargingTimeRequest</a></li><li><a href="bemap.ChargingTimeResponse.html">ChargingTimeResponse</a></li><li><a href="bemap.Circle.html">Circle</a></li><li><a href="bemap.CircleStyle.html">CircleStyle</a></li><li><a href="bemap.clusterStyle.html">clusterStyle</a></li><li><a href="bemap.Color.html">Color</a></li><li><a href="bemap.CondMaxSpeed.html">CondMaxSpeed</a></li><li><a href="bemap.Context.html">Context</a></li><li><a href="bemap.Coordinate.html">Coordinate</a></li><li><a href="bemap.CoordinateSat.html">CoordinateSat</a></li><li><a href="bemap.Destination.html">Destination</a></li><li><a href="bemap.Error.html">Error</a></li><li><a href="bemap.EvBrand.html">EvBrand</a></li><li><a href="bemap.EvReachableArea.html">EvReachableArea</a></li><li><a href="bemap.EvReachableAreaRequest.html">EvReachableAreaRequest</a></li><li><a href="bemap.EvReachableAreaResponse.html">EvReachableAreaResponse</a></li><li><a href="bemap.EvseRouting.html">EvseRouting</a></li><li><a href="bemap.EvSmartRouting.html">EvSmartRouting</a></li><li><a href="bemap.EvSmartRoutingRequest.html">EvSmartRoutingRequest</a></li><li><a href="bemap.EvSmartRoutingResponse.html">EvSmartRoutingResponse</a></li><li><a href="bemap.EvStepPoint.html">EvStepPoint</a></li><li><a href="bemap.EvVehicle.html">EvVehicle</a></li><li><a href="bemap.EvVehicles.html">EvVehicles</a></li><li><a href="bemap.Exception.html">Exception</a></li><li><a href="bemap.GeoAutocomplete.html">GeoAutocomplete</a></li><li><a href="bemap.Geocoder.html">Geocoder</a></li><li><a href="bemap.GeocodingItem.html">GeocodingItem</a></li><li><a href="bemap.GeocodingRequest.html">GeocodingRequest</a></li><li><a href="bemap.GeocodingResponse.html">GeocodingResponse</a></li><li><a href="bemap.GeoSearchInfo.html">GeoSearchInfo</a></li><li><a href="bemap.GeoServerInfoResponse.html">GeoServerInfoResponse</a></li><li><a href="bemap.GeoServerInfoService.html">GeoServerInfoService</a></li><li><a href="bemap.GeoServerServiceInfo.html">GeoServerServiceInfo</a></li><li><a href="bemap.GeoServerServiceLimit.html">GeoServerServiceLimit</a></li><li><a href="bemap.HeatmapLayer.html">HeatmapLayer</a></li><li><a href="bemap.Icon.html">Icon</a></li><li><a href="bemap.Isochrone.html">Isochrone</a></li><li><a href="bemap.Layer.html">Layer</a></li><li><a href="bemap.LeafletMap.html">LeafletMap</a></li><li><a href="bemap.LineStyle.html">LineStyle</a></li><li><a href="bemap.Listener.html">Listener</a></li><li><a href="bemap.Map.html">Map</a></li><li><a href="bemap.MapEvent.html">MapEvent</a></li><li><a href="bemap.MapLibreMap.html">MapLibreMap</a></li><li><a href="bemap.Marker.html">Marker</a></li><li><a href="bemap.MultiMarker.html">MultiMarker</a></li><li><a href="bemap.NearPoint.html">NearPoint</a></li><li><a href="bemap.NearPoiRequest.html">NearPoiRequest</a></li><li><a href="bemap.NearPoiResponse.html">NearPoiResponse</a></li><li><a href="bemap.NearPoiSearch.html">NearPoiSearch</a></li><li><a href="bemap.Object.html">Object</a></li><li><a href="bemap.Ol3Map.html">Ol3Map</a></li><li><a href="bemap.OlMap.html">OlMap</a></li><li><a href="bemap.OsmLayer.html">OsmLayer</a></li><li><a href="bemap.PMTilesLayer.html">PMTilesLayer</a></li><li><a href="bemap.PMTilesSliceSource.html">PMTilesSliceSource</a></li><li><a href="bemap.Polygon.html">Polygon</a></li><li><a href="bemap.PolygonStyle.html">PolygonStyle</a></li><li><a href="bemap.Polyline.html">Polyline</a></li><li><a href="bemap.Popup.html">Popup</a></li><li><a href="bemap.PostalAddress.html">PostalAddress</a></li><li><a href="bemap.RangeGate.html">RangeGate</a></li><li><a href="bemap.RasterLayer.html">RasterLayer</a></li><li><a href="bemap.RecoverablePromiseCache.html">RecoverablePromiseCache</a></li><li><a href="bemap.ReverseGeocoder.html">ReverseGeocoder</a></li><li><a href="bemap.ReverseGeocodingRequest.html">ReverseGeocodingRequest</a></li><li><a href="bemap.RevGeoSearchInfo.html">RevGeoSearchInfo</a></li><li><a href="bemap.RoadFeature.html">RoadFeature</a></li><li><a href="bemap.Route.html">Route</a></li><li><a href="bemap.Route.Event.html">Event</a></li><li><a href="bemap.Route.RoutesheetInstruction.html">RoutesheetInstruction</a></li><li><a href="bemap.Routing.html">Routing</a></li><li><a href="bemap.RoutingDestination.html">RoutingDestination</a></li><li><a href="bemap.RoutingInstruction.html">RoutingInstruction</a></li><li><a href="bemap.RoutingRequest.html">RoutingRequest</a></li><li><a href="bemap.RoutingResponse.html">RoutingResponse</a></li><li><a href="bemap.RoutingRoute.html">RoutingRoute</a></li><li><a href="bemap.RoutingSummary.html">RoutingSummary</a></li><li><a href="bemap.RoutingV2.html">RoutingV2</a></li><li><a href="bemap.RoutingVehicleProfile.html">RoutingVehicleProfile</a></li><li><a href="bemap.RoutingWaypoint.html">RoutingWaypoint</a></li><li><a href="bemap.Service.html">Service</a></li><li><a href="bemap.TextStyle.html">TextStyle</a></li><li><a href="bemap.TilesAuth.html">TilesAuth</a></li><li><a href="bemap.TilesOverlayCatalog.html">TilesOverlayCatalog</a></li><li><a href="global.html#bemap#.TraceRoute">TraceRoute</a></li><li><a href="bemap.TraceRouteDestination.html">TraceRouteDestination</a></li><li><a href="bemap.TraceRouteRequest.html">TraceRouteRequest</a></li><li><a href="bemap.VectorLayer.html">VectorLayer</a></li><li><a href="bemap.VectorTileLayer.html">VectorTileLayer</a></li><li><a href="bemap.WmsLayer.html">WmsLayer</a></li></ul><h3>Global</h3><ul><li><a href="global.html#_bemapAbortError">_bemapAbortError</a></li><li><a href="global.html#AC">AC</a></li><li><a href="global.html#AC_SINGLE_PHASE">AC_SINGLE_PHASE</a></li><li><a href="global.html#AC_THREE_PHASES">AC_THREE_PHASES</a></li><li><a href="global.html#bemap">bemap</a></li><li><a href="global.html#DC">DC</a></li><li><a href="global.html#NA">NA</a></li></ul>
 </nav>
 
 <br class="clear">
 
 <footer>
-    Documentation generated by <a href="https://github.com/jsdoc/jsdoc">JSDoc 3.6.3</a> on Thu Jul 09 2026 15:06:15 GMT+0200 (heure d’été d’Europe centrale)
+    Documentation generated by <a href="https://github.com/jsdoc/jsdoc">JSDoc 3.6.3</a> on Fri Jul 10 2026 14:21:29 GMT+0200 (heure d’été d’Europe centrale)
 </footer>
 
 <script> prettyPrint(); </script>

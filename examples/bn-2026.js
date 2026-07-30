@@ -1560,14 +1560,25 @@
     body.classList.add('bn-page');
     if (isEmbedded()) body.classList.add('bn-embedded');
 
-    // Reload the embedded example iframe whenever a RuntimeConfig field
-    // changes — same UX as the V1 dashboard. The iframe's window pulls a
-    // fresh bemapMainCtx with the new geoserver / CSP / tilesHost on next
-    // map construction.
+    // Reload whatever currently renders live maps whenever a RuntimeConfig
+    // field changes — same UX as the V1 dashboard:
+    //  - iframe examples: reload the iframe (its window pulls a fresh
+    //    bemapMainCtx with the new geoserver / CSP / tilesHost);
+    //  - markdown pages (#page-…, e.g. the MapLibre guide): their runnable
+    //    maps render INLINE — no iframe to reload — so re-render the page and
+    //    the snippets re-run against the new config immediately. Debounced so
+    //    a multi-field update (e.g. an env switch) re-renders only once.
     if (global.bemap && global.bemap.RuntimeConfig && typeof global.bemap.RuntimeConfig.onChange === 'function') {
       global.bemap.RuntimeConfig.onChange(function () {
         if (shellState.currentIframe) {
           try { shellState.currentIframe.src = shellState.currentIframe.src; } catch (e) {}
+        }
+        var mdFile = markdownFileForHash(global.location.hash);
+        if (mdFile) {
+          // Same code path as navigating to the page (dispose + re-render),
+          // so the embedded maps are rebuilt with the fresh bemapMainCtx.
+          scheduleMarkdownConfigRefresh(mdFile,
+            function () { return global.location.hash; }, navigateMarkdown);
         }
       });
     }
@@ -1702,6 +1713,30 @@
   }
 
   var embedWarned = false;
+  // Which markdown file (if any) does a location hash render inline?
+  // `#page-guide-maplibre.md` → 'guide-maplibre.md'; anything else → null.
+  // Pure + exposed as bn.shell.markdownFileForHash so the RuntimeConfig
+  // live-refresh routing is unit-testable without booting the shell.
+  function markdownFileForHash(hash) {
+    var h = String(hash || '').replace(/^#/, '');
+    return (h.indexOf('page-') === 0) ? h.substring('page-'.length) : null;
+  }
+
+  // Debounced re-render of the CURRENT inline markdown page after a
+  // RuntimeConfig change. The hash is RE-CHECKED at fire time, so a user who
+  // navigates away during the debounce window is never yanked back to the old
+  // page. Exposed as bn.shell._scheduleMarkdownConfigRefresh for unit tests
+  // (production passes navigateMarkdown as `render`).
+  var _mdRefreshTimer = null;
+  function scheduleMarkdownConfigRefresh(mdFile, getCurrentHash, render, delayMs) {
+    if (_mdRefreshTimer) clearTimeout(_mdRefreshTimer);
+    _mdRefreshTimer = setTimeout(function () {
+      _mdRefreshTimer = null;
+      if (markdownFileForHash(getCurrentHash()) !== mdFile) return;   // user navigated away
+      try { render(mdFile); } catch (e) { /* keep the page as-is */ }
+    }, (typeof delayMs === 'number') ? delayMs : 80);
+  }
+
   function handleHashChange() {
     var hash = (global.location.hash || '').replace(/^#/, '');
     syncSidebarActiveFromHash();
@@ -2013,7 +2048,7 @@
     el: el, $: $,
 
     // SPA shell
-    shell: { boot: bootShell, navigate: function (h) { global.location.hash = '#' + h; } },
+    shell: { boot: bootShell, navigate: function (h) { global.location.hash = '#' + h; }, markdownFileForHash: markdownFileForHash, _scheduleMarkdownConfigRefresh: scheduleMarkdownConfigRefresh },
     sidebar: { render: renderSidebar, setProviderCard: setProviderCard, applyGeoserverGate: applyGeoserverGate },
     codePanel: { setSource: setCodeSource, toggle: toggleCode, copy: copyCode },
     controlsBar: { render: renderControlsBar, reset: resetControlsBar },

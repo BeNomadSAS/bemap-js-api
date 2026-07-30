@@ -214,6 +214,7 @@ by the Angular CLI's `assets` config.
 | `401 Unauthorized` on tile requests | Bad credentials, or token expired and renewal failed | Check Network panel — `POST /api/login` should return 200. The library auto-renews 5 min before expiry. Manual reset: clear `sessionStorage` and reload. |
 | `403 Forbidden` on a specific tile | Your account is not authorised for this tileset | Contact your BeNomad account manager. The library surfaces this on `map.on('error', ...)` with `code: bemap.Error.FORBIDDEN`. |
 | Markers vanish when calling `removeLayer` | (Fixed in v2.0+) | Upgrade your bundle |
+| Map goes blank after BeNomad republishes a tileset (only a browser-cache clear helps) | The browser mixed month-old immutable slices of the OLD archive with fresh bytes | **Fixed in v2.0.1** — update your bundle. The library now version-tags archive URLs (`?v=`, auto-discovered from `/api/maps`) and self-heals mid-session via an ETag guard. Nothing to configure. Details: [`docs/browser-cache.md`](docs/browser-cache.md) |
 
 ---
 

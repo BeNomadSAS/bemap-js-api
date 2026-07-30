@@ -41,6 +41,17 @@
     preprod: { label: 'Preprod', host: 'bemap-preprod.benomad.com', tilesHost: 'mptiles-api-preprod.benomad.net' },
     prod:    { label: 'Prod',    host: 'bemap.benomad.com',         tilesHost: 'mptiles-api.benomad.net' }  // alias: bemap-prod.benomad.com
   };
+  // DEV — internal only. Offered in the Credentials env picker ONLY when the
+  // dashboard runs locally (npm start / start.bat); never on a deployed site
+  // (Pages, Tomcat, …). The picker + credential storage are fully data-driven
+  // off window.bemapEnvironments, so adding the key here is the whole feature.
+  // A stale `bemap-env`='dev' saved on a deployed origin is harmless: the
+  // resolver below only honours keys present in ENVIRONMENTS (falls back to beta).
+  var IS_LOCAL = (typeof location !== 'undefined') &&
+    (/^(localhost|127\.0\.0\.1|\[?::1\]?)$/.test(location.hostname) || location.protocol === 'file:');
+  if (IS_LOCAL) {
+    ENVIRONMENTS.dev = { label: 'Dev (local only)', host: 'bemap-dev.benomad.org', tilesHost: 'mptiles-api-dev.benomad.net' };
+  }
   var savedEnv = (function () {
     try { return (typeof localStorage !== 'undefined') ? localStorage.getItem(ENV_STORAGE_KEY) : null; }
     catch (e) { return null; }

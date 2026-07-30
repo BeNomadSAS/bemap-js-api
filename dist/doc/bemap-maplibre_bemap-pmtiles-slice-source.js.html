@@ -272,11 +272,26 @@ bemap.RangeGate.prototype.run = function (attemptFn, callerSignal) {
  * @param {String} url the archive URL (no `pmtiles://` prefix), e.g. `https://host/default`.
  * @param {Object} [options]
  * @param {bemap.RangeGate} [options.gate] resilience gate (defaults to the shared `bemap.PMTilesSliceSource.defaultGate`).
+ * @param {Boolean} [options.versioned=false] the archive URL already carries a `?v=` token (EVMOVE-457): its cache entry is already rebuild-distinct, so the offset-0 header read stays plain-immutable. An UNVERSIONED archive revalidates its header so a rebuild is still noticed on a Worker that ships no token.
  */
 bemap.PMTilesSliceSource = function (url, options) {
   this.url = url;
   var o = options || {};
   this._gate = o.gate || bemap.PMTilesSliceSource.defaultGate || null;
+  // EVMOVE-457: a versioned (?v=) archive URL is already rebuild-distinct, so its
+  // offset-0 header read stays plain-immutable; an UNVERSIONED archive revalidates
+  // the header each load so a rebuild is noticed even on a token-less Worker.
+  this.versioned = !!o.versioned;
+  // EVMOVE-457: sticky flag — flipped on a detected ETag mismatch (an archive
+  // rebuilt under the same name) so every subsequent read forces fresh bytes.
+  // NOT auto-reset (mirrors stock pmtiles): pmtiles' getZxy recovery runs ONE
+  // getZxyAttempt whose header→directory→tile reads must ALL stay on fresh bytes
+  // (its cache.invalidate() drops only the header key, so clearing mid-recovery
+  // would re-read stale directory/tile slices and permanently fail the tile). A
+  // rebuilt archive re-registers under a fresh ?v= URL on the next load, so a
+  // NEW source starts cacheable again — the reload only pins the OLD instance.
+  // A STABLE archive never mismatches, so caching is unchanged (retrocompatible).
+  this.mustReload = false;
 };
 
 /** pmtiles cache key — the archive URL, matching the Protocol's stripped `pmtiles://` key. @public */
@@ -290,17 +305,54 @@ bemap.PMTilesSliceSource.prototype.getKey = function () { return this.url; };
  * @param {Number} offset
  * @param {Number} length
  * @param {AbortSignal} [signal] pmtiles cancellation signal
+ * @param {String} [etag] the archive's expected ETag (from the pmtiles header);
+ *   two STRONG, DIFFERENT etags throw `pmtiles.EtagMismatch` so the reader
+ *   invalidates + re-reads fresh (EVMOVE-457). Weak/missing ⇒ no comparison.
  * @return {Promise&lt;{data:ArrayBuffer, etag:(String|undefined), cacheControl:(String|undefined), expires:(String|undefined)}>}
  */
-bemap.PMTilesSliceSource.prototype.getBytes = function (offset, length, signal /*, etag */) {
+bemap.PMTilesSliceSource.prototype.getBytes = function (offset, length, signal, etag) {
+  var self = this;
   var url = this.url;
   var sep = (url.indexOf('?') === -1) ? '?' : '&amp;';
   var sliceUrl = url + sep + 'r=' + offset + '-' + (offset + length - 1);
+  // A WEAK expected validator (W/"…") can't be compared byte-for-byte → treat
+  // as absent, exactly like stock pmtiles (avoids a false mismatch → reload loop).
+  var expected = etag || null;
+  if (expected &amp;&amp; expected.indexOf('W/') === 0) expected = null;
 
   function attempt(sig, headersReceived) {
-    // window.fetch → bemap.TilesAuth injects auth (credentials/header/token).
-    // No Range header → RangeFetchPolicy's no-store does NOT apply → 200 stays cacheable.
-    return fetch(sliceUrl, sig ? { signal: sig } : {}).then(function (res) {
+    // Cache mode, per attempt (a RangeGate retry / a mustReload flip is honoured).
+    // Precedence: a detected rebuild (mustReload) forces fresh bytes and OUTRANKS
+    // all; else an UNVERSIONED archive REVALIDATES its header (offset 0) so a
+    // rebuild-under-the-same-name is noticed even when the Worker ships no token;
+    // a versioned (?v=) archive — and every data slice at any offset — stays
+    // plain-immutable (byte-identical to earlier releases: served from HTTP cache).
+    var mode = null;
+    if (self.mustReload) mode = 'reload';
+    else if (offset === 0 &amp;&amp; !self.versioned) mode = 'no-cache';
+
+    function doFetch(m) {
+      // window.fetch → bemap.TilesAuth injects auth (credentials/header/token).
+      // No Range header → RangeFetchPolicy's no-store does NOT apply → 200 stays cacheable.
+      var init = sig ? { signal: sig } : {};
+      if (m) init.cache = m;
+      return fetch(sliceUrl, init);
+    }
+    // A 'no-cache' revalidation needs the network. If it FAILS for any reason
+    // OTHER than a genuine caller cancel (a gate TTFB timeout, offline, a blip),
+    // fall back to the browser's cached header so a stable archive still loads —
+    // preserving 2.0.0's immutable-header behaviour on slow / degraded networks.
+    // The force-cache retry uses a PLAIN fetch (no gate signal, which the TTFB
+    // timer may already have aborted); only a real pan/zoom cancel propagates.
+    // Only the tiny header slice ever revalidates; data slices stay immutable.
+    var p = doFetch(mode);
+    if (mode === 'no-cache') {
+      p = p.then(null, function (err) {
+        if (signal &amp;&amp; signal.aborted) throw err;             // genuine caller cancel → propagate
+        return fetch(sliceUrl, { cache: 'force-cache' });    // else serve the cached header
+      });
+    }
+    return p.then(function (res) {
       // Headers are in — tell the gate to protect the socket (smart abort):
       // from here the body always drains; only the generous body cap remains.
       if (typeof headersReceived === 'function') headersReceived();
@@ -321,9 +373,30 @@ bemap.PMTilesSliceSource.prototype.getBytes = function (offset, length, signal /
           e2.status = res.status;
           throw e2;
         }
+        // Normalise the response ETag — a weak validator counts as absent.
+        var respTag = res.headers.get('etag') || null;
+        if (respTag &amp;&amp; respTag.indexOf('W/') === 0) respTag = null;
+        // Two STRONG, DIFFERENT etags ⇒ the archive was rebuilt under the same
+        // name (EVMOVE-457): flip mustReload (sticky) and throw the REAL
+        // pmtiles.EtagMismatch so PMTiles.getZxy invalidates the header and
+        // re-reads fresh. No expected etag, or a missing/weak response etag ⇒
+        // cannot compare ⇒ never throw (no reload loop against an etag-less
+        // server). A guarded plain Error keeps this safe if pmtiles is absent.
+        if (expected &amp;&amp; respTag &amp;&amp; expected !== respTag) {
+          self.mustReload = true;
+          if (typeof pmtiles !== 'undefined' &amp;&amp; typeof pmtiles.EtagMismatch === 'function') {
+            throw new pmtiles.EtagMismatch('PMTilesSliceSource: etag changed (' + expected + ' → ' + respTag + ') for ' + sliceUrl);
+          }
+          var em = new Error('PMTilesSliceSource: etag changed (' + expected + ' → ' + respTag + ') for ' + sliceUrl);
+          em.name = 'EtagMismatch';
+          throw em;
+        }
         return {
           data: buf,
-          etag: res.headers.get('etag') || undefined,
+          // Return the weak-STRIPPED etag (stock parity): a weak header etag
+          // kept as the "expected" value would false-mismatch every strong
+          // slice etag forever.
+          etag: respTag || undefined,
           cacheControl: res.headers.get('cache-control') || undefined,
           expires: res.headers.get('expires') || undefined
         };
@@ -363,7 +436,7 @@ bemap.PMTilesSliceSource.defaultGate = new bemap.RangeGate({
 <br class="clear">
 
 <footer>
-    Documentation generated by <a href="https://github.com/jsdoc/jsdoc">JSDoc 3.6.3</a> on Fri Jul 10 2026 14:21:29 GMT+0200 (heure d’été d’Europe centrale)
+    Documentation generated by <a href="https://github.com/jsdoc/jsdoc">JSDoc 3.6.3</a> on Thu Jul 30 2026 10:59:57 GMT+0200 (heure d’été d’Europe centrale)
 </footer>
 
 <script> prettyPrint(); </script>

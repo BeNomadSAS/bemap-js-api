@@ -392,6 +392,43 @@ URL kill-switches (handy for demos/diagnostics): `?noslice` forces `range`,
 control, shows `getTilesConfig()` live, and measures cache-served % so you can see
 200-slice warm-cache hits vs range.
 
+## Archive versioning & stale-cache self-heal (v2.0.1)
+
+Tiles are read as byte slices of ONE PMTiles archive and cached by the browser
+as immutable 200s for up to 30 days. When BeNomad **rebuilds an archive under
+the same name**, every internal offset changes — a browser mixing month-old
+cached slices with fresh bytes would read garbage and render a **blank map**
+(the only escape used to be a manual cache clear). Since v2.0.1 the library
+handles this automatically, in three layers:
+
+1. **Version tokens (`?v=`).** After login the library asks the Worker
+   (`GET /api/maps`) for the current version token of your map and appends it
+   to the archive URL: `/osm?v=3f9a1c2d`. A rebuild changes the token → new
+   URL → the browser treats it as a brand-new file and every old cached slice
+   is ignored. Zero requests wasted: the versioned URL is fully immutable.
+   You can also pin one manually: `ctx.setTilesVersion('osm', '<token>')`
+   (read back with `ctx.getTilesVersion('osm')`; tokens are per map name, so
+   several maps sharing one Context stay independent).
+2. **Header revalidation (token-less Workers).** If the Worker doesn't serve
+   version tokens yet, the ~16 KB archive header is revalidated once per page
+   load (`cache:'no-cache'`, with an offline-safe fallback to the cached copy),
+   so a rebuild is still noticed at load time. **Data slices stay
+   immutable-cached — identical to before.**
+3. **Mid-session ETag guard.** Every slice's `ETag` is compared against the
+   archive header's. If an archive is swapped **while a tab is open** (fleet
+   dashboards run for whole shifts), the mismatch triggers pmtiles' recovery:
+   the header is re-read fresh and, from then on, that tab bypasses its
+   (now-poisoned) cached slices for this archive. The tab heals itself live —
+   no reload, no cache clear. Full caching resumes on the next page load via
+   the new `?v=` URL. *(Deliberate: the bypass stays on for the rest of that
+   tab's session — clearing it early risks a permanently broken tile, since
+   pmtiles retries a failed tile only once.)*
+
+Nothing to configure — all three layers are automatic and fully
+backward-compatible (no version token ⇒ URLs and caching identical to 2.0.0,
+plus the header revalidation). External archives you load yourself
+(`opts.tiles`, `loadPMTiles`, raw S3/R2 URLs) are **never** versioned.
+
 ## Recovering an uncontrolled worker (no reload)
 
 A Service Worker that installs on the very first visit activates **after**

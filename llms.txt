@@ -93,7 +93,8 @@ uniform API. Same code, three engines.
 ### Classes
 
 - `bemap.Context({ host, secure, login, password, authInPost, geoserver?, tilesHost?, tilesFile?, tilesStyle?, glyphsUrl? })`
-  - `tilesHost` must be paired with `host` per env (beta/preprod/prod). MapLibre map = which PMTiles map: `tilesFile → geoserver → 'default'` (server-resolved); `glyphsUrl` overrides the font host (default: no bundled fonts — the tiny fallback is font-free; server styles fetch glyphs from the Worker).
+  - `tilesHost` must be paired with `host` per env (beta/preprod/prod). MapLibre map = which PMTiles map: `tilesFile → geoserver → 'default'` (server-resolved); a geoserver-INHERITED name absent from the Worker's `/api/maps` catalog (e.g. WMS-only `herehlp`) falls back to `'default'` — an explicit `tilesFile` pin never falls back (its 403 surfaces as a config signal). `glyphsUrl` overrides the font host (default: no bundled fonts — the tiny fallback is font-free; server styles fetch glyphs from the Worker).
+  - Archive versioning (v2.0.1): `.getTilesVersion(name?)` / `.setTilesVersion(name, token)` — per-map version tokens, auto-discovered from the Worker's `/api/maps` after login; `getTilesFileUrl()` then appends `?v=<token>` so a rebuilt archive busts the browser cache. Never set on raw external archive URLs.
 - `bemap.LeafletMap(ctx, target, options?)` — Leaflet engine
 - `bemap.Ol3Map(ctx, target, options?)` / `bemap.OlMap` — OpenLayers v10 engine
 - `bemap.MapLibreMap(ctx, target, options?)` — MapLibre v5 engine (BeNomad Tiles)
@@ -149,7 +150,10 @@ uniform API. Same code, three engines.
   `.animateLine(...)`, `.animateCameraOrbit(...)`, `.animatePulse(...)`
 - Cache (MapLibre + tilesHost): `.enableBrowserCache()`,
   `.disableBrowserCache()`, `.getBrowserCacheStats()`,
-  `.clearBrowserCache()`, `map.on('cache:stats', cb)`
+  `.clearBrowserCache()`, `map.on('cache:stats', cb)`.
+  Rebuilt-archive staleness is self-healed automatically (v2.0.1): per-map
+  `?v=` version tokens + an ETag guard — see docs/browser-cache.md
+  ("Archive versioning & stale-cache self-heal"). Nothing to configure.
 - Auth introspection (MapLibre + tilesHost): `.getToken()`,
   `.isTokenValid()`, `.refreshToken()`
 - Escape hatch: `.native` — the underlying engine instance
@@ -287,7 +291,7 @@ All are constructed as `new bemap.<Class>(ctx)`.
 
 ## Versioning
 
-- Latest: **v2.0.0** (see [CHANGELOG.md](CHANGELOG.md)).
+- Latest: **v2.0.1** (see [CHANGELOG.md](CHANGELOG.md)).
 - BeNomad Tiles features (`MapLibreMap`, SW cache, JWT auth) require v2.
 - v1 consumers (BFleet, EVMove5, zone-optimizer, BeMap-Doc) keep
   working on v2 unchanged — the full suite (2,287 specs, including the

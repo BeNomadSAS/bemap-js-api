@@ -50,10 +50,7 @@
 
 
 <div class="description">
-    Optional resilience gate for tile reads: concurrency cap + per-attempt TTFB
-timeout with smart-abort semantics + retries with backoff. When inactive
-(`setActive(false)` or `?nogate`) it is a pure pass-through (raw fetch).
-Read live per request, so toggling takes effect without a reload.
+    Optional resilience gate for tile reads: concurrency cap + per-attempt TTFBtimeout with smart-abort semantics + retries with backoff. When inactive(`setActive(false)` or `?nogate`) it is a pure pass-through (raw fetch).Read live per request, so toggling takes effect without a reload.
 </div>
 
 
@@ -218,10 +215,7 @@ Read live per request, so toggling takes effect without a reload.
                 </td>
             
 
-            <td class="description last">Per-attempt TTFB (pre-header) timeout (0 = none).
-  Must stay ABOVE the Worker's ~3000 ms tile deadline so its 504 is received
-  (and retried) instead of the socket being aborted just before it lands.
-  Once headers arrive this timer is disarmed — see `bodyTimeoutMs`.</td>
+            <td class="description last">Per-attempt TTFB (pre-header) timeout (0 = none).  Must stay ABOVE the Worker's ~3000 ms tile deadline so its 504 is received  (and retried) instead of the socket being aborted just before it lands.  Once headers arrive this timer is disarmed — see `bodyTimeoutMs`.</td>
         </tr>
 
     
@@ -260,10 +254,7 @@ Read live per request, so toggling takes effect without a reload.
                 </td>
             
 
-            <td class="description last">Post-header BODY safety cap (0 = none).
-  Generous ON PURPOSE: physically aborting a streaming tile body poisons the
-  browser's shared H2/H3 connection; tile bodies are small and normally finish
-  in well under a second — this cap only guards a truly dead socket.</td>
+            <td class="description last">Post-header BODY safety cap (0 = none).  Generous ON PURPOSE: physically aborting a streaming tile body poisons the  browser's shared H2/H3 connection; tile bodies are small and normally finish  in well under a second — this cap only guards a truly dead socket.</td>
         </tr>
 
     
@@ -302,10 +293,7 @@ Read live per request, so toggling takes effect without a reload.
                 </td>
             
 
-            <td class="description last">Retries on a transient failure
-  (429/5xx/timeout/network); never on a caller cancel. 1 → 3 (2026-07 fix):
-  a single retry left ~1 in 25 tiles permanently grey under pan bursts;
-  three retries bring the residual to ~0.1 %.</td>
+            <td class="description last">Retries on a transient failure  (429/5xx/timeout/network); never on a caller cancel. 1 → 3 (2026-07 fix):  a single retry left ~1 in 25 tiles permanently grey under pan bursts;  three retries bring the residual to ~0.1 %.</td>
         </tr>
 
     
@@ -344,9 +332,7 @@ Read live per request, so toggling takes effect without a reload.
                 </td>
             
 
-            <td class="description last">Backoff (ms) before
-  retries #1/#2/#3… (the last entry repeats) — gives a strained connection
-  time to heal before the re-attempt.</td>
+            <td class="description last">Backoff (ms) before  retries #1/#2/#3… (the last entry repeats) — gives a strained connection  time to heal before the re-attempt.</td>
         </tr>
 
     
@@ -584,23 +570,7 @@ Read live per request, so toggling takes effect without a reload.
 
 
 <div class="description">
-    Run one tile-read attempt through the gate. `attemptFn(signal, headersReceived)`
-must perform the whole read (fetch + body) and resolve/reject.
-
-SMART ABORT: `signal` is the gate's PRIVATE per-attempt `AbortController`
-signal — the TTFB timer and a caller (pan/zoom) cancel abort it ONLY until
-the attempt calls `headersReceived()` (do so the moment the response headers
-are in). From that point the socket is protected: the body drains to
-completion under the generous `bodyTimeoutMs` safety cap, and a caller
-cancel is honoured LOGICALLY once the attempt settles (reject `AbortError`,
-discard the result — bytes already warmed the browser cache). An `attemptFn`
-that never calls `headersReceived` keeps the legacy whole-attempt timeout.
-
-Retries (up to `maxRetries`, spaced by `retryBackoffMs`) apply to transient
-failures only — 429/5xx, a network `TypeError`, a timeout `AbortError` —
-and NEVER to a caller cancel. Each attempt takes its own concurrency slot
-(a retry re-queues at the back instead of squatting a permit across its
-backoff sleep).
+    Run one tile-read attempt through the gate. `attemptFn(signal, headersReceived)`must perform the whole read (fetch + body) and resolve/reject.SMART ABORT: `signal` is the gate's PRIVATE per-attempt `AbortController`signal — the TTFB timer and a caller (pan/zoom) cancel abort it ONLY untilthe attempt calls `headersReceived()` (do so the moment the response headersare in). From that point the socket is protected: the body drains tocompletion under the generous `bodyTimeoutMs` safety cap, and a callercancel is honoured LOGICALLY once the attempt settles (reject `AbortError`,discard the result — bytes already warmed the browser cache). An `attemptFn`that never calls `headersReceived` keeps the legacy whole-attempt timeout.Retries (up to `maxRetries`, spaced by `retryBackoffMs`) apply to transientfailures only — 429/5xx, a network `TypeError`, a timeout `AbortError` —and NEVER to a caller cancel. Each attempt takes its own concurrency slot(a retry re-queues at the back instead of squatting a permit across itsbackoff sleep).
 </div>
 
 
@@ -982,7 +952,7 @@ backoff sleep).
 <br class="clear">
 
 <footer>
-    Documentation generated by <a href="https://github.com/jsdoc/jsdoc">JSDoc 3.6.3</a> on Fri Jul 10 2026 14:21:30 GMT+0200 (heure d’été d’Europe centrale)
+    Documentation generated by <a href="https://github.com/jsdoc/jsdoc">JSDoc 3.6.3</a> on Thu Jul 30 2026 10:59:58 GMT+0200 (heure d’été d’Europe centrale)
 </footer>
 
 <script> prettyPrint(); </script>

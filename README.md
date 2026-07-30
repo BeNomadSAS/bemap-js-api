@@ -7,7 +7,7 @@
 ### 🌐 **[▶ Open the live demo →](https://benomadsas.github.io/bemap-js-api/)**
 
 [![live demo](https://img.shields.io/badge/▶_live_demo-online-2ea44f?style=flat-square)](https://benomadsas.github.io/bemap-js-api/)
-![version](https://img.shields.io/badge/version-2.0.0-2ea44f?style=flat-square)
+![version](https://img.shields.io/badge/version-2.0.1-2ea44f?style=flat-square)
 ![engines](https://img.shields.io/badge/engines-MapLibre%20GL%20·%20Leaflet%20·%20OpenLayers-1f6feb?style=flat-square)
 ![tiles](https://img.shields.io/badge/BeNomad%20Tiles-PMTiles%20vector-8957e5?style=flat-square)
 ![license](https://img.shields.io/badge/license-Commercial-f0883e?style=flat-square)
@@ -89,7 +89,7 @@ The **same code runs on all three engines** — switch the constructor, switch t
 - 🧭 **Routing** — multi-stop, alternatives, route sheets, trace-route
 - 🔌 **EV** — smart routing, charging stations, reachable area, charging-time, vehicle catalogue
 - 🔎 **Geocoding** — forward, reverse, address autocomplete, isochrones / reachable zones
-- ⚡ **BeNomad Tiles** — JWT-secured PMTiles with configurable auth (cookie / header / query); 200-slice reads the browser HTTP-caches natively (Service Worker optional, only for classic 206-range); self-healing cache + timeout/retry gate
+- ⚡ **BeNomad Tiles** — JWT-secured PMTiles with configurable auth (cookie / header / query); 200-slice reads the browser HTTP-caches natively (Service Worker optional, only for classic 206-range); self-healing cache + timeout/retry gate; survives tileset rebuilds automatically (per-map `?v=` version tokens + ETag guard — no blank maps, no cache clears)
 - 🧱 **One API, three engines** — same `Context`, same calls, just change the map class
 
 ---

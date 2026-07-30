@@ -50,8 +50,7 @@
 
 
 <div class="description">
-    A pmtiles `Source` that reads the archive via **200-slice** (`?r=start-end`)
-so responses are browser-HTTP-cacheable 200s (not 206 partials).
+    A pmtiles `Source` that reads the archive via **200-slice** (`?r=start-end`)so responses are browser-HTTP-cacheable 200s (not 206 partials).
 </div>
 
 
@@ -164,6 +163,8 @@ so responses are browser-HTTP-cacheable 200s (not 206 partials).
         
 
         
+        <th>Default</th>
+        
 
         <th class="last">Description</th>
     </tr>
@@ -199,8 +200,51 @@ so responses are browser-HTTP-cacheable 200s (not 206 partials).
             
 
             
+                <td class="default">
+                
+                </td>
+            
 
             <td class="description last">resilience gate (defaults to the shared `bemap.PMTilesSliceSource.defaultGate`).</td>
+        </tr>
+
+    
+
+        <tr>
+            
+                <td class="name"><code>versioned</code></td>
+            
+
+            <td class="type">
+            
+                
+<span class="param-type">Boolean</span>
+
+
+            
+            </td>
+
+            
+                <td class="attributes">
+                
+                    &lt;optional><br>
+                
+
+                
+
+                
+                </td>
+            
+
+            
+                <td class="default">
+                
+                    false
+                
+                </td>
+            
+
+            <td class="description last">the archive URL already carries a `?v=` token (EVMOVE-457): its cache entry is already rebuild-distinct, so the offset-0 header read stays plain-immutable. An UNVERSIONED archive revalidates its header so a rebuild is still noticed on a Worker that ships no token.</td>
         </tr>
 
     
@@ -251,7 +295,7 @@ so responses are browser-HTTP-cacheable 200s (not 206 partials).
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-maplibre_bemap-pmtiles-slice-source.js.html">bemap-maplibre/bemap-pmtiles-slice-source.js</a>, <a href="bemap-maplibre_bemap-pmtiles-slice-source.js.html#line248">line 248</a>
+        <a href="bemap-maplibre_bemap-pmtiles-slice-source.js.html">bemap-maplibre/bemap-pmtiles-slice-source.js</a>, <a href="bemap-maplibre_bemap-pmtiles-slice-source.js.html#line249">line 249</a>
     </li></ul></dd>
     
 
@@ -307,10 +351,7 @@ so responses are browser-HTTP-cacheable 200s (not 206 partials).
 
 
 <div class="description">
-    Shared default gate for slice sources — timeout+retry ON, concurrency cap OFF
-(the tile origin is fast, so uncapped is smoother; the cap is an opt-in
-tradeoff). `bemap.MapLibreMap` tunes it from `opts.tilesSlice*`. Honors a
-`?nogate` URL kill-switch.
+    Shared default gate for slice sources — timeout+retry ON, concurrency cap OFF(the tile origin is fast, so uncapped is smoother; the cap is an opt-intradeoff). `bemap.MapLibreMap` tunes it from `opts.tilesSlice*`. Honors a`?nogate` URL kill-switch.
 </div>
 
 
@@ -351,7 +392,7 @@ tradeoff). `bemap.MapLibreMap` tunes it from `opts.tilesSlice*`. Honors a
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-maplibre_bemap-pmtiles-slice-source.js.html">bemap-maplibre/bemap-pmtiles-slice-source.js</a>, <a href="bemap-maplibre_bemap-pmtiles-slice-source.js.html#line319">line 319</a>
+        <a href="bemap-maplibre_bemap-pmtiles-slice-source.js.html">bemap-maplibre/bemap-pmtiles-slice-source.js</a>, <a href="bemap-maplibre_bemap-pmtiles-slice-source.js.html#line392">line 392</a>
     </li></ul></dd>
     
 
@@ -379,7 +420,7 @@ tradeoff). `bemap.MapLibreMap` tunes it from `opts.tilesSlice*`. Honors a
     
 
     
-    <h4 class="name" id="getBytes"><span class="type-signature"></span>getBytes<span class="signature">(offset, length, signal<span class="signature-attributes">opt</span>)</span><span class="type-signature"> &rarr; {Promise.&lt;{data:ArrayBuffer, etag: (String|undefined), cacheControl: (String|undefined), expires: (String|undefined)}>}</span></h4>
+    <h4 class="name" id="getBytes"><span class="type-signature"></span>getBytes<span class="signature">(offset, length, signal<span class="signature-attributes">opt</span>, etag<span class="signature-attributes">opt</span>)</span><span class="type-signature"> &rarr; {Promise.&lt;{data:ArrayBuffer, etag: (String|undefined), cacheControl: (String|undefined), expires: (String|undefined)}>}</span></h4>
     
 
     
@@ -387,9 +428,7 @@ tradeoff). `bemap.MapLibreMap` tunes it from `opts.tilesSlice*`. Honors a
 
 
 <div class="description">
-    Read `[offset, offset+length)` as a 200-slice. Builds `?r=<offset>-<offset+length-1>`
-(inclusive), sends NO `Range` header, validates the response is 2xx with the
-exact byte length, and returns the pmtiles `RangeResponse` shape.
+    Read `[offset, offset+length)` as a 200-slice. Builds `?r=<offset>-<offset+length-1>`(inclusive), sends NO `Range` header, validates the response is 2xx with theexact byte length, and returns the pmtiles `RangeResponse` shape.
 </div>
 
 
@@ -519,6 +558,39 @@ exact byte length, and returns the pmtiles `RangeResponse` shape.
         </tr>
 
     
+
+        <tr>
+            
+                <td class="name"><code>etag</code></td>
+            
+
+            <td class="type">
+            
+                
+<span class="param-type">String</span>
+
+
+            
+            </td>
+
+            
+                <td class="attributes">
+                
+                    &lt;optional><br>
+                
+
+                
+
+                
+                </td>
+            
+
+            
+
+            <td class="description last">the archive's expected ETag (from the pmtiles header);  two STRONG, DIFFERENT etags throw `pmtiles.EtagMismatch` so the reader  invalidates + re-reads fresh (EVMOVE-457). Weak/missing ⇒ no comparison.</td>
+        </tr>
+
+    
     </tbody>
 </table>
 
@@ -556,7 +628,7 @@ exact byte length, and returns the pmtiles `RangeResponse` shape.
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-maplibre_bemap-pmtiles-slice-source.js.html">bemap-maplibre/bemap-pmtiles-slice-source.js</a>, <a href="bemap-maplibre_bemap-pmtiles-slice-source.js.html#line267">line 267</a>
+        <a href="bemap-maplibre_bemap-pmtiles-slice-source.js.html">bemap-maplibre/bemap-pmtiles-slice-source.js</a>, <a href="bemap-maplibre_bemap-pmtiles-slice-source.js.html#line285">line 285</a>
     </li></ul></dd>
     
 
@@ -662,7 +734,7 @@ exact byte length, and returns the pmtiles `RangeResponse` shape.
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-maplibre_bemap-pmtiles-slice-source.js.html">bemap-maplibre/bemap-pmtiles-slice-source.js</a>, <a href="bemap-maplibre_bemap-pmtiles-slice-source.js.html#line255">line 255</a>
+        <a href="bemap-maplibre_bemap-pmtiles-slice-source.js.html">bemap-maplibre/bemap-pmtiles-slice-source.js</a>, <a href="bemap-maplibre_bemap-pmtiles-slice-source.js.html#line270">line 270</a>
     </li></ul></dd>
     
 
@@ -714,7 +786,7 @@ exact byte length, and returns the pmtiles `RangeResponse` shape.
 <br class="clear">
 
 <footer>
-    Documentation generated by <a href="https://github.com/jsdoc/jsdoc">JSDoc 3.6.3</a> on Fri Jul 10 2026 14:21:30 GMT+0200 (heure d’été d’Europe centrale)
+    Documentation generated by <a href="https://github.com/jsdoc/jsdoc">JSDoc 3.6.3</a> on Thu Jul 30 2026 10:59:58 GMT+0200 (heure d’été d’Europe centrale)
 </footer>
 
 <script> prettyPrint(); </script>

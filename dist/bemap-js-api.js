@@ -5,7 +5,7 @@
 
 var bemap = bemap || {};
 
-bemap.version = '2.0.0';
+bemap.version = '2.0.1';
 bemap.olVersion = '10.8.0';
 bemap.maplibreVersion = '5.21.0';
 
@@ -367,6 +367,19 @@ bemap.Context = function (options) {
   this.tilesFile = opts.tilesFile || 'default';
 
   /**
+   * BeNomad-Tiles archive version tokens, keyed by resolved map name
+   * (EVMOVE-457). Populated at runtime from the Worker's `/api/maps`
+   * (`aliasVersions`/`versions`). When a token is present, `getTilesFileUrl()`
+   * appends `?v=<token>` so a rebuilt-under-the-same-name archive becomes a new
+   * URL and the browser fetches fresh bytes instead of stale cached slices.
+   * Empty by default → URLs are byte-identical to earlier releases.
+   * @public
+   * @since 2.0.1
+   * @type {Object.<string,string>}
+   */
+  this.tilesVersions = {};
+
+  /**
    * Optional override for the MapLibre glyphs (font) URL template, e.g.
    * `'https://my-host/fonts/{fontstack}/{range}.pbf'`. When set it wins over
    * every style's own `glyphs`. Leave unset and the library bundles no fonts:
@@ -675,7 +688,14 @@ bemap.Context.prototype.getTilesFileUrl = function (file) {
   // and the 'default' alias server-side (via _config/maps.json), so the client
   // never pins a map version. Map names are bare (no `.pmtiles`).
   var f = file || this.resolveTilesFile();
-  return base + '/' + f.replace(/^\//, '');
+  var name = f.replace(/^\//, '');
+  var url = base + '/' + name;
+  // EVMOVE-457: when a version token is known for this map, append `?v=<token>`
+  // so a rebuilt archive is a distinct URL (fresh bytes) instead of stale
+  // immutable cache. No token → identical URL to earlier releases.
+  var token = this.getTilesVersion(name);
+  if (token) url += (url.indexOf('?') === -1 ? '?' : '&') + 'v=' + encodeURIComponent(token);
+  return url;
 };
 
 /**
@@ -700,6 +720,37 @@ bemap.Context.prototype.resolveTilesFile = function (explicit) {
   if (this.tilesFile && this.tilesFile !== 'default') return this.tilesFile;
   if (this.geoserver) return this.geoserver;
   return 'default';
+};
+
+/**
+ * Version token currently known for a BeNomad-Tiles map (EVMOVE-457), or null.
+ * @public
+ * @since 2.0.1
+ * @param {String} [name] Resolved map name; defaults to `resolveTilesFile()`.
+ * @return {String|null}
+ */
+bemap.Context.prototype.getTilesVersion = function (name) {
+  if (!this.tilesVersions) return null;
+  var key = String(name || this.resolveTilesFile()).replace(/^\/+/, '');
+  return this.tilesVersions[key] || null;
+};
+
+/**
+ * Record (or clear) the version token for a BeNomad-Tiles map (EVMOVE-457).
+ * A non-empty string sets it; anything else clears it. Keyed by resolved map
+ * name, so several maps sharing one Context can each carry their own version.
+ * @public
+ * @since 2.0.1
+ * @param {String} name Resolved map name.
+ * @param {String} [token] Opaque version token from `/api/maps`.
+ * @return {bemap.Context}
+ */
+bemap.Context.prototype.setTilesVersion = function (name, token) {
+  if (!this.tilesVersions) this.tilesVersions = {};
+  var key = String(name || this.resolveTilesFile()).replace(/^\/+/, '');
+  if (typeof token === 'string' && token) this.tilesVersions[key] = token;
+  else delete this.tilesVersions[key];
+  return this;
 };
 
 /**
@@ -5698,14 +5749,30 @@ bemap.MapLibreMap = function(context, target, options) {
     // fonts. ctx.glyphsUrl (if set) is still applied by resolvePlaceholders;
     // server styles bring their own (Worker) fonts when they swap in.
     style = JSON.parse(JSON.stringify(bemap.fallbackStyle));
-    var _tilesFile = context.resolveTilesFile(opts.tilesFile);
-    bemap.TilesStyle.resolvePlaceholders(style, context, _tilesFile);
+    // Resolve this map's tiles name ONCE and store it on the instance — the
+    // SINGLE source of truth reused by version discovery, archive registration,
+    // and every setStyle, so their URLs (and the ?v= token) can never diverge
+    // and silently drop the slice source (EVMOVE-457 key-identity).
+    this._tilesFile = context.resolveTilesFile(opts.tilesFile);
+    // Remember HOW the name was chosen (same "'default' = not chosen" rule as
+    // resolveTilesFile): an EXPLICIT pin (opts.tilesFile / ctx.tilesFile) must
+    // keep surfacing its own 403/404 — a misspelled or unauthorised tileset is
+    // a configuration signal. Only a name merely INHERITED from ctx.geoserver
+    // may auto-fall back to 'default' when the Worker catalog doesn't know it.
+    this._tilesFileExplicit = !!((opts.tilesFile && opts.tilesFile !== 'default') ||
+      (context.tilesFile && context.tilesFile !== 'default'));
+    bemap.TilesStyle.resolvePlaceholders(style, context, this._tilesFile);
     // Wire the self-healing cache for the BeNomad-Tiles archive. The URL is the
     // SAME derivation resolvePlaceholders uses for the source (`pmtiles://` +
     // getTilesFileUrl), so the Protocol will use this cache; a mismatch is a
     // harmless no-op (Protocol auto-creates its default cache, as today).
     if (context.getTilesFileUrl) {
-      bemap.MapLibreMap._addTilesArchive(context.getTilesFileUrl(_tilesFile));
+      // If the app pre-set a version token on the Context (before constructing
+      // the map), the url already carries ?v= — register the source as versioned
+      // so its header read stays immutable (same rule as setStyle / re-register).
+      var _preVersioned = !!(typeof context.getTilesVersion === 'function' && context.getTilesVersion(this._tilesFile));
+      bemap.MapLibreMap._addTilesArchive(
+        context.getTilesFileUrl(this._tilesFile), bemap.MapLibreMap._tilesSliceMode, _preVersioned);
     }
     if (typeof bemap.TilesStyle.hardenSymbolCollisions === 'function') {
       bemap.TilesStyle.hardenSymbolCollisions(style);
@@ -5798,10 +5865,37 @@ bemap.MapLibreMap = function(context, target, options) {
   // init, after the native map exists so setStyle() has a target to swap into.
   // _refreshDefaultStyleFromServer() waits for login; setStyle(name) resolves it
   // to /styles/<name>. The tiny fallback already painted, so no first-paint cost.
-  if (this._refreshDefaultOnInit) {
-    this._refreshDefaultStyleFromServer();
-  } else if (this._pendingStyleName) {
-    this.setStyle(this._pendingStyleName);
+  // EVMOVE-457: before the real style is applied, best-effort resolve this map's
+  // archive version token (from /api/maps, after login) and re-register the
+  // archive under its VERSIONED url — so the versioned style url matches the
+  // registered slice source (else pmtiles silently drops PMTilesSliceSource +
+  // the recoverable cache). Never blocks first paint (the fallback already
+  // painted) and never hangs (timeout + always-resolve); on any failure the
+  // UNVERSIONED style applies exactly as before. This is the ONLY site that
+  // consumes _refreshDefaultOnInit / _pendingStyleName, so both are gated here.
+  // (_self is declared once near the top of the constructor.)
+  function _applyInitStyle() {
+    if (_self._refreshDefaultOnInit) _self._refreshDefaultStyleFromServer();
+    else if (_self._pendingStyleName && !_self._userSetStyle) _self.setStyle(_self._pendingStyleName);
+  }
+  if ((this._refreshDefaultOnInit || this._pendingStyleName) && typeof this._discoverTilesVersion === 'function') {
+    this._versionReady = this._discoverTilesVersion();
+    this._versionReady.then(function () {
+      if (_self.ctx && typeof _self.ctx.getTilesFileUrl === 'function'
+          && typeof _self.ctx.getTilesVersion === 'function'
+          && _self.ctx.getTilesVersion(_self._tilesFile)) {
+        // Re-register the archive under its now-versioned url so the versioned
+        // style url has a matching slice source (else pmtiles auto-creates a
+        // stock Range source). Idempotent per url (a new ?v= url is a new entry).
+        // versioned:true → the offset-0 header read on this source stays immutable
+        // (the ?v= token already makes the cache entry rebuild-distinct).
+        bemap.MapLibreMap._addTilesArchive(
+          _self.ctx.getTilesFileUrl(_self._tilesFile), bemap.MapLibreMap._tilesSliceMode, true);
+      }
+      _applyInitStyle();
+    });
+  } else {
+    _applyInitStyle();
   }
 
   // Reload tiles on resize. MapLibre v5 already observes the container and
@@ -6858,7 +6952,7 @@ bemap.MapLibreMap._applyTilesSliceOpts = function (opts) {
  *   the always-safe Range path unless the caller explicitly opts into `'200'`.
  * @return {Boolean} true if a custom source/cache was wired for this URL.
  */
-bemap.MapLibreMap._addTilesArchive = function (archiveUrl, forceMode) {
+bemap.MapLibreMap._addTilesArchive = function (archiveUrl, forceMode, versioned) {
   if (!archiveUrl) return false;
   if (typeof pmtiles === 'undefined' || typeof pmtiles.PMTiles !== 'function') return false;
   var proto = bemap.MapLibreMap._pmtilesProtocol;
@@ -6882,7 +6976,7 @@ bemap.MapLibreMap._addTilesArchive = function (archiveUrl, forceMode) {
   // auto-create for that URL (today's behaviour), keeping the guard effective.
   bemap.MapLibreMap._tilesArchives[archiveUrl] = true;
   try {
-    var source = useSlice ? new bemap.PMTilesSliceSource(archiveUrl) : archiveUrl;
+    var source = useSlice ? new bemap.PMTilesSliceSource(archiveUrl, { versioned: !!versioned }) : archiveUrl;
     proto.add(new pmtiles.PMTiles(source, cache));   // cache undefined → pmtiles default
     return true;
   } catch (e) {
@@ -7686,6 +7780,92 @@ bemap.MapLibreMap.prototype._refreshDefaultStyleFromServer = function() {
 };
 
 /**
+ * EVMOVE-457 — best-effort resolve THIS map's BeNomad-Tiles version token from
+ * the Worker's `/api/maps` (after login) and record it on the Context, so
+ * `getTilesFileUrl()` starts emitting `?v=<token>`. Strictly best-effort: it
+ * ALWAYS resolves (never rejects, never hangs) — a short timeout races the fetch
+ * so a slow/stalled `/api/maps` can never block the real style swap. Any failure
+ * (old Worker with no version fields, offline, 4xx, bad JSON) leaves the map
+ * unversioned, i.e. exactly today's behaviour.
+ * @private
+ * @return {Promise}
+ */
+bemap.MapLibreMap.prototype._discoverTilesVersion = function() {
+  var self = this;
+  var name = this._tilesFile;
+  var url = this.ctx && typeof this.ctx.getTilesMapsUrl === 'function' && this.ctx.getTilesMapsUrl();
+  if (!url || typeof fetch !== 'function' || !name
+      || typeof this._fetchTilesApi !== 'function'
+      || !(this.ctx && typeof this.ctx.setTilesVersion === 'function')) {
+    return Promise.resolve();
+  }
+  // Best-effort, and MUST always resolve (so the style swap is never blocked).
+  // TWO capped phases so slow authentication doesn't eat the /api/maps budget
+  // AND a hung login/fetch can't block forever:
+  //   1. wait for login (whenTokenReady) — capped, so a hung login still proceeds;
+  //   2. GET /api/maps — its OWN ~3.5s budget, starting AFTER login is ready.
+  // `settled` gates the write: a result arriving after either cap is ignored, so
+  // a late /api/maps can never desync getTilesFileUrl from the already-applied
+  // (unversioned) style.
+  var settled = false;
+  var auth = this._tilesAuth;
+  var ready = (auth && typeof auth.whenTokenReady === 'function') ? auth.whenTokenReady() : Promise.resolve();
+  var loginCap = new Promise(function(res) { setTimeout(res, 4000); });
+  return Promise.race([ready.then(null, function() {}), loginCap]).then(function() {
+    if (settled) return;
+    // Case-insensitive lookup — the Worker matches aliases case-insensitively,
+    // so validation and token lookup must too (an exact hit is tried first).
+    function ciGet(obj, key) {
+      if (!obj || typeof obj !== 'object') return undefined;
+      if (Object.prototype.hasOwnProperty.call(obj, key)) return obj[key];
+      var lk = String(key).toLowerCase();
+      for (var k in obj) {
+        if (Object.prototype.hasOwnProperty.call(obj, k) && k.toLowerCase() === lk) return obj[k];
+      }
+      return undefined;
+    }
+    var discovery = self._fetchTilesApi(url, 'discoverTilesVersion').then(function(cfg) {
+      if (settled) return;
+      // A geoserver name is not necessarily a PMTiles map — e.g. 'herehlp' is
+      // WMS-only, yet resolveTilesFile() (tilesFile → geoserver → 'default')
+      // faithfully asks the Worker for it and gets a guaranteed 403. When the
+      // name was merely INHERITED from ctx.geoserver (never for an explicit
+      // opts.tilesFile / ctx.tilesFile pin — those must keep surfacing their
+      // own 403) and the Worker's catalog says it does NOT exist, fall back to
+      // the server-resolved 'default' map so the background keeps rendering
+      // (the geoserver setting still applies to WMS + services). Old Workers
+      // without a catalog are left untouched (no false fallback).
+      var aliases  = cfg && cfg.aliases;
+      var tilesets = cfg && cfg.tilesets;
+      if (name !== 'default' && !self._tilesFileExplicit &&
+          ((aliases && typeof aliases === 'object') || (tilesets && tilesets.length))) {
+        var known = (ciGet(aliases, name) !== undefined) ||
+          (ciGet(cfg.aliasVersions, name) !== undefined) ||
+          (ciGet(cfg.versions, name) !== undefined);
+        if (!known && tilesets && tilesets.length) {
+          var lname = String(name).toLowerCase();
+          for (var i = 0; i < tilesets.length; i++) {
+            var t = String(tilesets[i]).toLowerCase();
+            if (t === lname || t === lname + '.pmtiles') { known = true; break; }
+          }
+        }
+        if (!known) {
+          try {
+            console.info('[bemap] BeNomad Tiles: no map named "' + name + '" on this Worker — using the server default map instead (the geoserver setting still applies to WMS layers and services).');
+          } catch (e) { /* ignore */ }
+          name = 'default';
+          self._tilesFile = 'default';   // registration + style follow this (key identity)
+        }
+      }
+      var token = cfg ? (ciGet(cfg.aliasVersions, name) || ciGet(cfg.versions, name) || null) : null;
+      if (typeof token === 'string' && token) self.ctx.setTilesVersion(name, token);
+    });
+    var fetchCap = new Promise(function(res) { setTimeout(res, 3500); });
+    return Promise.race([discovery.then(null, function() {}), fetchCap]);
+  }).then(function() { settled = true; });
+};
+
+/**
  * Shared authenticated GET against a Worker `/api/*` discovery endpoint.
  * @private
  */
@@ -7981,10 +8161,30 @@ bemap.MapLibreMap.prototype.setStyle = function (urlOrObject, options) {
   // Same precedence as the constructor (opts.tilesFile -> ctx.tilesFile ->
   // ctx.geoserver -> 'default') — without this the TILES_SOURCE placeholder
   // stays a literal string when the customer calls `map.setStyle(obj)` without
-  // an explicit tilesFile.
-  var tilesFile = (this.ctx && typeof this.ctx.resolveTilesFile === 'function')
-    ? this.ctx.resolveTilesFile(opts.tilesFile)
-    : (opts.tilesFile || 'default');
+  // an explicit tilesFile. On the internal/refresh path (no opts.tilesFile),
+  // reuse this map's stored name so the style url === the registered archive
+  // key + ?v= token (EVMOVE-457 key-identity).
+  var tilesFile;
+  if (opts.tilesFile && this.ctx && typeof this.ctx.resolveTilesFile === 'function') {
+    tilesFile = this.ctx.resolveTilesFile(opts.tilesFile);
+  } else if (this._tilesFile) {
+    tilesFile = this._tilesFile;
+  } else if (this.ctx && typeof this.ctx.resolveTilesFile === 'function') {
+    tilesFile = this.ctx.resolveTilesFile();
+  } else {
+    tilesFile = opts.tilesFile || 'default';
+  }
+  // Register the (possibly versioned) slice source under the SAME url the style
+  // will reference, so pmtiles reuses PMTilesSliceSource + the recoverable cache
+  // instead of silently auto-creating a stock Range source. Idempotent per url;
+  // no-op for non-tiles maps (getTilesFileUrl → null).
+  if (this.ctx && typeof this.ctx.getTilesFileUrl === 'function') {
+    var _archiveUrl = this.ctx.getTilesFileUrl(tilesFile);
+    if (_archiveUrl) {
+      var _versioned = !!(typeof this.ctx.getTilesVersion === 'function' && this.ctx.getTilesVersion(tilesFile));
+      bemap.MapLibreMap._addTilesArchive(_archiveUrl, bemap.MapLibreMap._tilesSliceMode, _versioned);
+    }
+  }
   // Inline style object → apply immediately and return `this` for chaining
   // (matches the v1 contract and the cross-engine `.setStyle(...).move(...)`
   // pattern customer apps rely on).
@@ -19973,11 +20173,26 @@ bemap.RangeGate.prototype.run = function (attemptFn, callerSignal) {
  * @param {String} url the archive URL (no `pmtiles://` prefix), e.g. `https://host/default`.
  * @param {Object} [options]
  * @param {bemap.RangeGate} [options.gate] resilience gate (defaults to the shared `bemap.PMTilesSliceSource.defaultGate`).
+ * @param {Boolean} [options.versioned=false] the archive URL already carries a `?v=` token (EVMOVE-457): its cache entry is already rebuild-distinct, so the offset-0 header read stays plain-immutable. An UNVERSIONED archive revalidates its header so a rebuild is still noticed on a Worker that ships no token.
  */
 bemap.PMTilesSliceSource = function (url, options) {
   this.url = url;
   var o = options || {};
   this._gate = o.gate || bemap.PMTilesSliceSource.defaultGate || null;
+  // EVMOVE-457: a versioned (?v=) archive URL is already rebuild-distinct, so its
+  // offset-0 header read stays plain-immutable; an UNVERSIONED archive revalidates
+  // the header each load so a rebuild is noticed even on a token-less Worker.
+  this.versioned = !!o.versioned;
+  // EVMOVE-457: sticky flag — flipped on a detected ETag mismatch (an archive
+  // rebuilt under the same name) so every subsequent read forces fresh bytes.
+  // NOT auto-reset (mirrors stock pmtiles): pmtiles' getZxy recovery runs ONE
+  // getZxyAttempt whose header→directory→tile reads must ALL stay on fresh bytes
+  // (its cache.invalidate() drops only the header key, so clearing mid-recovery
+  // would re-read stale directory/tile slices and permanently fail the tile). A
+  // rebuilt archive re-registers under a fresh ?v= URL on the next load, so a
+  // NEW source starts cacheable again — the reload only pins the OLD instance.
+  // A STABLE archive never mismatches, so caching is unchanged (retrocompatible).
+  this.mustReload = false;
 };
 
 /** pmtiles cache key — the archive URL, matching the Protocol's stripped `pmtiles://` key. @public */
@@ -19991,17 +20206,54 @@ bemap.PMTilesSliceSource.prototype.getKey = function () { return this.url; };
  * @param {Number} offset
  * @param {Number} length
  * @param {AbortSignal} [signal] pmtiles cancellation signal
+ * @param {String} [etag] the archive's expected ETag (from the pmtiles header);
+ *   two STRONG, DIFFERENT etags throw `pmtiles.EtagMismatch` so the reader
+ *   invalidates + re-reads fresh (EVMOVE-457). Weak/missing ⇒ no comparison.
  * @return {Promise<{data:ArrayBuffer, etag:(String|undefined), cacheControl:(String|undefined), expires:(String|undefined)}>}
  */
-bemap.PMTilesSliceSource.prototype.getBytes = function (offset, length, signal /*, etag */) {
+bemap.PMTilesSliceSource.prototype.getBytes = function (offset, length, signal, etag) {
+  var self = this;
   var url = this.url;
   var sep = (url.indexOf('?') === -1) ? '?' : '&';
   var sliceUrl = url + sep + 'r=' + offset + '-' + (offset + length - 1);
+  // A WEAK expected validator (W/"…") can't be compared byte-for-byte → treat
+  // as absent, exactly like stock pmtiles (avoids a false mismatch → reload loop).
+  var expected = etag || null;
+  if (expected && expected.indexOf('W/') === 0) expected = null;
 
   function attempt(sig, headersReceived) {
-    // window.fetch → bemap.TilesAuth injects auth (credentials/header/token).
-    // No Range header → RangeFetchPolicy's no-store does NOT apply → 200 stays cacheable.
-    return fetch(sliceUrl, sig ? { signal: sig } : {}).then(function (res) {
+    // Cache mode, per attempt (a RangeGate retry / a mustReload flip is honoured).
+    // Precedence: a detected rebuild (mustReload) forces fresh bytes and OUTRANKS
+    // all; else an UNVERSIONED archive REVALIDATES its header (offset 0) so a
+    // rebuild-under-the-same-name is noticed even when the Worker ships no token;
+    // a versioned (?v=) archive — and every data slice at any offset — stays
+    // plain-immutable (byte-identical to earlier releases: served from HTTP cache).
+    var mode = null;
+    if (self.mustReload) mode = 'reload';
+    else if (offset === 0 && !self.versioned) mode = 'no-cache';
+
+    function doFetch(m) {
+      // window.fetch → bemap.TilesAuth injects auth (credentials/header/token).
+      // No Range header → RangeFetchPolicy's no-store does NOT apply → 200 stays cacheable.
+      var init = sig ? { signal: sig } : {};
+      if (m) init.cache = m;
+      return fetch(sliceUrl, init);
+    }
+    // A 'no-cache' revalidation needs the network. If it FAILS for any reason
+    // OTHER than a genuine caller cancel (a gate TTFB timeout, offline, a blip),
+    // fall back to the browser's cached header so a stable archive still loads —
+    // preserving 2.0.0's immutable-header behaviour on slow / degraded networks.
+    // The force-cache retry uses a PLAIN fetch (no gate signal, which the TTFB
+    // timer may already have aborted); only a real pan/zoom cancel propagates.
+    // Only the tiny header slice ever revalidates; data slices stay immutable.
+    var p = doFetch(mode);
+    if (mode === 'no-cache') {
+      p = p.then(null, function (err) {
+        if (signal && signal.aborted) throw err;             // genuine caller cancel → propagate
+        return fetch(sliceUrl, { cache: 'force-cache' });    // else serve the cached header
+      });
+    }
+    return p.then(function (res) {
       // Headers are in — tell the gate to protect the socket (smart abort):
       // from here the body always drains; only the generous body cap remains.
       if (typeof headersReceived === 'function') headersReceived();
@@ -20022,9 +20274,30 @@ bemap.PMTilesSliceSource.prototype.getBytes = function (offset, length, signal /
           e2.status = res.status;
           throw e2;
         }
+        // Normalise the response ETag — a weak validator counts as absent.
+        var respTag = res.headers.get('etag') || null;
+        if (respTag && respTag.indexOf('W/') === 0) respTag = null;
+        // Two STRONG, DIFFERENT etags ⇒ the archive was rebuilt under the same
+        // name (EVMOVE-457): flip mustReload (sticky) and throw the REAL
+        // pmtiles.EtagMismatch so PMTiles.getZxy invalidates the header and
+        // re-reads fresh. No expected etag, or a missing/weak response etag ⇒
+        // cannot compare ⇒ never throw (no reload loop against an etag-less
+        // server). A guarded plain Error keeps this safe if pmtiles is absent.
+        if (expected && respTag && expected !== respTag) {
+          self.mustReload = true;
+          if (typeof pmtiles !== 'undefined' && typeof pmtiles.EtagMismatch === 'function') {
+            throw new pmtiles.EtagMismatch('PMTilesSliceSource: etag changed (' + expected + ' → ' + respTag + ') for ' + sliceUrl);
+          }
+          var em = new Error('PMTilesSliceSource: etag changed (' + expected + ' → ' + respTag + ') for ' + sliceUrl);
+          em.name = 'EtagMismatch';
+          throw em;
+        }
         return {
           data: buf,
-          etag: res.headers.get('etag') || undefined,
+          // Return the weak-STRIPPED etag (stock parity): a weak header etag
+          // kept as the "expected" value would false-mismatch every strong
+          // slice etag forever.
+          etag: respTag || undefined,
           cacheControl: res.headers.get('cache-control') || undefined,
           expires: res.headers.get('expires') || undefined
         };

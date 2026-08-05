@@ -33,9 +33,9 @@
 
 var bemap = bemap || {};
 
-bemap.version = '2.0.1';
+bemap.version = '2.0.2';
 bemap.olVersion = '10.8.0';
-bemap.maplibreVersion = '5.21.0';
+bemap.maplibreVersion = '5.24.0';
 
 /**
  * Extends the class declaration with the parent class.
@@ -156,6 +156,23 @@ bemap.ajax = function (method, url, data, success, failled, options) {
 
   xhr.send(data);
   return xhr;
+};
+
+/**
+ * Proxy headers for a `bemap.ajax` call site, in its `[{key,value}]` shape
+ * (EVMOVE-307). Returns a FRESH array every time — `bemap.ajax` pushes
+ * `Content-Type` onto the array it is handed, so a shared one would grow
+ * unboundedly. `[]` (a no-op for `bemap.ajax`) when there is no proxy, no
+ * Context, or an older Context without the helper.
+ *
+ * Single definition for all v1 service call sites so the rule cannot drift.
+ * @private
+ * @since 2.0.2
+ * @param {bemap.Context} [ctx]
+ * @return {Array.&lt;{key: String, value: String}>}
+ */
+bemap._proxyHeaderList = function (ctx) {
+  return (ctx &amp;&amp; typeof ctx.getProxyHeadersList === 'function') ? ctx.getProxyHeadersList() : [];
 };
 
 /**
@@ -315,6 +332,39 @@ bemap.Context = function (options) {
    * @type {string}
    */
   this.password = opts.password;
+
+  /**
+   * OPTIONAL — put your own proxy in front of BeMap so credentials never reach
+   * the browser (EVMOVE-307). An origin, optionally plus a path prefix:
+   * `'https://my-proxy.example.com'` or `'https://my-proxy.example.com/bemap'`.
+   * Normalised once here (trailing slash stripped) and stored back, so every
+   * consumer reads the canonical form.
+   *
+   * When set: REST/WMS URLs (`getBaseUrl()`) and the tiles login
+   * (`getTilesLoginUrl()`) go through the proxy, no BeMap credentials are sent
+   * (`getAuthUrlParams()` → `''`, no `Authorization`) — even if `login`/
+   * `password` are also configured. Tile BYTES still go direct to `tilesHost`
+   * (a public host), so tile auth uses the token header wire.
+   *
+   * Throws on a URL carrying a query/fragment, a relative URL, or a
+   * non-`http(s)` scheme — a mangled proxy URL would surface later as
+   * unexplained 404s.
+   * @public
+   * @since 2.0.2
+   * @type {string|null}
+   */
+  this.proxy = bemap.Context._normalizeProxy(opts.proxy);
+
+  /**
+   * OPTIONAL — environment selector for a multi-environment proxy, sent as the
+   * `X-BeMap-Env` header. Only a non-empty trimmed string is sent; anything
+   * else omits the header entirely (a single-environment proxy needs none).
+   * @public
+   * @since 2.0.2
+   * @type {string|null}
+   */
+  this.bemapEnv = (typeof opts.bemapEnv === 'string' &amp;&amp; opts.bemapEnv.trim())
+    ? opts.bemapEnv.trim() : null;
 
   /**
    * Heap cache of full URL to BeMap context.
@@ -561,6 +611,70 @@ bemap.Context._resolveAutoMode = function (cfg, tilesHost, appHost) {
 };
 
 /**
+ * Normalise + validate a `proxy` option (EVMOVE-307). Accepts
+ * `https://host`, `https://host/`, `https://host/prefix`, `https://host/prefix/`
+ * and returns `origin + pathname` with any trailing slash stripped — so
+ * composing it with `this.path` (which starts with `/`) can never produce `//`.
+ *
+ * Rejects loudly (throws) a URL with a `?query` or `#fragment`, a relative URL,
+ * or a non-`http(s)` scheme: a silently mangled proxy URL surfaces later as
+ * unexplained 404s. A falsy input returns `null` (proxy mode off).
+ *
+ * @public
+ * @since 2.0.2
+ * @param {String} [raw]
+ * @return {String|null}
+ */
+bemap.Context._normalizeProxy = function (raw) {
+  if (raw === undefined || raw === null || raw === '') return null;
+  if (typeof raw !== 'string') {
+    throw new Error('bemap.Context: `proxy` must be an absolute http(s) URL string, got ' + (typeof raw));
+  }
+  var s = raw.trim();
+  if (!s) return null;
+  // NEVER interpolate the raw value into an error: a URL carrying userinfo
+  // (`https://user:pass@host`) would put a password into an Error message that
+  // an uncaught-error handler or crash reporter then captures.
+  var shown = bemap.Context._redactForMessage(s);
+  var u;
+  try {
+    u = new URL(s);
+  } catch (e) {
+    throw new Error('bemap.Context: `proxy` must be an ABSOLUTE http(s) URL (e.g. "https://my-proxy.example.com"), got "' + shown + '"');
+  }
+  if (u.protocol !== 'http:' &amp;&amp; u.protocol !== 'https:') {
+    throw new Error('bemap.Context: `proxy` must use http:// or https://, got "' + shown + '"');
+  }
+  if (u.search || u.hash) {
+    throw new Error('bemap.Context: `proxy` must not carry a query string or fragment, got "' + shown + '"');
+  }
+  // Reject embedded credentials outright rather than silently dropping them:
+  // `new URL().origin` excludes userinfo, so `https://u:p@host` would otherwise
+  // normalise to `https://host` and the author would never learn their secret
+  // was ignored (and possibly logged elsewhere).
+  if (u.username || u.password) {
+    throw new Error('bemap.Context: `proxy` must not embed credentials (user:pass@host) — the proxy holds them server-side');
+  }
+  // Collapse any repeated slashes inside the path (`https://h//pre` → `/pre`)
+  // and strip the trailing one, so composing with `this.path` (which begins
+  // with '/') can never produce '//'.
+  return (u.origin + (u.pathname || '').replace(/\/{2,}/g, '/')).replace(/\/+$/, '');
+};
+
+/**
+ * Redact a URL-ish string for safe inclusion in an error message: drops any
+ * `user:pass@` userinfo and everything from `?`/`#` onward, and caps the length.
+ * @private
+ * @since 2.0.2
+ * @param {String} s
+ * @return {String}
+ */
+bemap.Context._redactForMessage = function (s) {
+  var out = String(s).split('#')[0].split('?')[0].replace(/\/\/[^/@]*@/, '//***@');
+  return (out.length > 120) ? (out.substring(0, 120) + '…') : out;
+};
+
+/**
  * Return `true` when this Context has a `tilesHost` configured, meaning
  * `bemap.MapLibreMap` should route the background through BeNomad Tiles.
  * @public
@@ -597,12 +711,20 @@ bemap.Context.prototype.getTilesBaseUrl = function () {
 };
 
 /**
- * URL of the Worker login endpoint (`/api/login`).
+ * URL of the tiles login endpoint. Normally the Worker's `/api/login` on
+ * `tilesHost`; in **proxy mode** (`ctx.proxy`, EVMOVE-307) it is
+ * `&lt;proxy>/tiles/login` instead, because the login is the one tiles call that
+ * needs BeMap credentials and the proxy injects them server-side.
  * @public
  * @since 2.0.0
  * @return {string|null}
  */
 bemap.Context.prototype.getTilesLoginUrl = function () {
+  // Proxy mode (EVMOVE-307): the login is the ONE tiles call that needs
+  // credentials, so it goes through the proxy (which injects them). Tile BYTES
+  // and the /api/* discovery calls stay direct to the public tilesHost.
+  var proxy = this.getProxy();
+  if (proxy) return proxy + '/tiles/login';
   var base = this.getTilesBaseUrl();
   return base ? base + '/api/login' : null;
 };
@@ -793,25 +915,139 @@ bemap.Context.prototype.getChargingStationProvider = function () {
 };
 
 /**
- * Return the BaMap URL.
+ * Base URL of the BeMap REST/WMS endpoints — `protocol://host + path`.
+ *
+ * In **proxy mode** (`ctx.proxy`, EVMOVE-307) the consumer's own proxy origin
+ * replaces `protocol://host`, i.e. `&lt;proxy> + path`, so every REST/WMS call is
+ * routed through it (the proxy adds the credentials server-side).
+ * @public
  * @return {String} BeMap URL
  */
 bemap.Context.prototype.getBaseUrl = function () {
+  // getProxy() re-validates + invalidates cacheBaseUrl if `proxy` changed since
+  // the last read, so a late write (RuntimeConfig's Proxy `set` trap assigns
+  // straight onto the Context, bypassing the constructor) can neither skip
+  // validation nor be masked by a stale memo.
+  var proxy = this.getProxy();
   if (!this.cacheBaseUrl) {
-    this.cacheBaseUrl = this.protocol + "://" + this.host + this.path;
+    // Proxy mode (EVMOVE-307): the consumer's own proxy replaces the BeMap
+    // origin. `proxy` is normalised without a trailing slash and `path` starts
+    // with '/', so this can never yield '//'.
+    this.cacheBaseUrl = proxy
+      ? (proxy + this.path)
+      : (this.protocol + "://" + this.host + this.path);
   }
   return this.cacheBaseUrl;
 };
 
 /**
- * Return the BaMap Authentication.
- * @return {String} BeMap URL
+ * The effective, NORMALISED proxy for this Context (EVMOVE-307), or `null` when
+ * proxy mode is off.
+ *
+ * Normalises **on read** and re-checks whenever the stored `proxy` value has
+ * changed since the last call: `bemap.RuntimeConfig`'s Proxy `set` trap writes
+ * unknown keys straight onto the shared Context, so a runtime
+ * `ctx.proxy = '…'` never passes through the constructor. Reading through this
+ * getter means such a write is still validated (it throws on a bad URL) and the
+ * `getBaseUrl()` memo is invalidated instead of serving the old origin.
+ * @public
+ * @since 2.0.2
+ * @return {String|null}
+ */
+bemap.Context.prototype.getProxy = function () {
+  if (this.proxy !== this._proxyChecked) {
+    this._proxyResolved = bemap.Context._normalizeProxy(this.proxy);
+    this._proxyChecked = this.proxy;
+    this.cacheBaseUrl = null;          // origin changed → rebuild on next read
+  }
+  return this._proxyResolved || null;
+};
+
+/**
+ * Set (or clear with `null`) the proxy at runtime, validating + normalising it
+ * and invalidating the base-URL memo. Prefer passing `proxy` to the constructor;
+ * this exists for config layers that mutate a live Context.
+ * @public
+ * @since 2.0.2
+ * @param {String|null} raw
+ * @return {bemap.Context} this
+ */
+bemap.Context.prototype.setProxy = function (raw) {
+  this.proxy = bemap.Context._normalizeProxy(raw);
+  this._proxyChecked = this.proxy;
+  this._proxyResolved = this.proxy;
+  this.cacheBaseUrl = null;
+  return this;
+};
+
+/**
+ * The environment selector sent as `X-BeMap-Env` on proxy requests, or `null`.
+ * @public
+ * @since 2.0.2
+ * @return {String|null}
+ */
+bemap.Context.prototype.getBemapEnv = function () {
+  return (typeof this.bemapEnv === 'string' &amp;&amp; this.bemapEnv.trim()) ? this.bemapEnv.trim() : null;
+};
+
+/**
+ * URL auth parameters (`appid=…&amp;appcode=…`) for REST/WMS URLs.
+ *
+ * Returns `''` when there are no credentials, and **always `''` in proxy mode**
+ * (`ctx.proxy`, EVMOVE-307) — credentials never travel to a proxy, even when
+ * `login`/`password` are also configured. (Before 2.0.2 the credential-less case
+ * returned `null`, which string-concatenated into URLs as a literal `"null"`.)
+ * @public
+ * @return {String} `appid=…&amp;appcode=…`, or `''`
  */
 bemap.Context.prototype.getAuthUrlParams = function () {
+  // Proxy mode (EVMOVE-307): credentials NEVER travel to a proxy — the proxy
+  // injects them server-side. Answered before the memo is touched, so a stale
+  // cacheAuth can neither be read nor written on this path.
+  if (this.getProxy()) return '';
   if (this.login &amp;&amp; this.password &amp;&amp; !this.cacheAuth) {
     this.cacheAuth = "appid=" + this.login + "&amp;appcode=" + this.password;
   }
-  return this.cacheAuth;
+  // No credentials → '' (not null): the value is string-concatenated into WMS
+  // URLs, where null produced a literal "wms?null&amp;…". @since 2.0.2
+  return this.cacheAuth || '';
+};
+
+/**
+ * Extra HTTP headers required by the configured proxy (EVMOVE-307), as a plain
+ * object for `fetch`-based call sites. Currently `X-BeMap-Env` when `bemapEnv`
+ * is a non-empty string; `{}` otherwise (no proxy, or no env selector).
+ *
+ * Returns a FRESH object on every call — callers merge/mutate it.
+ * @public
+ * @since 2.0.2
+ * @return {Object}
+ */
+bemap.Context.prototype.getProxyHeaders = function () {
+  var out = {};
+  var env = this.getBemapEnv();
+  if (this.getProxy() &amp;&amp; env) out['X-BeMap-Env'] = env;
+  return out;
+};
+
+/**
+ * Same header set as {@link bemap.Context#getProxyHeaders}, in the
+ * `[{key, value}]` shape `bemap.ajax` (and `evmove5`'s dao) consumes. Derived
+ * from `getProxyHeaders()`, so a future header appears in both automatically.
+ *
+ * Returns a FRESH array on every call — `bemap.ajax` PUSHES onto the array it
+ * is given (Content-Type), so a shared array would grow without bound.
+ * @public
+ * @since 2.0.2
+ * @return {Array.&lt;{key: String, value: String}>}
+ */
+bemap.Context.prototype.getProxyHeadersList = function () {
+  var obj = this.getProxyHeaders();
+  var list = [];
+  for (var k in obj) {
+    if (Object.prototype.hasOwnProperty.call(obj, k)) list.push({ key: k, value: obj[k] });
+  }
+  return list;
 };
 
 /**
@@ -861,7 +1097,7 @@ bemap.Context.prototype.post = function (options) {
 <br class="clear">
 
 <footer>
-    Documentation generated by <a href="https://github.com/jsdoc/jsdoc">JSDoc 3.6.3</a> on Thu Jul 30 2026 10:59:57 GMT+0200 (heure d’été d’Europe centrale)
+    Documentation generated by <a href="https://github.com/jsdoc/jsdoc">JSDoc 3.6.3</a> on Wed Aug 05 2026 17:18:02 GMT+0200 (heure d’été d’Europe centrale)
 </footer>
 
 <script> prettyPrint(); </script>

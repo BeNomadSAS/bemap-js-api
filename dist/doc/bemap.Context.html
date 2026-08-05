@@ -143,7 +143,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line252">line 252</a>
+        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line269">line 269</a>
     </li></ul></dd>
     
 
@@ -240,7 +240,85 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line429">line 429</a>
+        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line479">line 479</a>
+    </li></ul></dd>
+    
+
+    
+
+    
+
+    
+</dl>
+
+
+
+
+
+
+        
+            
+<h4 class="name" id="bemapEnv"><span class="type-signature"></span>bemapEnv<span class="type-signature"> :string|null</span></h4>
+
+
+
+
+<div class="description">
+    OPTIONAL — environment selector for a multi-environment proxy, sent as the`X-BeMap-Env` header. Only a non-empty trimmed string is sent; anythingelse omits the header entirely (a single-environment proxy needs none).
+</div>
+
+
+
+    <h5>Type:</h5>
+    <ul>
+        <li>
+            
+<span class="param-type">string</span>
+|
+
+<span class="param-type">null</span>
+
+
+        </li>
+    </ul>
+
+
+
+
+
+<dl class="details">
+
+    
+
+    
+    <dt class="tag-since">Since:</dt>
+    <dd class="tag-since"><ul class="dummy"><li>2.0.2</li></ul></dd>
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+    <dt class="tag-source">Source:</dt>
+    <dd class="tag-source"><ul class="dummy"><li>
+        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line338">line 338</a>
     </li></ul></dd>
     
 
@@ -315,7 +393,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line329">line 329</a>
+        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line379">line 379</a>
     </li></ul></dd>
     
 
@@ -393,7 +471,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line393">line 393</a>
+        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line443">line 443</a>
     </li></ul></dd>
     
 
@@ -465,7 +543,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line268">line 268</a>
+        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line285">line 285</a>
     </li></ul></dd>
     
 
@@ -537,7 +615,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line282">line 282</a>
+        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line299">line 299</a>
     </li></ul></dd>
     
 
@@ -609,7 +687,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line289">line 289</a>
+        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line306">line 306</a>
     </li></ul></dd>
     
 
@@ -681,7 +759,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line275">line 275</a>
+        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line292">line 292</a>
     </li></ul></dd>
     
 
@@ -753,7 +831,85 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line260">line 260</a>
+        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line277">line 277</a>
+    </li></ul></dd>
+    
+
+    
+
+    
+
+    
+</dl>
+
+
+
+
+
+
+        
+            
+<h4 class="name" id="proxy"><span class="type-signature"></span>proxy<span class="type-signature"> :string|null</span></h4>
+
+
+
+
+<div class="description">
+    OPTIONAL — put your own proxy in front of BeMap so credentials never reachthe browser (EVMOVE-307). An origin, optionally plus a path prefix:`'https://my-proxy.example.com'` or `'https://my-proxy.example.com/bemap'`.Normalised once here (trailing slash stripped) and stored back, so everyconsumer reads the canonical form.When set: REST/WMS URLs (`getBaseUrl()`) and the tiles login(`getTilesLoginUrl()`) go through the proxy, no BeMap credentials are sent(`getAuthUrlParams()` → `''`, no `Authorization`) — even if `login`/`password` are also configured. Tile BYTES still go direct to `tilesHost`(a public host), so tile auth uses the token header wire.Throws on a URL carrying a query/fragment, a relative URL, or anon-`http(s)` scheme — a mangled proxy URL would surface later asunexplained 404s.
+</div>
+
+
+
+    <h5>Type:</h5>
+    <ul>
+        <li>
+            
+<span class="param-type">string</span>
+|
+
+<span class="param-type">null</span>
+
+
+        </li>
+    </ul>
+
+
+
+
+
+<dl class="details">
+
+    
+
+    
+    <dt class="tag-since">Since:</dt>
+    <dd class="tag-since"><ul class="dummy"><li>2.0.2</li></ul></dd>
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+    <dt class="tag-source">Source:</dt>
+    <dd class="tag-source"><ul class="dummy"><li>
+        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line328">line 328</a>
     </li></ul></dd>
     
 
@@ -834,7 +990,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line417">line 417</a>
+        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line467">line 467</a>
     </li></ul></dd>
     
 
@@ -909,7 +1065,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line367">line 367</a>
+        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line417">line 417</a>
     </li></ul></dd>
     
 
@@ -987,7 +1143,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line339">line 339</a>
+        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line389">line 389</a>
     </li></ul></dd>
     
 
@@ -1062,7 +1218,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line355">line 355</a>
+        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line405">line 405</a>
     </li></ul></dd>
     
 
@@ -1137,7 +1293,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line347">line 347</a>
+        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line397">line 397</a>
     </li></ul></dd>
     
 
@@ -1212,7 +1368,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line380">line 380</a>
+        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line430">line 430</a>
     </li></ul></dd>
     
 
@@ -1287,7 +1443,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line402">line 402</a>
+        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line452">line 452</a>
     </li></ul></dd>
     
 
@@ -1308,6 +1464,179 @@
 
     
         <h3 class="subsection-title">Methods</h3>
+
+        
+            
+
+    
+
+    
+    <h4 class="name" id="._normalizeProxy"><span class="type-signature">(static) </span>_normalizeProxy<span class="signature">(raw<span class="signature-attributes">opt</span>)</span><span class="type-signature"> &rarr; {String|null}</span></h4>
+    
+
+    
+
+
+
+<div class="description">
+    Normalise + validate a `proxy` option (EVMOVE-307). Accepts`https://host`, `https://host/`, `https://host/prefix`, `https://host/prefix/`and returns `origin + pathname` with any trailing slash stripped — socomposing it with `this.path` (which starts with `/`) can never produce `//`.Rejects loudly (throws) a URL with a `?query` or `#fragment`, a relative URL,or a non-`http(s)` scheme: a silently mangled proxy URL surfaces later asunexplained 404s. A falsy input returns `null` (proxy mode off).
+</div>
+
+
+
+
+
+
+
+
+
+    <h5>Parameters:</h5>
+    
+
+<table class="params">
+    <thead>
+    <tr>
+        
+        <th>Name</th>
+        
+
+        <th>Type</th>
+
+        
+        <th>Attributes</th>
+        
+
+        
+
+        <th class="last">Description</th>
+    </tr>
+    </thead>
+
+    <tbody>
+    
+
+        <tr>
+            
+                <td class="name"><code>raw</code></td>
+            
+
+            <td class="type">
+            
+                
+<span class="param-type">String</span>
+
+
+            
+            </td>
+
+            
+                <td class="attributes">
+                
+                    &lt;optional><br>
+                
+
+                
+
+                
+                </td>
+            
+
+            
+
+            <td class="description last"></td>
+        </tr>
+
+    
+    </tbody>
+</table>
+
+
+
+
+
+
+<dl class="details">
+
+    
+
+    
+    <dt class="tag-since">Since:</dt>
+    <dd class="tag-since"><ul class="dummy"><li>2.0.2</li></ul></dd>
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+    <dt class="tag-source">Source:</dt>
+    <dd class="tag-source"><ul class="dummy"><li>
+        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line600">line 600</a>
+    </li></ul></dd>
+    
+
+    
+
+    
+
+    
+</dl>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<h5>Returns:</h5>
+
+        
+
+
+<dl>
+    <dt>
+        Type
+    </dt>
+    <dd>
+        
+<span class="param-type">String</span>
+|
+
+<span class="param-type">null</span>
+
+
+    </dd>
+</dl>
+
+    
+
+
+
+
 
         
             
@@ -1493,7 +1822,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line524">line 524</a>
+        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line574">line 574</a>
     </li></ul></dd>
     
 
@@ -1706,7 +2035,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line452">line 452</a>
+        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line502">line 502</a>
     </li></ul></dd>
     
 
@@ -1887,7 +2216,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line503">line 503</a>
+        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line553">line 553</a>
     </li></ul></dd>
     
 
@@ -1949,7 +2278,7 @@
 
 
 <div class="description">
-    Return the BaMap Authentication.
+    URL auth parameters (`appid=…&appcode=…`) for REST/WMS URLs.Returns `''` when there are no credentials, and **always `''` in proxy mode**(`ctx.proxy`, EVMOVE-307) — credentials never travel to a proxy, even when`login`/`password` are also configured. (Before 2.0.2 the credential-less casereturned `null`, which string-concatenated into URLs as a literal `"null"`.)
 </div>
 
 
@@ -1993,7 +2322,117 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line782">line 782</a>
+        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line975">line 975</a>
+    </li></ul></dd>
+    
+
+    
+
+    
+
+    
+</dl>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<h5>Returns:</h5>
+
+        
+<div class="param-desc">
+    `appid=…&appcode=…`, or `''`
+</div>
+
+
+
+<dl>
+    <dt>
+        Type
+    </dt>
+    <dd>
+        
+<span class="param-type">String</span>
+
+
+    </dd>
+</dl>
+
+    
+
+
+
+
+
+        
+            
+
+    
+
+    
+    <h4 class="name" id="getBaseUrl"><span class="type-signature"></span>getBaseUrl<span class="signature">()</span><span class="type-signature"> &rarr; {String}</span></h4>
+    
+
+    
+
+
+
+<div class="description">
+    Base URL of the BeMap REST/WMS endpoints — `protocol://host + path`.In **proxy mode** (`ctx.proxy`, EVMOVE-307) the consumer's own proxy originreplaces `protocol://host`, i.e. `<proxy> + path`, so every REST/WMS call isrouted through it (the proxy adds the credentials server-side).
+</div>
+
+
+
+
+
+
+
+
+
+
+
+
+
+<dl class="details">
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+    <dt class="tag-source">Source:</dt>
+    <dd class="tag-source"><ul class="dummy"><li>
+        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line898">line 898</a>
     </li></ul></dd>
     
 
@@ -2051,7 +2490,7 @@
     
 
     
-    <h4 class="name" id="getBaseUrl"><span class="type-signature"></span>getBaseUrl<span class="signature">()</span><span class="type-signature"> &rarr; {String}</span></h4>
+    <h4 class="name" id="getBemapEnv"><span class="type-signature"></span>getBemapEnv<span class="signature">()</span><span class="type-signature"> &rarr; {String|null}</span></h4>
     
 
     
@@ -2059,7 +2498,7 @@
 
 
 <div class="description">
-    Return the BaMap URL.
+    The environment selector sent as `X-BeMap-Env` on proxy requests, or `null`.
 </div>
 
 
@@ -2078,6 +2517,9 @@
 
     
 
+    
+    <dt class="tag-since">Since:</dt>
+    <dd class="tag-since"><ul class="dummy"><li>2.0.2</li></ul></dd>
     
 
     
@@ -2103,7 +2545,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line771">line 771</a>
+        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line961">line 961</a>
     </li></ul></dd>
     
 
@@ -2131,10 +2573,6 @@
 <h5>Returns:</h5>
 
         
-<div class="param-desc">
-    BeMap URL
-</div>
-
 
 
 <dl>
@@ -2144,6 +2582,9 @@
     <dd>
         
 <span class="param-type">String</span>
+|
+
+<span class="param-type">null</span>
 
 
     </dd>
@@ -2216,7 +2657,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line763">line 763</a>
+        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line885">line 885</a>
     </li></ul></dd>
     
 
@@ -2325,7 +2766,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line808">line 808</a>
+        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line1044">line 1044</a>
     </li></ul></dd>
     
 
@@ -2366,6 +2807,336 @@
     <dd>
         
 <span class="param-type">String</span>
+
+
+    </dd>
+</dl>
+
+    
+
+
+
+
+
+        
+            
+
+    
+
+    
+    <h4 class="name" id="getProxy"><span class="type-signature"></span>getProxy<span class="signature">()</span><span class="type-signature"> &rarr; {String|null}</span></h4>
+    
+
+    
+
+
+
+<div class="description">
+    The effective, NORMALISED proxy for this Context (EVMOVE-307), or `null` whenproxy mode is off.Normalises **on read** and re-checks whenever the stored `proxy` value haschanged since the last call: `bemap.RuntimeConfig`'s Proxy `set` trap writesunknown keys straight onto the shared Context, so a runtime`ctx.proxy = '…'` never passes through the constructor. Reading through thisgetter means such a write is still validated (it throws on a bad URL) and the`getBaseUrl()` memo is invalidated instead of serving the old origin.
+</div>
+
+
+
+
+
+
+
+
+
+
+
+
+
+<dl class="details">
+
+    
+
+    
+    <dt class="tag-since">Since:</dt>
+    <dd class="tag-since"><ul class="dummy"><li>2.0.2</li></ul></dd>
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+    <dt class="tag-source">Source:</dt>
+    <dd class="tag-source"><ul class="dummy"><li>
+        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line929">line 929</a>
+    </li></ul></dd>
+    
+
+    
+
+    
+
+    
+</dl>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<h5>Returns:</h5>
+
+        
+
+
+<dl>
+    <dt>
+        Type
+    </dt>
+    <dd>
+        
+<span class="param-type">String</span>
+|
+
+<span class="param-type">null</span>
+
+
+    </dd>
+</dl>
+
+    
+
+
+
+
+
+        
+            
+
+    
+
+    
+    <h4 class="name" id="getProxyHeaders"><span class="type-signature"></span>getProxyHeaders<span class="signature">()</span><span class="type-signature"> &rarr; {Object}</span></h4>
+    
+
+    
+
+
+
+<div class="description">
+    Extra HTTP headers required by the configured proxy (EVMOVE-307), as a plainobject for `fetch`-based call sites. Currently `X-BeMap-Env` when `bemapEnv`is a non-empty string; `{}` otherwise (no proxy, or no env selector).Returns a FRESH object on every call — callers merge/mutate it.
+</div>
+
+
+
+
+
+
+
+
+
+
+
+
+
+<dl class="details">
+
+    
+
+    
+    <dt class="tag-since">Since:</dt>
+    <dd class="tag-since"><ul class="dummy"><li>2.0.2</li></ul></dd>
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+    <dt class="tag-source">Source:</dt>
+    <dd class="tag-source"><ul class="dummy"><li>
+        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line998">line 998</a>
+    </li></ul></dd>
+    
+
+    
+
+    
+
+    
+</dl>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<h5>Returns:</h5>
+
+        
+
+
+<dl>
+    <dt>
+        Type
+    </dt>
+    <dd>
+        
+<span class="param-type">Object</span>
+
+
+    </dd>
+</dl>
+
+    
+
+
+
+
+
+        
+            
+
+    
+
+    
+    <h4 class="name" id="getProxyHeadersList"><span class="type-signature"></span>getProxyHeadersList<span class="signature">()</span><span class="type-signature"> &rarr; {Array.&lt;{key: String, value: String}>}</span></h4>
+    
+
+    
+
+
+
+<div class="description">
+    Same header set as <a href="bemap.Context.html#getProxyHeaders">bemap.Context#getProxyHeaders</a>, in the`[{key, value}]` shape `bemap.ajax` (and `evmove5`'s dao) consumes. Derivedfrom `getProxyHeaders()`, so a future header appears in both automatically.Returns a FRESH array on every call — `bemap.ajax` PUSHES onto the array itis given (Content-Type), so a shared array would grow without bound.
+</div>
+
+
+
+
+
+
+
+
+
+
+
+
+
+<dl class="details">
+
+    
+
+    
+    <dt class="tag-since">Since:</dt>
+    <dd class="tag-since"><ul class="dummy"><li>2.0.2</li></ul></dd>
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+    <dt class="tag-source">Source:</dt>
+    <dd class="tag-source"><ul class="dummy"><li>
+        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line1016">line 1016</a>
+    </li></ul></dd>
+    
+
+    
+
+    
+
+    
+</dl>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<h5>Returns:</h5>
+
+        
+
+
+<dl>
+    <dt>
+        Type
+    </dt>
+    <dd>
+        
+<span class="param-type">Array.&lt;{key: String, value: String}></span>
 
 
     </dd>
@@ -2438,7 +3209,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line555">line 555</a>
+        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line669">line 669</a>
     </li></ul></dd>
     
 
@@ -2547,7 +3318,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line566">line 566</a>
+        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line680">line 680</a>
     </li></ul></dd>
     
 
@@ -2659,7 +3430,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line636">line 636</a>
+        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line758">line 758</a>
     </li></ul></dd>
     
 
@@ -2771,7 +3542,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line670">line 670</a>
+        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line792">line 792</a>
     </li></ul></dd>
     
 
@@ -2944,7 +3715,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line683">line 683</a>
+        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line805">line 805</a>
     </li></ul></dd>
     
 
@@ -3009,7 +3780,7 @@
 
 
 <div class="description">
-    URL of the Worker login endpoint (`/api/login`).
+    URL of the tiles login endpoint. Normally the Worker's `/api/login` on`tilesHost`; in **proxy mode** (`ctx.proxy`, EVMOVE-307) it is`<proxy>/tiles/login` instead, because the login is the one tiles call thatneeds BeMap credentials and the proxy injects them server-side.
 </div>
 
 
@@ -3056,7 +3827,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line577">line 577</a>
+        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line694">line 694</a>
     </li></ul></dd>
     
 
@@ -3168,7 +3939,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line599">line 599</a>
+        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line721">line 721</a>
     </li></ul></dd>
     
 
@@ -3280,7 +4051,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line611">line 611</a>
+        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line733">line 733</a>
     </li></ul></dd>
     
 
@@ -3392,7 +4163,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line588">line 588</a>
+        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line710">line 710</a>
     </li></ul></dd>
     
 
@@ -3504,7 +4275,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line623">line 623</a>
+        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line745">line 745</a>
     </li></ul></dd>
     
 
@@ -3665,7 +4436,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line654">line 654</a>
+        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line776">line 776</a>
     </li></ul></dd>
     
 
@@ -3838,7 +4609,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line732">line 732</a>
+        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line854">line 854</a>
     </li></ul></dd>
     
 
@@ -3950,7 +4721,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line542">line 542</a>
+        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line656">line 656</a>
     </li></ul></dd>
     
 
@@ -4056,7 +4827,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line800">line 800</a>
+        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line1036">line 1036</a>
     </li></ul></dd>
     
 
@@ -4215,7 +4986,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line816">line 816</a>
+        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line1052">line 1052</a>
     </li></ul></dd>
     
 
@@ -4367,7 +5138,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line718">line 718</a>
+        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line840">line 840</a>
     </li></ul></dd>
     
 
@@ -4473,7 +5244,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line792">line 792</a>
+        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line1028">line 1028</a>
     </li></ul></dd>
     
 
@@ -4498,6 +5269,171 @@
 
 
 
+
+
+
+
+
+        
+            
+
+    
+
+    
+    <h4 class="name" id="setProxy"><span class="type-signature"></span>setProxy<span class="signature">(raw)</span><span class="type-signature"> &rarr; {<a href="bemap.Context.html">bemap.Context</a>}</span></h4>
+    
+
+    
+
+
+
+<div class="description">
+    Set (or clear with `null`) the proxy at runtime, validating + normalising itand invalidating the base-URL memo. Prefer passing `proxy` to the constructor;this exists for config layers that mutate a live Context.
+</div>
+
+
+
+
+
+
+
+
+
+    <h5>Parameters:</h5>
+    
+
+<table class="params">
+    <thead>
+    <tr>
+        
+        <th>Name</th>
+        
+
+        <th>Type</th>
+
+        
+
+        
+
+        <th class="last">Description</th>
+    </tr>
+    </thead>
+
+    <tbody>
+    
+
+        <tr>
+            
+                <td class="name"><code>raw</code></td>
+            
+
+            <td class="type">
+            
+                
+<span class="param-type">String</span>
+|
+
+<span class="param-type">null</span>
+
+
+            
+            </td>
+
+            
+
+            
+
+            <td class="description last"></td>
+        </tr>
+
+    
+    </tbody>
+</table>
+
+
+
+
+
+
+<dl class="details">
+
+    
+
+    
+    <dt class="tag-since">Since:</dt>
+    <dd class="tag-since"><ul class="dummy"><li>2.0.2</li></ul></dd>
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+    <dt class="tag-source">Source:</dt>
+    <dd class="tag-source"><ul class="dummy"><li>
+        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line947">line 947</a>
+    </li></ul></dd>
+    
+
+    
+
+    
+
+    
+</dl>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<h5>Returns:</h5>
+
+        
+<div class="param-desc">
+    this
+</div>
+
+
+
+<dl>
+    <dt>
+        Type
+    </dt>
+    <dd>
+        
+<span class="param-type"><a href="bemap.Context.html">bemap.Context</a></span>
+
+
+    </dd>
+</dl>
+
+    
 
 
 
@@ -4656,7 +5592,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line748">line 748</a>
+        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line870">line 870</a>
     </li></ul></dd>
     
 
@@ -4726,7 +5662,7 @@
 <br class="clear">
 
 <footer>
-    Documentation generated by <a href="https://github.com/jsdoc/jsdoc">JSDoc 3.6.3</a> on Thu Jul 30 2026 10:59:57 GMT+0200 (heure d’été d’Europe centrale)
+    Documentation generated by <a href="https://github.com/jsdoc/jsdoc">JSDoc 3.6.3</a> on Wed Aug 05 2026 17:18:03 GMT+0200 (heure d’été d’Europe centrale)
 </footer>
 
 <script> prettyPrint(); </script>

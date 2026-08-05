@@ -5,9 +5,9 @@
 
 var bemap = bemap || {};
 
-bemap.version = '2.0.1';
+bemap.version = '2.0.2';
 bemap.olVersion = '10.8.0';
-bemap.maplibreVersion = '5.21.0';
+bemap.maplibreVersion = '5.24.0';
 
 /**
  * Extends the class declaration with the parent class.
@@ -128,6 +128,23 @@ bemap.ajax = function (method, url, data, success, failled, options) {
 
   xhr.send(data);
   return xhr;
+};
+
+/**
+ * Proxy headers for a `bemap.ajax` call site, in its `[{key,value}]` shape
+ * (EVMOVE-307). Returns a FRESH array every time — `bemap.ajax` pushes
+ * `Content-Type` onto the array it is handed, so a shared one would grow
+ * unboundedly. `[]` (a no-op for `bemap.ajax`) when there is no proxy, no
+ * Context, or an older Context without the helper.
+ *
+ * Single definition for all v1 service call sites so the rule cannot drift.
+ * @private
+ * @since 2.0.2
+ * @param {bemap.Context} [ctx]
+ * @return {Array.<{key: String, value: String}>}
+ */
+bemap._proxyHeaderList = function (ctx) {
+  return (ctx && typeof ctx.getProxyHeadersList === 'function') ? ctx.getProxyHeadersList() : [];
 };
 
 /**
@@ -287,6 +304,39 @@ bemap.Context = function (options) {
    * @type {string}
    */
   this.password = opts.password;
+
+  /**
+   * OPTIONAL — put your own proxy in front of BeMap so credentials never reach
+   * the browser (EVMOVE-307). An origin, optionally plus a path prefix:
+   * `'https://my-proxy.example.com'` or `'https://my-proxy.example.com/bemap'`.
+   * Normalised once here (trailing slash stripped) and stored back, so every
+   * consumer reads the canonical form.
+   *
+   * When set: REST/WMS URLs (`getBaseUrl()`) and the tiles login
+   * (`getTilesLoginUrl()`) go through the proxy, no BeMap credentials are sent
+   * (`getAuthUrlParams()` → `''`, no `Authorization`) — even if `login`/
+   * `password` are also configured. Tile BYTES still go direct to `tilesHost`
+   * (a public host), so tile auth uses the token header wire.
+   *
+   * Throws on a URL carrying a query/fragment, a relative URL, or a
+   * non-`http(s)` scheme — a mangled proxy URL would surface later as
+   * unexplained 404s.
+   * @public
+   * @since 2.0.2
+   * @type {string|null}
+   */
+  this.proxy = bemap.Context._normalizeProxy(opts.proxy);
+
+  /**
+   * OPTIONAL — environment selector for a multi-environment proxy, sent as the
+   * `X-BeMap-Env` header. Only a non-empty trimmed string is sent; anything
+   * else omits the header entirely (a single-environment proxy needs none).
+   * @public
+   * @since 2.0.2
+   * @type {string|null}
+   */
+  this.bemapEnv = (typeof opts.bemapEnv === 'string' && opts.bemapEnv.trim())
+    ? opts.bemapEnv.trim() : null;
 
   /**
    * Heap cache of full URL to BeMap context.
@@ -533,6 +583,70 @@ bemap.Context._resolveAutoMode = function (cfg, tilesHost, appHost) {
 };
 
 /**
+ * Normalise + validate a `proxy` option (EVMOVE-307). Accepts
+ * `https://host`, `https://host/`, `https://host/prefix`, `https://host/prefix/`
+ * and returns `origin + pathname` with any trailing slash stripped — so
+ * composing it with `this.path` (which starts with `/`) can never produce `//`.
+ *
+ * Rejects loudly (throws) a URL with a `?query` or `#fragment`, a relative URL,
+ * or a non-`http(s)` scheme: a silently mangled proxy URL surfaces later as
+ * unexplained 404s. A falsy input returns `null` (proxy mode off).
+ *
+ * @public
+ * @since 2.0.2
+ * @param {String} [raw]
+ * @return {String|null}
+ */
+bemap.Context._normalizeProxy = function (raw) {
+  if (raw === undefined || raw === null || raw === '') return null;
+  if (typeof raw !== 'string') {
+    throw new Error('bemap.Context: `proxy` must be an absolute http(s) URL string, got ' + (typeof raw));
+  }
+  var s = raw.trim();
+  if (!s) return null;
+  // NEVER interpolate the raw value into an error: a URL carrying userinfo
+  // (`https://user:pass@host`) would put a password into an Error message that
+  // an uncaught-error handler or crash reporter then captures.
+  var shown = bemap.Context._redactForMessage(s);
+  var u;
+  try {
+    u = new URL(s);
+  } catch (e) {
+    throw new Error('bemap.Context: `proxy` must be an ABSOLUTE http(s) URL (e.g. "https://my-proxy.example.com"), got "' + shown + '"');
+  }
+  if (u.protocol !== 'http:' && u.protocol !== 'https:') {
+    throw new Error('bemap.Context: `proxy` must use http:// or https://, got "' + shown + '"');
+  }
+  if (u.search || u.hash) {
+    throw new Error('bemap.Context: `proxy` must not carry a query string or fragment, got "' + shown + '"');
+  }
+  // Reject embedded credentials outright rather than silently dropping them:
+  // `new URL().origin` excludes userinfo, so `https://u:p@host` would otherwise
+  // normalise to `https://host` and the author would never learn their secret
+  // was ignored (and possibly logged elsewhere).
+  if (u.username || u.password) {
+    throw new Error('bemap.Context: `proxy` must not embed credentials (user:pass@host) — the proxy holds them server-side');
+  }
+  // Collapse any repeated slashes inside the path (`https://h//pre` → `/pre`)
+  // and strip the trailing one, so composing with `this.path` (which begins
+  // with '/') can never produce '//'.
+  return (u.origin + (u.pathname || '').replace(/\/{2,}/g, '/')).replace(/\/+$/, '');
+};
+
+/**
+ * Redact a URL-ish string for safe inclusion in an error message: drops any
+ * `user:pass@` userinfo and everything from `?`/`#` onward, and caps the length.
+ * @private
+ * @since 2.0.2
+ * @param {String} s
+ * @return {String}
+ */
+bemap.Context._redactForMessage = function (s) {
+  var out = String(s).split('#')[0].split('?')[0].replace(/\/\/[^/@]*@/, '//***@');
+  return (out.length > 120) ? (out.substring(0, 120) + '…') : out;
+};
+
+/**
  * Return `true` when this Context has a `tilesHost` configured, meaning
  * `bemap.MapLibreMap` should route the background through BeNomad Tiles.
  * @public
@@ -569,12 +683,20 @@ bemap.Context.prototype.getTilesBaseUrl = function () {
 };
 
 /**
- * URL of the Worker login endpoint (`/api/login`).
+ * URL of the tiles login endpoint. Normally the Worker's `/api/login` on
+ * `tilesHost`; in **proxy mode** (`ctx.proxy`, EVMOVE-307) it is
+ * `<proxy>/tiles/login` instead, because the login is the one tiles call that
+ * needs BeMap credentials and the proxy injects them server-side.
  * @public
  * @since 2.0.0
  * @return {string|null}
  */
 bemap.Context.prototype.getTilesLoginUrl = function () {
+  // Proxy mode (EVMOVE-307): the login is the ONE tiles call that needs
+  // credentials, so it goes through the proxy (which injects them). Tile BYTES
+  // and the /api/* discovery calls stay direct to the public tilesHost.
+  var proxy = this.getProxy();
+  if (proxy) return proxy + '/tiles/login';
   var base = this.getTilesBaseUrl();
   return base ? base + '/api/login' : null;
 };
@@ -765,25 +887,139 @@ bemap.Context.prototype.getChargingStationProvider = function () {
 };
 
 /**
- * Return the BaMap URL.
+ * Base URL of the BeMap REST/WMS endpoints — `protocol://host + path`.
+ *
+ * In **proxy mode** (`ctx.proxy`, EVMOVE-307) the consumer's own proxy origin
+ * replaces `protocol://host`, i.e. `<proxy> + path`, so every REST/WMS call is
+ * routed through it (the proxy adds the credentials server-side).
+ * @public
  * @return {String} BeMap URL
  */
 bemap.Context.prototype.getBaseUrl = function () {
+  // getProxy() re-validates + invalidates cacheBaseUrl if `proxy` changed since
+  // the last read, so a late write (RuntimeConfig's Proxy `set` trap assigns
+  // straight onto the Context, bypassing the constructor) can neither skip
+  // validation nor be masked by a stale memo.
+  var proxy = this.getProxy();
   if (!this.cacheBaseUrl) {
-    this.cacheBaseUrl = this.protocol + "://" + this.host + this.path;
+    // Proxy mode (EVMOVE-307): the consumer's own proxy replaces the BeMap
+    // origin. `proxy` is normalised without a trailing slash and `path` starts
+    // with '/', so this can never yield '//'.
+    this.cacheBaseUrl = proxy
+      ? (proxy + this.path)
+      : (this.protocol + "://" + this.host + this.path);
   }
   return this.cacheBaseUrl;
 };
 
 /**
- * Return the BaMap Authentication.
- * @return {String} BeMap URL
+ * The effective, NORMALISED proxy for this Context (EVMOVE-307), or `null` when
+ * proxy mode is off.
+ *
+ * Normalises **on read** and re-checks whenever the stored `proxy` value has
+ * changed since the last call: `bemap.RuntimeConfig`'s Proxy `set` trap writes
+ * unknown keys straight onto the shared Context, so a runtime
+ * `ctx.proxy = '…'` never passes through the constructor. Reading through this
+ * getter means such a write is still validated (it throws on a bad URL) and the
+ * `getBaseUrl()` memo is invalidated instead of serving the old origin.
+ * @public
+ * @since 2.0.2
+ * @return {String|null}
+ */
+bemap.Context.prototype.getProxy = function () {
+  if (this.proxy !== this._proxyChecked) {
+    this._proxyResolved = bemap.Context._normalizeProxy(this.proxy);
+    this._proxyChecked = this.proxy;
+    this.cacheBaseUrl = null;          // origin changed → rebuild on next read
+  }
+  return this._proxyResolved || null;
+};
+
+/**
+ * Set (or clear with `null`) the proxy at runtime, validating + normalising it
+ * and invalidating the base-URL memo. Prefer passing `proxy` to the constructor;
+ * this exists for config layers that mutate a live Context.
+ * @public
+ * @since 2.0.2
+ * @param {String|null} raw
+ * @return {bemap.Context} this
+ */
+bemap.Context.prototype.setProxy = function (raw) {
+  this.proxy = bemap.Context._normalizeProxy(raw);
+  this._proxyChecked = this.proxy;
+  this._proxyResolved = this.proxy;
+  this.cacheBaseUrl = null;
+  return this;
+};
+
+/**
+ * The environment selector sent as `X-BeMap-Env` on proxy requests, or `null`.
+ * @public
+ * @since 2.0.2
+ * @return {String|null}
+ */
+bemap.Context.prototype.getBemapEnv = function () {
+  return (typeof this.bemapEnv === 'string' && this.bemapEnv.trim()) ? this.bemapEnv.trim() : null;
+};
+
+/**
+ * URL auth parameters (`appid=…&appcode=…`) for REST/WMS URLs.
+ *
+ * Returns `''` when there are no credentials, and **always `''` in proxy mode**
+ * (`ctx.proxy`, EVMOVE-307) — credentials never travel to a proxy, even when
+ * `login`/`password` are also configured. (Before 2.0.2 the credential-less case
+ * returned `null`, which string-concatenated into URLs as a literal `"null"`.)
+ * @public
+ * @return {String} `appid=…&appcode=…`, or `''`
  */
 bemap.Context.prototype.getAuthUrlParams = function () {
+  // Proxy mode (EVMOVE-307): credentials NEVER travel to a proxy — the proxy
+  // injects them server-side. Answered before the memo is touched, so a stale
+  // cacheAuth can neither be read nor written on this path.
+  if (this.getProxy()) return '';
   if (this.login && this.password && !this.cacheAuth) {
     this.cacheAuth = "appid=" + this.login + "&appcode=" + this.password;
   }
-  return this.cacheAuth;
+  // No credentials → '' (not null): the value is string-concatenated into WMS
+  // URLs, where null produced a literal "wms?null&…". @since 2.0.2
+  return this.cacheAuth || '';
+};
+
+/**
+ * Extra HTTP headers required by the configured proxy (EVMOVE-307), as a plain
+ * object for `fetch`-based call sites. Currently `X-BeMap-Env` when `bemapEnv`
+ * is a non-empty string; `{}` otherwise (no proxy, or no env selector).
+ *
+ * Returns a FRESH object on every call — callers merge/mutate it.
+ * @public
+ * @since 2.0.2
+ * @return {Object}
+ */
+bemap.Context.prototype.getProxyHeaders = function () {
+  var out = {};
+  var env = this.getBemapEnv();
+  if (this.getProxy() && env) out['X-BeMap-Env'] = env;
+  return out;
+};
+
+/**
+ * Same header set as {@link bemap.Context#getProxyHeaders}, in the
+ * `[{key, value}]` shape `bemap.ajax` (and `evmove5`'s dao) consumes. Derived
+ * from `getProxyHeaders()`, so a future header appears in both automatically.
+ *
+ * Returns a FRESH array on every call — `bemap.ajax` PUSHES onto the array it
+ * is given (Content-Type), so a shared array would grow without bound.
+ * @public
+ * @since 2.0.2
+ * @return {Array.<{key: String, value: String}>}
+ */
+bemap.Context.prototype.getProxyHeadersList = function () {
+  var obj = this.getProxyHeaders();
+  var list = [];
+  for (var k in obj) {
+    if (Object.prototype.hasOwnProperty.call(obj, k)) list.push({ key: k, value: obj[k] });
+  }
+  return list;
 };
 
 /**
@@ -4761,11 +4997,18 @@ bemap.LeafletMap.prototype.addLayer = function (layer, options) {
         format: layer.format ? layer.format : 'image/png'
       };
 
-      if (this.ctx.login) {
-        layerOption.appid = this.ctx.login;
-      }
-      if (this.ctx.password) {
-        layerOption.appcode = this.ctx.password;
+      // Leaflet is the ONE engine that passes BeMap auth as layer OPTIONS (which
+      // L.tileLayer.wms turns into query params) instead of via
+      // ctx.getAuthUrlParams(). In proxy mode (EVMOVE-307) the credentials live on
+      // the proxy and must never reach the browser's wire, so this must be
+      // skipped explicitly — the getAuthUrlParams() guard does not cover it.
+      if (!(typeof this.ctx.getProxy === 'function' ? this.ctx.getProxy() : this.ctx.proxy)) {
+        if (this.ctx.login) {
+          layerOption.appid = this.ctx.login;
+        }
+        if (this.ctx.password) {
+          layerOption.appcode = this.ctx.password;
+        }
       }
 
       layer.native = L.tileLayer.wms(this.ctx.getBaseUrl() + 'wms', layerOption);
@@ -5856,8 +6099,10 @@ bemap.MapLibreMap = function(context, target, options) {
   };
   this._keyboardEnabled = !!(_ctrl.keyboard.pan || _ctrl.keyboard.zoom);
   this._keyboardOptions = _ctrl.keyboard;
-  if (this._tilesAuth) {
-    _nativeOpts.transformRequest = this._tilesAuth.buildTransformRequest();
+  // MapLibre accepts exactly ONE transformRequest, so tile auth and the proxy
+  // env header must be COMPOSED into a single function (EVMOVE-307 #7).
+  if (this._tilesAuth || (context && context.proxy)) {
+    _nativeOpts.transformRequest = bemap.MapLibreMap._buildTransformRequest(context, this._tilesAuth);
   }
   this.native = new maplibregl.Map(_nativeOpts);
 
@@ -6931,6 +7176,75 @@ bemap.MapLibreMap._applyTilesSliceOpts = function (opts) {
 };
 
 /**
+ * Compose the ONE `transformRequest` MapLibre accepts (EVMOVE-307 #7).
+ *
+ * MapLibre keeps only the last assignment, so tile auth and the proxy env header
+ * cannot each install their own. This wraps them:
+ *   - every request first goes through `TilesAuth.buildTransformRequest()` (when
+ *     tile auth exists), so `tilesHost` URLs keep their token / credentials;
+ *   - a request whose URL belongs to `ctx.proxy` additionally gets the proxy
+ *     headers (e.g. `X-BeMap-Env`).
+ *
+ * Proxy matching is by **parsed origin + path boundary**, never `startsWith`: a
+ * raw prefix test would also match `https://<proxy-host>.evil.com/…` and leak
+ * the header to an attacker-controlled origin.
+ *
+ * With no `ctx.proxy` the tile-auth function is returned UNWRAPPED, so existing
+ * consumers get byte-identical behaviour.
+ *
+ * @private
+ * @since 2.0.2
+ * @param {bemap.Context} ctx
+ * @param {bemap.TilesAuth} [tilesAuth]
+ * @return {Function|undefined}
+ */
+bemap.MapLibreMap._buildTransformRequest = function (ctx, tilesAuth) {
+  var inner = (tilesAuth && typeof tilesAuth.buildTransformRequest === 'function')
+    ? tilesAuth.buildTransformRequest() : null;
+  var proxy = ctx && (typeof ctx.getProxy === 'function' ? ctx.getProxy() : ctx.proxy);
+  if (!proxy) return inner || undefined;          // unchanged path (retrocompat)
+
+  // Parse the proxy ONCE: origin must match exactly, and the request path must
+  // be the prefix itself or sit under it ('<prefix>/…').
+  var pOrigin = null, pPath = '';
+  try {
+    var pu = new URL(proxy);
+    pOrigin = pu.origin;
+    pPath = (pu.pathname || '').replace(/\/+$/, '');
+  } catch (e) { /* normalisation already validated it; stay silent */ }
+
+  function isProxyUrl(url) {
+    if (!pOrigin) return false;
+    var parsed;
+    try {
+      parsed = new URL(url, (typeof window !== 'undefined' && window.location && window.location.href) || 'http://localhost/');
+    } catch (e) { return false; }
+    if (parsed.origin !== pOrigin) return false;   // exact origin — blocks look-alike hosts
+    if (!pPath) return true;                       // proxy is a bare origin
+    var path = parsed.pathname || '';
+    return (path === pPath) || (path.indexOf(pPath + '/') === 0);
+  }
+
+  return function (url, resourceType) {
+    var out = inner ? inner(url, resourceType) : null;
+    if (!out) out = { url: url };
+    if (isProxyUrl(url)) {
+      var ph = (typeof ctx.getProxyHeaders === 'function') ? ctx.getProxyHeaders() : {};
+      var hasAny = false;
+      for (var k in ph) { if (Object.prototype.hasOwnProperty.call(ph, k)) { hasAny = true; break; } }
+      if (hasAny) {
+        var headers = out.headers || {};
+        for (var hk in ph) {
+          if (Object.prototype.hasOwnProperty.call(ph, hk)) headers[hk] = ph[hk];
+        }
+        out.headers = headers;
+      }
+    }
+    return out;
+  };
+};
+
+/**
  * Wire one tiles archive URL into the (page-global) pmtiles Protocol, choosing
  * the source by `_tilesSliceMode` and wrapping it in the self-healing
  * `bemap.RecoverablePromiseCache` when enabled:
@@ -7152,6 +7466,11 @@ bemap.MapLibreMap.prototype._refreshTileSources = function () {
  *   map.loadBeMapTiles({ url: 'https://mptiles-api.benomad.net', tilesFile: 'Europe.pmtiles', style: 'style_liberty.json' });
  *   map.loadBeMapTiles({ token: 'existing-jwt' });  // skip login
  *
+ * **NOT SUPPORTED behind a `proxy`** (EVMOVE-307): this legacy path sends
+ * `Authorization: Basic` from the browser by design, which is exactly what
+ * `ctx.proxy` exists to prevent, and it errors without credentials. Use
+ * `ctx.tilesHost` (+ `ctx.proxy`) instead — no house app calls this helper.
+ *
  * @deprecated Since 2.0.0 — prefer `ctx.tilesHost` on the Context, which
  *             routes through `bemap.TilesAuth` + the fetch interceptor
  *             instead of a one-shot login + setStyle.
@@ -7221,6 +7540,21 @@ bemap.MapLibreMap.prototype.loadBeMapTiles = function(options) {
   // If token already provided, use it directly
   if (opts.token) {
     doLoad(opts.token);
+    return this;
+  }
+
+  // PROXY MODE (EVMOVE-307) — REFUSE before touching credentials. This legacy
+  // path posts `Authorization: Basic` straight from the browser, which would
+  // break the documented invariant ("with `proxy` set, no BeMap credential is
+  // sent on any request") for a mixed `{ proxy, login, password }` config.
+  // Documentation alone is not a security boundary, so this is enforced in code:
+  // no credential is read, no XHR is opened.
+  if (this.ctx && (typeof this.ctx.getProxy === 'function' ? this.ctx.getProxy() : this.ctx.proxy)) {
+    var proxyMsg = 'loadBeMapTiles is not supported when ctx.proxy is set — it would send '
+      + 'Authorization: Basic from the browser. Use ctx.tilesHost (the tiles login then goes '
+      + 'through your proxy). See docs/integration-proxy.md.';
+    if (typeof console !== 'undefined' && console.error) console.error('[bemap] ' + proxyMsg);
+    if (opts.onError) opts.onError(proxyMsg);
     return this;
   }
 
@@ -8703,8 +9037,20 @@ bemap.ServiceV2.prototype._request = function(method, path, body, options) {
     var hasBody = (body !== null && body !== undefined && method !== 'GET' && method !== 'HEAD');
     if (hasBody) headers['Content-Type'] = 'application/json';
 
-    if (ctx && ctx.login && ctx.password && typeof btoa === 'function') {
+    // PROXY MODE (EVMOVE-307): credentials never travel to a proxy — it injects
+    // them server-side. Skipped even when login/password ARE configured, so a
+    // mixed config cannot leak them (§2 invariant).
+    var ctxProxy = ctx && (typeof ctx.getProxy === 'function' ? ctx.getProxy() : ctx.proxy);
+    if (ctx && !ctxProxy && ctx.login && ctx.password && typeof btoa === 'function') {
         headers['Authorization'] = 'Basic ' + btoa(ctx.login + ':' + ctx.password);
+    }
+    // Proxy headers (e.g. X-BeMap-Env). Merged BEFORE opts.headers so an explicit
+    // per-call header still wins. No-op ({}) when no proxy is configured.
+    if (ctx && typeof ctx.getProxyHeaders === 'function') {
+        var proxyHeaders = ctx.getProxyHeaders();
+        for (var pk in proxyHeaders) {
+            if (Object.prototype.hasOwnProperty.call(proxyHeaders, pk)) headers[pk] = proxyHeaders[pk];
+        }
     }
     if (opts.headers) {
         for (var k in opts.headers) {
@@ -9153,9 +9499,13 @@ bemap.Routing.prototype.compute = function(options) {
   var data = 'version=1.0.0&action=routing&mode=MODE_VIAS&format=json';
 
   if (this.ctx.isAuthInPost()) {
-    data += '&' + this.ctx.getAuthUrlParams();
+    // Guard the separator: getAuthUrlParams() is '' with no credentials or in
+    // proxy mode, and '&' + '' would leave a stray ampersand in the POST body.
+    var _authParams = this.ctx.getAuthUrlParams();
+    if (_authParams) data += '&' + _authParams;
   } else {
-    url += '?' + this.ctx.getAuthUrlParams();
+    var _urlParams = this.ctx.getAuthUrlParams();
+    if (_urlParams) url += '?' + _urlParams;
   }
 
   data += this.buildRequest(options);
@@ -9183,7 +9533,12 @@ bemap.Routing.prototype.execute = function(url, data, options) {
     function(xhr, doc) {
       _this.responseParser(xhr, doc, opts);
     }, {
-      'requestFormat': 'urlencoded'
+      'requestFormat': 'urlencoded',
+      // Proxy headers (EVMOVE-307) — e.g. X-BeMap-Env, so a multi-environment
+      // proxy can route this v1 request. Fresh array per request (bemap.ajax
+      // PUSHES Content-Type onto it); `[]` — a no-op — without a proxy.
+      // Inherited by bemap.Isochrone and bemap.EvseRouting via bemap.Routing.
+      'headers': bemap._proxyHeaderList(_this.ctx)
     }
   );
 
@@ -20384,6 +20739,30 @@ bemap.TilesAuth = function (ctx, options) {
     this._authConfig = bemap.Context._resolveAutoMode(this._authConfig, ctx && ctx.tilesHost);
   }
 
+  // PROXY MODE (EVMOVE-307 / decision D1) — the cookie wire CANNOT work behind a
+  // proxy: the session cookie is set by the login RESPONSE, which now comes from
+  // the proxy's origin, so it is never sent on the DIRECT tile requests to
+  // `tilesHost` ⇒ every tile 401s. Force the header wire (the token comes back in
+  // the login body, which the proxy relays unchanged). An explicit `query` pin is
+  // honoured (it also carries the token explicitly); an explicit `cookie` pin is
+  // overridden with a one-shot warning — a config that cannot work must not fail
+  // silently. Unreachable without `ctx.proxy`, so no existing consumer changes.
+  var _ctxProxy = ctx && (typeof ctx.getProxy === 'function' ? ctx.getProxy() : ctx.proxy);
+  if (_ctxProxy && this._authConfig && this._authConfig.mode !== 'query') {
+    if (this._authConfig.mode === 'cookie' && !bemap.TilesAuth._proxyCookieWarned) {
+      bemap.TilesAuth._proxyCookieWarned = true;
+      if (typeof console !== 'undefined' && console.warn) {
+        console.warn(
+          '[bemap.TilesAuth] tilesAuth:\'cookie\' cannot work with `proxy` set —\n' +
+          '   the session cookie would belong to the proxy origin and would never\n' +
+          '   be sent on the direct tile requests to tilesHost. Using the\n' +
+          '   `header` wire (X-Session-Token) instead.'
+        );
+      }
+    }
+    this._authConfig.mode = 'header';
+  }
+
   this._storageKey = 'bemap_tiles_token';
   this._storage = this._resolveStorage(ctx && ctx.tokenStorage);
   this._restoreFromStorage();
@@ -20632,7 +21011,13 @@ bemap.TilesAuth.prototype.login = function (login, password) {
   }
   var user = login || (this.ctx && this.ctx.login);
   var pass = password || (this.ctx && this.ctx.password);
-  if (!user || !pass) {
+  // PROXY MODE (EVMOVE-307): credentials live on the proxy, so a credential-less
+  // Context is the NORMAL, supported case — skip both the rejection and the
+  // warning. No `Authorization` is ever sent; instead the proxy needs to know
+  // which mptiles environment will be read (each signs tokens with its own
+  // secret) via `X-BeMap-Tiles-Host`, plus the optional `X-BeMap-Env` selector.
+  var isProxy = !!(this.ctx && (typeof this.ctx.getProxy === 'function' ? this.ctx.getProxy() : this.ctx.proxy));
+  if (!isProxy && (!user || !pass)) {
     // Loud, one-shot warning so the developer sees the cause immediately
     // in the DevTools console (instead of just an unexplained 401 on the
     // first PMTiles range request).
@@ -20652,9 +21037,9 @@ bemap.TilesAuth.prototype.login = function (login, password) {
       message: 'TilesAuth.login: missing credentials on Context (set ctx.login + ctx.password, or remove ctx.tilesHost)'
     }));
   }
-  var basic = 'Basic ' + ((typeof btoa === 'function')
+  var basic = isProxy ? null : ('Basic ' + ((typeof btoa === 'function')
     ? btoa(user + ':' + pass)
-    : Buffer.from(user + ':' + pass).toString('base64'));
+    : Buffer.from(user + ':' + pass).toString('base64')));
 
   if (typeof navigator !== 'undefined' && navigator.onLine === false) {
     self._queuedRenewal = true;
@@ -20671,10 +21056,26 @@ bemap.TilesAuth.prototype.login = function (login, password) {
   var loginCredentials = (self._authConfig && self._authConfig.mode === 'cookie')
     ? (self._authConfig.credentials || 'include')
     : 'same-origin';
+  // Header set: credentials mode sends Basic; proxy mode sends NO credential and
+  // instead tells the proxy which tiles env to mint for (+ the env selector when
+  // configured). `getProxyHeaders()` only yields X-BeMap-Env for a non-empty
+  // bemapEnv, so the literal string "null" can never reach the wire.
+  var loginHeaders = { 'Accept': 'application/json' };
+  if (isProxy) {
+    if (self.ctx.tilesHost) loginHeaders['X-BeMap-Tiles-Host'] = self.ctx.tilesHost;
+    if (typeof self.ctx.getProxyHeaders === 'function') {
+      var ph = self.ctx.getProxyHeaders();
+      for (var phk in ph) {
+        if (Object.prototype.hasOwnProperty.call(ph, phk)) loginHeaders[phk] = ph[phk];
+      }
+    }
+  } else {
+    loginHeaders['Authorization'] = basic;
+  }
   var promise = fetch(url, {
     method: 'POST',
     credentials: loginCredentials,
-    headers: { 'Authorization': basic, 'Accept': 'application/json' }
+    headers: loginHeaders
   }).then(function (resp) {
     if (!resp.ok) {
       var code = resp.status === 401 ? bemap.Error.UNAUTHORIZED
@@ -21982,8 +22383,14 @@ bemap.Autocomplete.prototype.query = function(map, query, listener) {
     return;
   }
 
+  // Use the Context this instance was constructed with (mandatory — the
+  // constructor dereferences `context.geoserver`), falling back to the page
+  // global only if somehow absent. Reading the global unconditionally made a
+  // `new bemap.Autocomplete(myCtx)` silently use someone else's config — and
+  // under EVMOVE-307 that meant a proxied Context could be bypassed entirely.
+  var ctx = this.context || (typeof bemapMainCtx !== 'undefined' ? bemapMainCtx : null);
   var c = map.getCenter();
-  var url = bemapMainCtx.getBaseUrl() + 'service/geocoding/autocomplete/1.0?' + bemapMainCtx.getAuthUrlParams();
+  var url = ctx.getBaseUrl() + 'service/geocoding/autocomplete/1.0?' + ctx.getAuthUrlParams();
   var request = {
     "geoserver": this.geoserver,
     "addressDetails": false,
@@ -22012,6 +22419,11 @@ bemap.Autocomplete.prototype.query = function(map, query, listener) {
     if (listener) {
       listener(data);
     }
+  }, null, {
+    // Proxy headers (EVMOVE-307) — fresh array per request (bemap.ajax pushes
+    // Content-Type onto it); `[]` and therefore a no-op without a proxy. Same
+    // Context the URL above was built from.
+    'headers': bemap._proxyHeaderList(ctx)
   });
 };
 
@@ -22167,9 +22579,13 @@ bemap.EvseRouting.prototype.compute = function(options) {
   //data += '&evf=0.75,0.012,0.693,22,1468,100,300,2.1,-2,20,22,31';
 
   if (this.ctx.isAuthInPost()) {
-    data += '&' + this.ctx.getAuthUrlParams();
+    // Guard the separator: getAuthUrlParams() is '' with no credentials or in
+    // proxy mode, and '&' + '' would leave a stray ampersand in the POST body.
+    var _authParams = this.ctx.getAuthUrlParams();
+    if (_authParams) data += '&' + _authParams;
   } else {
-    url += '?' + this.ctx.getAuthUrlParams();
+    var _urlParams = this.ctx.getAuthUrlParams();
+    if (_urlParams) url += '?' + _urlParams;
   }
 
   data += this.buildRequest(opts);
@@ -22591,9 +23007,13 @@ bemap.Geocoder.prototype.revGeocode = function(options) {
   var data = 'version=1.0.0&action=revgeocoding&format=json';
 
   if (this.ctx.isAuthInPost()) {
-    data += '&' + this.ctx.getAuthUrlParams();
+    // Guard the separator: getAuthUrlParams() is '' with no credentials or in
+    // proxy mode, and '&' + '' would leave a stray ampersand in the POST body.
+    var _authParams = this.ctx.getAuthUrlParams();
+    if (_authParams) data += '&' + _authParams;
   } else {
-    url += '?' + this.ctx.getAuthUrlParams();
+    var _urlParams = this.ctx.getAuthUrlParams();
+    if (_urlParams) url += '?' + _urlParams;
   }
 
   data += this.buildRequest(opts);
@@ -22626,9 +23046,13 @@ bemap.Geocoder.prototype.geocode = function(options) {
   var data = 'version=1.0.0&action=geocoding&format=json';
 
   if (this.ctx.isAuthInPost()) {
-    data += '&' + this.ctx.getAuthUrlParams();
+    // Guard the separator: getAuthUrlParams() is '' with no credentials or in
+    // proxy mode, and '&' + '' would leave a stray ampersand in the POST body.
+    var _authParams = this.ctx.getAuthUrlParams();
+    if (_authParams) data += '&' + _authParams;
   } else {
-    url += '?' + this.ctx.getAuthUrlParams();
+    var _urlParams = this.ctx.getAuthUrlParams();
+    if (_urlParams) url += '?' + _urlParams;
   }
 
   data += this.buildRequest(opts);
@@ -22656,7 +23080,10 @@ bemap.Geocoder.prototype.execute = function(url, data, options) {
     function(xhr, doc) {
       _this.responseParser(xhr, doc, opts);
     }, {
-      'requestFormat': 'urlencoded'
+      'requestFormat': 'urlencoded',
+      // Proxy headers (EVMOVE-307) — fresh array per request (bemap.ajax pushes
+      // Content-Type onto it); `[]` and therefore a no-op without a proxy.
+      'headers': bemap._proxyHeaderList(_this.ctx)
     }
   );
 
@@ -22981,9 +23408,13 @@ bemap.Isochrone.prototype.compute = function(options) {
   var data = 'version=1.0.0&action=routing&mode=MODE_ISOCHRONE&format=json&options=ISOCHRONE_FORWARD,POLYLINE';
 
   if (this.ctx.isAuthInPost()) {
-    data += '&' + this.ctx.getAuthUrlParams();
+    // Guard the separator: getAuthUrlParams() is '' with no credentials or in
+    // proxy mode, and '&' + '' would leave a stray ampersand in the POST body.
+    var _authParams = this.ctx.getAuthUrlParams();
+    if (_authParams) data += '&' + _authParams;
   } else {
-    url += '?' + this.ctx.getAuthUrlParams();
+    var _urlParams = this.ctx.getAuthUrlParams();
+    if (_urlParams) url += '?' + _urlParams;
   }
 
   data += this.buildRequest(opts);
@@ -23211,23 +23642,34 @@ bemap.snippet = bemap.snippet || {};
  * @since 1.5.0
  * @param {bemap.Context} ctx
  * @param {Object} [opts]
- * @param {Boolean} [opts.includeCredentials=false] When `true` AND ctx.login/ctx.password are set, emit the real values instead of placeholders.
+ * @param {Boolean} [opts.includeCredentials=false] When `true` AND ctx.login/ctx.password are set, emit the real values instead of placeholders. **Ignored in proxy mode** (`ctx.proxy`): a credential is never printed, and `proxy`/`bemapEnv` are emitted instead.
  * @return {String}
  */
 bemap.snippet.contextLine = function(ctx, opts) {
     if (!ctx) return 'var ctx = new bemap.Context({ /* ... */ });';
     opts = opts || {};
-    var includeCreds = opts.includeCredentials === true;
-    var loginVal = (includeCreds && typeof ctx.login === 'string' && ctx.login.length)
-        ? JSON.stringify(ctx.login)
-        : "'your-login'";
-    var passVal = (includeCreds && typeof ctx.password === 'string' && ctx.password.length)
-        ? JSON.stringify(ctx.password)
-        : "'your-password'";
-    var lines = [
-        '    login: ' + loginVal + ',',
-        '    password: ' + passVal + ','
-    ];
+    // PROXY MODE (EVMOVE-307): the whole point is that no BeMap credential is in
+    // the browser, so a copy-paste snippet must never print one — regardless of
+    // `includeCredentials` — and must instead show the `proxy`/`bemapEnv` config
+    // that actually makes the shown code work.
+    var ctxProxy = (typeof ctx.getProxy === 'function') ? ctx.getProxy() : ctx.proxy;
+    var includeCreds = (opts.includeCredentials === true) && !ctxProxy;
+    var lines = [];
+    if (ctxProxy) {
+        lines.push('    proxy: ' + JSON.stringify(ctxProxy) + ',');
+        var envVal = (typeof ctx.getBemapEnv === 'function') ? ctx.getBemapEnv() : ctx.bemapEnv;
+        if (envVal) lines.push('    bemapEnv: ' + JSON.stringify(envVal) + ',');
+        lines.push('    // no login/password — your proxy injects the credentials');
+    } else {
+        var loginVal = (includeCreds && typeof ctx.login === 'string' && ctx.login.length)
+            ? JSON.stringify(ctx.login)
+            : "'your-login'";
+        var passVal = (includeCreds && typeof ctx.password === 'string' && ctx.password.length)
+            ? JSON.stringify(ctx.password)
+            : "'your-password'";
+        lines.push('    login: ' + loginVal + ',');
+        lines.push('    password: ' + passVal + ',');
+    }
     if (ctx.host) lines.push('    host: ' + JSON.stringify(ctx.host) + ',');
     if (ctx.protocol) lines.push('    secure: ' + (ctx.protocol === 'https') + ',');
     if (ctx.path && ctx.path !== '/bgis/') lines.push('    path: ' + JSON.stringify(ctx.path) + ',');
@@ -26341,6 +26783,10 @@ bemap.EvVehicles.prototype.brandLogo = function(brandId, options) {
  * with the correct `Content-Type`. Customers fetch this with their own
  * auth (Basic via `Authorization` header) and turn the response into a
  * `Blob` URL for `<img src>`.
+ *
+ * **In proxy mode** (`ctx.proxy`, EVMOVE-307) do NOT add an `Authorization`
+ * header — the URL already points at the proxy, which injects the credentials
+ * server-side. Fetch it with no auth header at all.
  *
  * @public
  * @since 1.5.0

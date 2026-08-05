@@ -141,6 +141,19 @@ provision a login/password tied to the services your contract covers
 (WMS, BeNomad Tiles, Geocoding v2, Routing v2, POI v2, EV Smart Routing,
 etc.).
 
+> 🔒 **Production: don't ship credentials to the browser.** `ctx.login` /
+> `ctx.password` are readable by anyone in DevTools. Two supported patterns keep
+> them on your server — pick the smaller one that fits:
+>
+> | Pattern | Covers | Guide |
+> | --- | --- | --- |
+> | **Token provider** | tiles only (your backend mints a short-lived token) | [`docs/integration-tiles-token-provider.md`](docs/integration-tiles-token-provider.md) |
+> | **`proxy` option** | everything — maps **and** services; the browser holds no credential at all | [`docs/integration-proxy.md`](docs/integration-proxy.md) |
+>
+> With `proxy` set the SDK sends no `Authorization`, no `appid`/`appcode` — even
+> if credentials are still present in the config. Inline credentials remain fine
+> for demos and evaluations.
+
 The dashboard's topbar exposes a **Credentials** button (next to
 "Open ↗" / "← Dashboard"). Clicking it opens a small panel with login +
 password inputs. Saved values persist in `localStorage` under

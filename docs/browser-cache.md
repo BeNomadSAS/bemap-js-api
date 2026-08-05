@@ -235,6 +235,13 @@ Applies uniformly to the pmtiles Range interceptor, MapLibre's
 `login`/`logout`. Unset ⇒ `auto`. `rangeCacheMode` is a separate option
 (cache behaviour, not auth) and is unchanged.
 
+> **Behind a `proxy` the wire is always `header`.** With `ctx.proxy` set
+> (see [integration-proxy.md](integration-proxy.md)) the login response comes from
+> your proxy's origin, so a session cookie set there could never be sent on the
+> direct tile requests to `tilesHost`. The SDK therefore forces the token-header
+> wire; an explicit `tilesAuth:'cookie'` is overridden with a console warning
+> (`'query'` is honoured). Nothing to configure.
+
 ### Cookie mode details (auto-selected same-site)
 
 `bemap.TilesAuth` sends `credentials: 'include'` on

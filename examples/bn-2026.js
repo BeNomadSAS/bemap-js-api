@@ -138,12 +138,17 @@
   };
 
   // Markdown sources outside the sidebar manifest (orphan docs that aren't
-  // linked from anywhere). Kept here so they're still findable by search.
-  var SEARCH_ORPHAN_MARKDOWN = [
-    { href: '#page-../docs/attributions-widget.md',  label: 'Attributions widget' },
-    { href: '#page-../docs/style-customisation.md',  label: 'Style customisation' },
-    { href: '#page-../docs/services-v2/SERVICES.md', label: 'Services v2 reference' }
-  ];
+  // linked from anywhere), so search can still reach them.
+  //
+  // Currently EMPTY: every shipped `docs/*.md` guide now has a real entry in
+  // bn-sidebar-manifest.js (see its "Integration & security" section), which is
+  // both the sidebar tree AND the search index source. Duplicating them here
+  // would mean hand-syncing two lists — `_addToIndex` de-dupes on
+  // `href|title|heading`, so a label typo in one copy would silently produce two
+  // search hits for the same page. Add an entry ONLY for a doc that is
+  // deliberately not in the sidebar. `src-test/test-docs-discoverability.js`
+  // fails if a shipped doc is reachable from neither place.
+  var SEARCH_ORPHAN_MARKDOWN = [];
 
   function buildSearchBox() {
     var input = el('input', {

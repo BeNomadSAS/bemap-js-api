@@ -172,5 +172,17 @@ var bnSidebarManifest = [
       { label: 'MapLibre guide',              href: '#page-guide-maplibre.md',         chips: [{label:'DOC'}] },
       { label: 'API reference (JSDoc)',       href: '../dist/doc/index.html', target: '_blank', chips: [{label:'API',kind:'brand'}] }
     ]
+  },
+
+  {
+    label: 'Integration & security',
+    children: [
+      { label: 'Proxy — credential-less browser', href: '#page-../docs/integration-proxy.md',                 chips: [{label:'DOC'},{label:'NEW',kind:'accent'}] },
+      { label: 'Tiles token provider',            href: '#page-../docs/integration-tiles-token-provider.md',  chips: [{label:'DOC'}] },
+      { label: 'ZXY tiles (server / mobile)',     href: '#page-../docs/integration-zxy-tiles-mobile.md',      chips: [{label:'DOC'}] },
+      { label: 'Style customisation',             href: '#page-../docs/style-customisation.md',               chips: [{label:'DOC'}] },
+      { label: 'Attributions widget',             href: '#page-../docs/attributions-widget.md',               chips: [{label:'DOC'}] },
+      { label: 'Services v2 reference',           href: '#page-../docs/services-v2/SERVICES.md',              chips: [{label:'DOC'}] }
+    ]
   }
 ];

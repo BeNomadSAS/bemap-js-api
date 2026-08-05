@@ -95,6 +95,7 @@ uniform API. Same code, three engines.
 - `bemap.Context({ host, secure, login, password, authInPost, geoserver?, tilesHost?, tilesFile?, tilesStyle?, glyphsUrl? })`
   - `tilesHost` must be paired with `host` per env (beta/preprod/prod). MapLibre map = which PMTiles map: `tilesFile → geoserver → 'default'` (server-resolved); a geoserver-INHERITED name absent from the Worker's `/api/maps` catalog (e.g. WMS-only `herehlp`) falls back to `'default'` — an explicit `tilesFile` pin never falls back (its 403 surfaces as a config signal). `glyphsUrl` overrides the font host (default: no bundled fonts — the tiny fallback is font-free; server styles fetch glyphs from the Worker).
   - Archive versioning (v2.0.1): `.getTilesVersion(name?)` / `.setTilesVersion(name, token)` — per-map version tokens, auto-discovered from the Worker's `/api/maps` after login; `getTilesFileUrl()` then appends `?v=<token>` so a rebuilt archive busts the browser cache. Never set on raw external archive URLs.
+  - `proxy` + `bemapEnv` (v2.0.2) — credential-less mode: `new bemap.Context({ proxy: 'https://<their-proxy>', tilesHost: '…' })` with NO `login`/`password`. The consumer's own server injects the credentials. With `proxy` set the SDK sends no `Authorization` and no `appid`/`appcode` ANYWHERE (even if credentials are also configured); services + WMS + the tiles login go through the proxy, while tile bytes and `/api/*` stay direct to `tilesHost`. `bemapEnv` → `X-BeMap-Env` header (sent only when non-empty). Helpers: `.getProxyHeaders()` (object) / `.getProxyHeadersList()` (`[{key,value}]` for `bemap.ajax`). Full contract: `docs/integration-proxy.md`. **Never invent a proxy URL in generated code — use a placeholder like `https://your-proxy.example.com` and tell the user to supply theirs.**
 - `bemap.LeafletMap(ctx, target, options?)` — Leaflet engine
 - `bemap.Ol3Map(ctx, target, options?)` / `bemap.OlMap` — OpenLayers v10 engine
 - `bemap.MapLibreMap(ctx, target, options?)` — MapLibre v5 engine (BeNomad Tiles)
@@ -235,6 +236,10 @@ All are constructed as `new bemap.<Class>(ctx)`.
   wrapper.
 - **Confusing `bemap.Color(r,g,b)` and `bemap.Color(r,g,b,a)`** — alpha
   is OPTIONAL (defaults to 1), but if you pass it must be 0–1 (not 0–255).
+- **Shipping `login`/`password` in a PRODUCTION client config** — they are
+  readable in DevTools. Recommend `docs/integration-proxy.md` (the `proxy`
+  option, covers services + maps) or `docs/integration-tiles-token-provider.md`
+  (tiles only). Inline credentials are acceptable only for demos/evaluation.
 
 ## Examples / tutorials shipped in the zip
 
@@ -246,6 +251,9 @@ All are constructed as `new bemap.<Class>(ctx)`.
   (one Context flag + class swap).
 - `docs/integration-tiles-token-provider.md` — keep BeNomad credentials
   server-side; mint short-lived JWTs from your backend (browser apps).
+- `docs/integration-proxy.md` — the `proxy` option: run fully
+  credential-less in the browser by routing services + WMS + the tiles login
+  through the consumer's own server (concept + contract; no worked example).
 - `docs/integration-zxy-tiles-mobile.md` — server / mobile / fleet: the
   ZXY vector-tile endpoint + the `Content-Encoding: gzip` decode rule
   (decompress exactly once).
@@ -291,7 +299,7 @@ All are constructed as `new bemap.<Class>(ctx)`.
 
 ## Versioning
 
-- Latest: **v2.0.1** (see [CHANGELOG.md](CHANGELOG.md)).
+- Latest: **v2.0.2** (see [CHANGELOG.md](CHANGELOG.md)).
 - BeNomad Tiles features (`MapLibreMap`, SW cache, JWT auth) require v2.
 - v1 consumers (BFleet, EVMove5, zone-optimizer, BeMap-Doc) keep
   working on v2 unchanged — the full suite (2,287 specs, including the

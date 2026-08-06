@@ -307,10 +307,14 @@ bemap.Context = function (options) {
 
   /**
    * OPTIONAL — put your own proxy in front of BeMap so credentials never reach
-   * the browser (EVMOVE-307). An origin, optionally plus a path prefix:
-   * `'https://my-proxy.example.com'` or `'https://my-proxy.example.com/bemap'`.
-   * Normalised once here (trailing slash stripped) and stored back, so every
-   * consumer reads the canonical form.
+   * the browser (EVMOVE-307). Written like `host`: a bare host is enough and the
+   * `https://` prefix is **optional**, with a path prefix if your proxy lives
+   * under one —
+   * `'my-proxy.example.com'`, `'my-proxy.example.com/bemap'`,
+   * `'https://my-proxy.example.com'`, `'localhost:8787'`.
+   * When no scheme is written, the protocol comes from `secure` exactly as it
+   * does for `host`. Normalised once here (canonical `origin[+path]`, trailing
+   * slash stripped) and stored back, so every consumer reads the same form.
    *
    * When set: REST/WMS URLs (`getBaseUrl()`) and the tiles login
    * (`getTilesLoginUrl()`) go through the proxy, no BeMap credentials are sent
@@ -318,14 +322,16 @@ bemap.Context = function (options) {
    * `password` are also configured. Tile BYTES still go direct to `tilesHost`
    * (a public host), so tile auth uses the token header wire.
    *
-   * Throws on a URL carrying a query/fragment, a relative URL, or a
-   * non-`http(s)` scheme — a mangled proxy URL would surface later as
-   * unexplained 404s.
+   * A query/fragment or embedded credentials are dropped with a one-shot console
+   * warning; only a value with no usable host left (a non-`http(s)` scheme, or a
+   * string that is not a host at all) throws — silently turning proxy mode OFF
+   * would fall back to direct requests, i.e. leak the very credentials this
+   * option exists to hide.
    * @public
    * @since 2.0.2
    * @type {string|null}
    */
-  this.proxy = bemap.Context._normalizeProxy(opts.proxy);
+  this.proxy = bemap.Context._normalizeProxy(opts.proxy, this.protocol + ':');
 
   /**
    * OPTIONAL — environment selector for a multi-environment proxy, sent as the
@@ -583,49 +589,227 @@ bemap.Context._resolveAutoMode = function (cfg, tilesHost, appHost) {
 };
 
 /**
- * Normalise + validate a `proxy` option (EVMOVE-307). Accepts
- * `https://host`, `https://host/`, `https://host/prefix`, `https://host/prefix/`
- * and returns `origin + pathname` with any trailing slash stripped — so
- * composing it with `this.path` (which starts with `/`) can never produce `//`.
+ * Matches an EXPLICIT scheme prefix (`https://`, `http://`, `ftp://`, …).
  *
- * Rejects loudly (throws) a URL with a `?query` or `#fragment`, a relative URL,
- * or a non-`http(s)` scheme: a silently mangled proxy URL surfaces later as
- * unexplained 404s. A falsy input returns `null` (proxy mode off).
+ * The `://` is required, and detection MUST be done on this prefix rather than
+ * by trying to parse: `new URL('localhost:8787')` does **not** throw — it parses
+ * as scheme `localhost:` with path `8787`. Sniffing "does it parse?" would
+ * therefore turn a bare `host:port` into silent garbage.
+ * @private
+ * @since 2.0.2
+ */
+bemap.Context._PROXY_SCHEME_RE = /^[a-zA-Z][a-zA-Z0-9+.\-]*:\/\//;
+
+/**
+ * One-shot console notices emitted by `_normalizeProxy`, keyed by kind, so a
+ * config mistake is reported once per page instead of on every read (the proxy
+ * is re-normalised on every `getProxy()`).
+ * @private
+ * @since 2.0.2
+ */
+bemap.Context._proxyWarned = {};
+
+/**
+ * Emit `message` at most once per `key` for the lifetime of the page.
+ * @private
+ * @since 2.0.2
+ * @param {String} key
+ * @param {String} message
+ * @param {String} [level] `'warn'` (default) or `'error'`
+ */
+bemap.Context._warnProxyOnce = function (key, message, level) {
+  if (bemap.Context._proxyWarned[key]) return;
+  bemap.Context._proxyWarned[key] = true;
+  if (typeof console === 'undefined') return;
+  if (level === 'error' && console.error) { console.error(message); return; }
+  if (console.warn) console.warn(message);
+};
+
+/**
+ * Is a WORKING WHATWG `URL` constructor available? Feature-*tested*, not sniffed:
+ * IE11 exposes `window.URL` (for `createObjectURL`) but `new URL(...)` throws, so
+ * `typeof URL` alone would be wrong. Memoised on first call.
+ * @private
+ * @since 2.0.2
+ * @return {boolean}
+ */
+bemap.Context._hasNativeUrl = function () {
+  if (bemap.Context._nativeUrlOk === undefined) {
+    var ok = false;
+    try { ok = (new URL('http://a.example/b').host === 'a.example'); } catch (e) { ok = false; }
+    bemap.Context._nativeUrlOk = ok;
+  }
+  return bemap.Context._nativeUrlOk;
+};
+
+/**
+ * Parse an ABSOLUTE `http(s)` URL into the subset of the `URL` interface
+ * `_normalizeProxy` reads (`protocol`, `username`, `password`, `origin`,
+ * `pathname`, `search`, `hash`). Uses the native `URL` when there is one.
+ *
+ * The fallback exists because `proxy` is the ONLY modern-API dependency on the
+ * legacy path: a Leaflet/OpenLayers app calling v1 services through a proxy uses
+ * `<img>` tiles and `XMLHttpRequest` — no `fetch`, no `Promise` — so requiring
+ * `URL` here would have locked those consumers out of proxy mode alone. It is a
+ * deliberately CONSERVATIVE parser: `scheme://[user:pass@]host[:port][/path]`,
+ * where `host` is a DNS name, an IPv4 literal, or a **bracketed** IPv6 literal.
+ *
+ * Where it matches the native `URL` exactly: lower-casing the host, dropping a
+ * default port (`:80`/`:443`), preserving path case and percent-encoding, and
+ * stripping userinfo/query/fragment from the origin. Two canonicalisations it
+ * cannot do in ES5, and how each is handled so the result is never a silent
+ * divergence:
+ *   - **non-ASCII host** — a modern browser would punycode it (IDNA). REJECTED
+ *     here with a message naming the fix (write the `xn--…` form).
+ *   - **abbreviated IPv4 (`127.1` → `127.0.0.1`) and a non-canonical IPv6
+ *     literal** — passed through as written rather than expanded/compressed. The
+ *     request still resolves (the browser re-parses the URL itself); only the
+ *     string differs, and the one place that string-compares origins
+ *     (MapLibre's `transformRequest`) needs a modern browser anyway.
+ * @private
+ * @since 2.0.2
+ * @param {String} candidate An absolute URL (scheme already prefixed).
+ * @return {Object} A `URL`-like object.
+ */
+bemap.Context._parseProxyUrl = function (candidate) {
+  if (bemap.Context._hasNativeUrl()) return new URL(candidate);   // throws on a bad URL
+  // The host alternation takes a BRACKETED IPv6 literal first: '[::1]:8787' would
+  // otherwise stop the host at '[' (the class excludes ':'), leaving the rest in
+  // the path — which re-joins to the right string but breaks port handling, so
+  // `[::1]:443` would keep its default port where a browser drops it.
+  var m = /^(https?):\/\/(?:([^\/?#@]*)@)?(\[[0-9A-Fa-f:.]+\]|[^\/?#:@]+)(?::(\d+))?([^?#]*)(\?[^#]*)?(#[\s\S]*)?$/i.exec(candidate);
+  if (!m) throw new Error('bemap.Context: cannot parse `proxy` URL');
+  var scheme = m[1].toLowerCase();
+  var userinfo = m[2] || '';
+  var host = m[3].toLowerCase();
+  var port = m[4] || '';
+  var colon = userinfo.indexOf(':');
+  // No IDNA in ES5: a Unicode host would stay Unicode here while a modern browser
+  // would punycode it. Say so instead of producing a quietly different origin.
+  if (/[^\x00-\x7F]/.test(host)) {
+    // Flagged so `_normalizeProxy` re-throws THIS message instead of replacing it
+    // with the generic "must be a host or an http(s) URL" one — the actionable
+    // part is *why* it was refused (write punycode), which the generic text loses.
+    var idnaErr = new Error('bemap.Context: `proxy` host must be ASCII on a browser without the URL API — write the punycode form (e.g. "xn--bcher-kva.example")');
+    idnaErr.bemapProxyDetail = true;
+    throw idnaErr;
+  }
+  // Drop a default port so the origin matches what `URL` would produce.
+  if ((scheme === 'http' && port === '80') || (scheme === 'https' && port === '443')) port = '';
+  return {
+    protocol: scheme + ':',
+    username: (colon >= 0) ? userinfo.substring(0, colon) : userinfo,
+    password: (colon >= 0) ? userinfo.substring(colon + 1) : '',
+    origin: scheme + '://' + host + (port ? (':' + port) : ''),
+    pathname: m[5] || '',
+    search: m[6] || '',
+    hash: m[7] || ''
+  };
+};
+
+/**
+ * Normalise + validate a `proxy` option (EVMOVE-307) into the canonical
+ * `origin[+path]` form, with any trailing slash stripped — so composing it with
+ * `this.path` (which starts with `/`) can never produce `//`.
+ *
+ * **The scheme is optional.** `proxy` is written like `host`: a bare host is
+ * enough and inherits its protocol from `secure`, so
+ * `{ secure: true, proxy: 'my-proxy.example.com' }` and
+ * `{ proxy: 'https://my-proxy.example.com' }` are the same thing. Accepted:
+ * `my-proxy.example.com`, `my-proxy.example.com/prefix`, `localhost:8787`,
+ * `//my-proxy.example.com`, and every `http(s)://…` form (unchanged).
+ *
+ * Forgiving where a human's intent is unambiguous: a `?query`/`#fragment` or
+ * embedded `user:pass@` credentials are dropped with a one-shot console notice
+ * rather than refusing to boot. It still THROWS when nothing usable is left (a
+ * non-`http(s)` scheme, or a string that is not a host) — silently turning proxy
+ * mode off is the dangerous outcome, because the SDK would then fall back to
+ * direct requests and send the very credentials `proxy` exists to hide.
+ * A falsy input returns `null` (proxy mode off, no throw).
  *
  * @public
  * @since 2.0.2
  * @param {String} [raw]
+ * @param {String} [defaultProtocol] `'https:'` (default) or `'http:'` — the
+ *        Context passes its own `protocol` (i.e. `secure`) here.
  * @return {String|null}
  */
-bemap.Context._normalizeProxy = function (raw) {
+bemap.Context._normalizeProxy = function (raw, defaultProtocol) {
   if (raw === undefined || raw === null || raw === '') return null;
   if (typeof raw !== 'string') {
-    throw new Error('bemap.Context: `proxy` must be an absolute http(s) URL string, got ' + (typeof raw));
+    throw new Error('bemap.Context: `proxy` must be a host or an http(s) URL string, got ' + (typeof raw));
   }
   var s = raw.trim();
   if (!s) return null;
-  // NEVER interpolate the raw value into an error: a URL carrying userinfo
-  // (`https://user:pass@host`) would put a password into an Error message that
-  // an uncaught-error handler or crash reporter then captures.
+  // NEVER interpolate the raw value into an error or a warning: a URL carrying
+  // userinfo (`https://user:pass@host`) would put a password into an Error
+  // message that an uncaught-error handler or crash reporter then captures.
   var shown = bemap.Context._redactForMessage(s);
+  // Whitespace is never legitimate in a host, and engines disagree on what to do
+  // with it: Node/Ada rejects `https://not a url`, Chrome percent-encodes it into
+  // a garbage host instead of throwing. Decide it here so the behaviour is the
+  // same in every browser.
+  if (/\s/.test(s)) {
+    throw new Error('bemap.Context: `proxy` must not contain whitespace — got "' + shown + '"');
+  }
+  // A scheme-like prefix that is NOT `http://` or `https://` must be REJECTED,
+  // never re-read as a bare host. 'https:/host' (one slash) would otherwise take
+  // the bare-host branch, get a second prefix, and normalise to the host "https"
+  // with path "/host" — a request to a nonexistent host instead of a clear error.
+  // The one legitimate colon in a bare value is a numeric port ('localhost:8787').
+  if (/^[a-zA-Z][a-zA-Z0-9+.\-]*:/.test(s) &&
+      !bemap.Context._PROXY_SCHEME_RE.test(s) &&
+      !/^[^:\/?#]+:\d+(?:[\/?#]|$)/.test(s)) {
+    throw new Error('bemap.Context: `proxy` looks like a malformed URL — write "https://host", "http://host", or just "host" (optionally "host:port") — got "' + shown + '"');
+  }
+  // A ROOT-RELATIVE value ('/api/bemap') must be rejected BEFORE the bare-host
+  // branch: the URL parser skips any run of slashes after a special scheme
+  // ('https:///api/bemap' resolves to host "api", path "/bemap"), so it would
+  // silently point every request at a nonsense host. A same-origin proxy is a
+  // separate feature — the origin matcher used by MapLibre's transformRequest
+  // works on absolute origins — so say so instead of guessing.
+  if (/^[\/\\]/.test(s) && s.indexOf('//') !== 0) {
+    throw new Error('bemap.Context: `proxy` must name a HOST (e.g. "my-proxy.example.com" or "https://my-proxy.example.com") — a root-relative path like "' + shown + '" is not supported');
+  }
+  // An unknown/absent protocol falls back to https: — the safe default, and what
+  // any proxy reachable from a production page must speak anyway.
+  var proto = (defaultProtocol === 'http:' || defaultProtocol === 'https:') ? defaultProtocol : 'https:';
+  var candidate;
+  if (bemap.Context._PROXY_SCHEME_RE.test(s)) candidate = s;      // explicit scheme wins, as written
+  else if (s.indexOf('//') === 0) candidate = proto + s;          // protocol-relative '//host'
+  else candidate = proto + '//' + s;                              // bare 'host[:port][/prefix]'
   var u;
   try {
-    u = new URL(s);
+    u = bemap.Context._parseProxyUrl(candidate);
   } catch (e) {
-    throw new Error('bemap.Context: `proxy` must be an ABSOLUTE http(s) URL (e.g. "https://my-proxy.example.com"), got "' + shown + '"');
+    // A parser error that already explains itself (and never echoes the raw value)
+    // survives; only an opaque parse failure is replaced by the generic guidance.
+    if (e && e.bemapProxyDetail) throw e;
+    throw new Error('bemap.Context: `proxy` must be a host (e.g. "my-proxy.example.com") or an http(s) URL (e.g. "https://my-proxy.example.com"), got "' + shown + '"');
   }
   if (u.protocol !== 'http:' && u.protocol !== 'https:') {
-    throw new Error('bemap.Context: `proxy` must use http:// or https://, got "' + shown + '"');
+    throw new Error('bemap.Context: `proxy` must use http:// or https:// — or no scheme at all, which follows `secure` — got "' + shown + '"');
+  }
+  // `u.origin` already excludes userinfo, query and fragment, so these are
+  // dropped by construction; warn so the author learns it rather than wondering.
+  if (u.username || u.password) {
+    bemap.Context._warnProxyOnce('userinfo',
+      '[bemap.Context] `proxy` embeds credentials (user:pass@host) — they are IGNORED.\n' +
+      '   The proxy holds the BeMap credentials server-side; the browser must carry none.', 'error');
   }
   if (u.search || u.hash) {
-    throw new Error('bemap.Context: `proxy` must not carry a query string or fragment, got "' + shown + '"');
+    bemap.Context._warnProxyOnce('querystring',
+      '[bemap.Context] `proxy` carries a query string or fragment — it is IGNORED.\n' +
+      '   Expected a host or an origin plus an optional path prefix, got "' + shown + '".');
   }
-  // Reject embedded credentials outright rather than silently dropping them:
-  // `new URL().origin` excludes userinfo, so `https://u:p@host` would otherwise
-  // normalise to `https://host` and the author would never learn their secret
-  // was ignored (and possibly logged elsewhere).
-  if (u.username || u.password) {
-    throw new Error('bemap.Context: `proxy` must not embed credentials (user:pass@host) — the proxy holds them server-side');
+  // A proxy reached over http:// from an https:// page is blocked as mixed
+  // content by every browser, with an error that does not name the cause.
+  if (u.protocol === 'http:' && typeof window !== 'undefined' && window.location &&
+      window.location.protocol === 'https:') {
+    bemap.Context._warnProxyOnce('mixedcontent',
+      '[bemap.Context] `proxy` resolves to http:// on an https:// page — the browser\n' +
+      '   will BLOCK every request to it (mixed content). Set `secure: true` (which\n' +
+      '   also drives `host`), or write the scheme explicitly: "https://…".');
   }
   // Collapse any repeated slashes inside the path (`https://h//pre` → `/pre`)
   // and strip the trailing one, so composing with `this.path` (which begins
@@ -928,7 +1112,9 @@ bemap.Context.prototype.getBaseUrl = function () {
  */
 bemap.Context.prototype.getProxy = function () {
   if (this.proxy !== this._proxyChecked) {
-    this._proxyResolved = bemap.Context._normalizeProxy(this.proxy);
+    // Pass our own protocol so a scheme-less late write ('my-proxy.example.com')
+    // follows `secure`, exactly like one passed to the constructor.
+    this._proxyResolved = bemap.Context._normalizeProxy(this.proxy, this.protocol + ':');
     this._proxyChecked = this.proxy;
     this.cacheBaseUrl = null;          // origin changed → rebuild on next read
   }
@@ -937,18 +1123,47 @@ bemap.Context.prototype.getProxy = function () {
 
 /**
  * Set (or clear with `null`) the proxy at runtime, validating + normalising it
- * and invalidating the base-URL memo. Prefer passing `proxy` to the constructor;
- * this exists for config layers that mutate a live Context.
+ * and invalidating the base-URL memo. Accepts the same shapes as the constructor
+ * option, including a bare host (the protocol follows `secure`).
+ *
+ * **Set `proxy` BEFORE constructing a map.** This exists for config layers that
+ * mutate a live Context, and everything URL-shaped follows immediately
+ * (`getBaseUrl()`, `getAuthUrlParams()`, `getTilesLoginUrl()`, all v1/v2 service
+ * calls, and — for a map that already had a proxy — MapLibre's per-request env
+ * header). What it CANNOT retrofit:
+ *   - a `bemap.MapLibreMap` built on a proxy-less Context has no proxy
+ *     `transformRequest` wrapper installed at all, so it will never send
+ *     `X-BeMap-Env` (its tile auth is untouched, and services still switch);
+ *   - **no URL already built into a live map is rewritten** — a MapLibre WMS/raster
+ *     source added to the style, and any Leaflet/OpenLayers layer, keep the URL
+ *     they were created with, so their requests keep going to the OLD proxy (only
+ *     the env header follows the new one). Rebuild the source/layer — or re-apply
+ *     the style — to move that traffic;
+ *   - a tiles JWT already minted for the previous proxy stays in use until it
+ *     expires or `TilesAuth.logout()` clears it.
  * @public
  * @since 2.0.2
  * @param {String|null} raw
  * @return {bemap.Context} this
  */
 bemap.Context.prototype.setProxy = function (raw) {
-  this.proxy = bemap.Context._normalizeProxy(raw);
+  var before = this.proxy || null;
+  this.proxy = bemap.Context._normalizeProxy(raw, this.protocol + ':');
   this._proxyChecked = this.proxy;
   this._proxyResolved = this.proxy;
   this.cacheBaseUrl = null;
+  // Swapping one live proxy for another is the case that looks like it worked but
+  // only half did: URLs already baked into a map (a MapLibre WMS source, a Leaflet
+  // or OpenLayers layer) still point at the OLD proxy, and nothing rewrites them.
+  // Say it once rather than let it surface as half the traffic on the old origin.
+  if (before && this.proxy && before !== this.proxy) {
+    bemap.Context._warnProxyOnce('switch',
+      '[bemap.Context] `proxy` changed after it was already set. URLs already built\n' +
+      '   into existing map sources/layers (MapLibre WMS sources, Leaflet/OpenLayers\n' +
+      '   layers) still point at the previous proxy — rebuild the layer or the style\n' +
+      '   to move them. Services, WMS URLs built from now on, and the tiles login\n' +
+      '   follow the new value immediately.');
+  }
   return this;
 };
 
@@ -6101,7 +6316,9 @@ bemap.MapLibreMap = function(context, target, options) {
   this._keyboardOptions = _ctrl.keyboard;
   // MapLibre accepts exactly ONE transformRequest, so tile auth and the proxy
   // env header must be COMPOSED into a single function (EVMOVE-307 #7).
-  if (this._tilesAuth || (context && context.proxy)) {
+  // getProxy() (not the raw field) so a pre-construction raw write is validated
+  // and normalised here, exactly as getBaseUrl() would.
+  if (this._tilesAuth || (context && (typeof context.getProxy === 'function' ? context.getProxy() : context.proxy))) {
     _nativeOpts.transformRequest = bemap.MapLibreMap._buildTransformRequest(context, this._tilesAuth);
   }
   this.native = new maplibregl.Map(_nativeOpts);
@@ -7189,6 +7406,13 @@ bemap.MapLibreMap._applyTilesSliceOpts = function (opts) {
  * raw prefix test would also match `https://<proxy-host>.evil.com/…` and leak
  * the header to an attacker-controlled origin.
  *
+ * The proxy is resolved from the Context **per request** (memoised until it
+ * changes), not captured here, so a later `ctx.setProxy()` re-targets matching
+ * and headers together. One caveat remains, documented on `setProxy()`: a map
+ * built on a Context that had NO proxy gets no wrapper at all (see the retrocompat
+ * line below), so it cannot pick one up afterwards — set `proxy` before
+ * constructing the map.
+ *
  * With no `ctx.proxy` the tile-auth function is returned UNWRAPPED, so existing
  * consumers get byte-identical behaviour.
  *
@@ -7204,17 +7428,38 @@ bemap.MapLibreMap._buildTransformRequest = function (ctx, tilesAuth) {
   var proxy = ctx && (typeof ctx.getProxy === 'function' ? ctx.getProxy() : ctx.proxy);
   if (!proxy) return inner || undefined;          // unchanged path (retrocompat)
 
-  // Parse the proxy ONCE: origin must match exactly, and the request path must
-  // be the prefix itself or sit under it ('<prefix>/…').
-  var pOrigin = null, pPath = '';
-  try {
-    var pu = new URL(proxy);
-    pOrigin = pu.origin;
-    pPath = (pu.pathname || '').replace(/\/+$/, '');
-  } catch (e) { /* normalisation already validated it; stay silent */ }
+  // Resolve the proxy PER REQUEST (memoised until it changes) rather than
+  // capturing it here. `ctx.setProxy()` is a public runtime API, and the headers
+  // below are read live from the Context: a captured origin would then match the
+  // OLD proxy while stamping the NEW environment header on it, and requests to
+  // the new proxy would get no header at all. Cost is one string compare per
+  // request; re-parsing happens only when the value actually changes.
+  var cachedFor = null, pOrigin = null, pPath = '';
+  function resolveProxyOrigin() {
+    var cur;
+    // getProxy() re-validates on read and THROWS on a bad late write. MapLibre's
+    // transformRequest must never throw (it would break the request pipeline), so
+    // treat an unusable proxy as "no proxy" here — the same bad value surfaces
+    // loudly on the next getBaseUrl()/login call.
+    try { cur = (typeof ctx.getProxy === 'function') ? ctx.getProxy() : ctx.proxy; }
+    catch (e) { cur = null; }
+    if (cur !== cachedFor) {
+      cachedFor = cur;
+      pOrigin = null;
+      pPath = '';
+      if (cur) {
+        try {
+          var pu = new URL(cur);
+          pOrigin = pu.origin;
+          pPath = (pu.pathname || '').replace(/\/+$/, '');
+        } catch (e2) { /* normalisation already validated it; stay silent */ }
+      }
+    }
+    return pOrigin;
+  }
 
   function isProxyUrl(url) {
-    if (!pOrigin) return false;
+    if (!resolveProxyOrigin()) return false;
     var parsed;
     try {
       parsed = new URL(url, (typeof window !== 'undefined' && window.location && window.location.href) || 'http://localhost/');
@@ -7229,7 +7474,11 @@ bemap.MapLibreMap._buildTransformRequest = function (ctx, tilesAuth) {
     var out = inner ? inner(url, resourceType) : null;
     if (!out) out = { url: url };
     if (isProxyUrl(url)) {
-      var ph = (typeof ctx.getProxyHeaders === 'function') ? ctx.getProxyHeaders() : {};
+      // Same rule as resolveProxyOrigin(): never let a Context read throw out of
+      // transformRequest (getProxyHeaders → getProxy → re-validation).
+      var ph = {};
+      try { if (typeof ctx.getProxyHeaders === 'function') ph = ctx.getProxyHeaders(); }
+      catch (e) { ph = {}; }
       var hasAny = false;
       for (var k in ph) { if (Object.prototype.hasOwnProperty.call(ph, k)) { hasAny = true; break; } }
       if (hasAny) {

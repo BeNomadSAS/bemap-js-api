@@ -471,6 +471,57 @@ bemap.Context = function (options) {
    * @type {Object|String|null}
    */
   this.tilesAuth = opts.tilesAuth || null;
+
+  /**
+   * INTERNAL — a function returning a `Promise` that resolves to a BeMap
+   * **session id**, used instead of `login`/`password` when the host application
+   * already holds a session and cannot ship a password. It is re-invoked on
+   * EVERY login, including every renewal: a session captured once is already
+   * stale by the time the first token renewal is due.
+   *
+   * Only a **function** enables the mode. Any other value is stored as `null`,
+   * so a mis-typed option can never half-enable it (it falls through to the
+   * normal credential path and its existing error).
+   *
+   * NOT part of the supported API — undocumented, unadvertised, and subject to
+   * change without notice. Customers use `login` + `password`.
+   * @private
+   * @type {Function|null}
+   */
+  this.tilesSessionProvider = (typeof opts.tilesSessionProvider === 'function')
+    ? opts.tilesSessionProvider : null;
+  // Report the mistake HERE, where it was made. Normalising silently to `null`
+  // would otherwise hide a mis-typed provider until the first tile fails to load,
+  // with a "missing credentials" message pointing at the wrong fix.
+  if (opts.tilesSessionProvider != null && typeof opts.tilesSessionProvider !== 'function') {
+    bemap.Context._warnBadSessionProvider(opts.tilesSessionProvider);
+  }
+};
+
+/**
+ * INTERNAL — one-shot flag for {@link bemap.Context._warnBadSessionProvider}.
+ * @private
+ */
+bemap.Context._badSessionProviderWarned = false;
+
+/**
+ * INTERNAL — report, once per page, that `tilesSessionProvider` was given a
+ * value that cannot be called. Shared by the constructor, the setter and
+ * `TilesAuth.login()` so the same mistake reads the same way wherever it is
+ * caught: the constructor/setter cover the normal path, while `login()` still
+ * covers a RAW property write (`bemap.RuntimeConfig`'s `set` trap assigns
+ * unknown keys straight onto the Context, bypassing both).
+ * @private
+ * @param {*} value the offending value — its TYPE is reported, never the value
+ */
+bemap.Context._warnBadSessionProvider = function (value) {
+  if (bemap.Context._badSessionProviderWarned) return;
+  bemap.Context._badSessionProviderWarned = true;
+  if (typeof console !== 'undefined' && console.warn) {
+    console.warn('[bemap.Context] `tilesSessionProvider` is set but is not a function (got ' +
+      (typeof value) + ') — session mode is OFF.\n' +
+      '   It must be a function returning a Promise that resolves to the session id.');
+  }
 };
 
 /**
@@ -864,6 +915,20 @@ bemap.Context.prototype.getTilesAuth = function () {
 bemap.Context.prototype.getTilesBaseUrl = function () {
   if (!this.tilesHost) return null;
   return this.tilesProtocol + '//' + this.tilesHost + (this.tilesPath || '');
+};
+
+/**
+ * INTERNAL — attach (or clear) the tiles session provider on a live Context.
+ * Anything that is not a function clears it, so a mis-typed value can never
+ * half-enable session mode. See `this.tilesSessionProvider`.
+ * @private
+ * @param {Function|null} fn
+ * @return {bemap.Context} this
+ */
+bemap.Context.prototype.setTilesSessionProvider = function (fn) {
+  this.tilesSessionProvider = (typeof fn === 'function') ? fn : null;
+  if (fn != null && typeof fn !== 'function') bemap.Context._warnBadSessionProvider(fn);
+  return this;
 };
 
 /**
@@ -3325,6 +3390,87 @@ bemap.Map.prototype.spinGlobe = function (options) { this._maplibreOnly('spinGlo
  * `map.on('error:maplibre-only', fn)`.
  * ============================================================ */
 
+/**
+ * Report that the ACTIVE engine does not implement `methodName`, then no-op.
+ *
+ * The base class is a hand-maintained stub list, and it was only half populated
+ * (BEMAP-1898 audit). The same defect — an engine not implementing an overlay
+ * method — therefore failed two different ways: silently (`return this` for the
+ * names that were listed) or with `TypeError: … is not a function` (for the ones
+ * that were not). Neither told the developer anything useful, and the silent half
+ * is how several Leaflet gaps shipped unnoticed.
+ *
+ * Every previously-absent name now lands here: one console.warn per method per
+ * map, plus a `bemap.Error` on the map's error channel, then a harmless no-op.
+ * A TypeError becomes a visible warning; a silent nothing becomes a visible
+ * warning. Nothing that already worked changes.
+ * @protected
+ * @since 2.0.2
+ * @param {String} methodName
+ * @return {bemap.Map} this
+ */
+bemap.Map.prototype._notSupportedByEngine = function (methodName) {
+  // `this.constructor.name` is NOT usable here: `bemap.OlMap = function(){}` is a
+  // member-expression assignment, which gets no name inference, and uglify
+  // mangles what little there is. Resolve by instanceof against whichever
+  // engines were actually loaded.
+  var engine = 'this map engine';
+  if (typeof bemap.LeafletMap === 'function' && this instanceof bemap.LeafletMap) engine = 'bemap.LeafletMap';
+  else if (typeof bemap.MapLibreMap === 'function' && this instanceof bemap.MapLibreMap) engine = 'bemap.MapLibreMap';
+  else if (typeof bemap.OlMap === 'function' && this instanceof bemap.OlMap) engine = 'bemap.OlMap';
+  if (!this._unsupportedWarned) this._unsupportedWarned = {};
+  if (!this._unsupportedWarned[methodName]) {
+    this._unsupportedWarned[methodName] = true;
+    if (typeof console !== 'undefined' && console.warn) {
+      console.warn('bemap: ' + methodName + '() is not implemented by ' + engine +
+        ' — the call did nothing. Use another engine for this feature, or file it as a gap.');
+    }
+  }
+  if (typeof bemap.Error === 'function' && typeof this._fireError === 'function') {
+    this._fireError(new bemap.Error({
+      code: bemap.Error.INVALID_ARGUMENT,
+      message: methodName + '() is not implemented by ' + engine,
+      context: { method: methodName, engine: engine }
+    }));
+  }
+  return this;
+};
+
+/**
+ * Overlay methods that some engines implement and others do not. Declaring the
+ * surface in ONE place is the point: previously nothing in the codebase knew
+ * which methods were supposed to exist, so a gap was undetectable. The
+ * cross-engine parity spec (src-test/test-engine-parity.js) reads this list.
+ * @protected
+ * @since 2.0.2
+ */
+bemap.Map.ENGINE_SURFACE = [
+  'onPolygons', 'onCircles', 'onMultiMarker',
+  'draggableCircles', 'draggablePolygons',
+  'setCoordinateMarker', 'setCoordinateCircle', 'setRadiusCircle',
+  'updateCircleCenter', 'updatePolygonCoordinates',
+  'buildTextStyle', 'buildPolygonStyle', 'buildCircleStyle',
+  'getXYFromCoordinate'
+];
+
+/* Install a warn-and-no-op fallback for every name in ENGINE_SURFACE that the
+   base class did not define. Engines that DO implement a name override it, so
+   this only ever runs where the alternative was a TypeError. */
+(function () {
+  var names = bemap.Map.ENGINE_SURFACE;
+  for (var i = 0; i < names.length; i++) {
+    var name = names[i];
+    if (typeof bemap.Map.prototype[name] !== 'function') {
+      /* jshint -W083 */
+      bemap.Map.prototype[name] = (function (methodName) {
+        return function () {
+          return this._notSupportedByEngine(methodName);
+        };
+      })(name);
+    }
+  }
+})();
+
 bemap.Map.prototype._maplibreOnly = function (methodName) {
   if (!this._maplibreOnlyWarned) this._maplibreOnlyWarned = {};
   if (!this._maplibreOnlyWarned[methodName]) {
@@ -3380,6 +3526,36 @@ bemap.Map.prototype._fireError = function (err) {
  * @public
  * @since 2.0.0
  */
+/**
+ * Wire `on('error' | 'error:auth' | 'error:network' | 'error:maplibre-only')`
+ * through to the error channel, and report whether it did.
+ *
+ * The class doc for `_onError` has always claimed "the library version of `on()`
+ * calls this when the event name starts with 'error'" — but the base `on()` is an
+ * abstract `return new bemap.Listener()`, and all three engines override it and
+ * route straight to `_onFeature` / the native map. So the DOCUMENTED way to
+ * observe auth, tile and network failures silently subscribed to nothing on
+ * every engine (BEMAP-1898 audit).
+ *
+ * Deliberately ADDITIVE: each engine calls this first and then continues with
+ * whatever it did before, so a consumer relying on an engine's native `'error'`
+ * event (MapLibre fires one) keeps receiving it — it now simply also receives the
+ * `bemap.Error` objects that `_fireError` produces.
+ * @protected
+ * @since 2.0.2
+ * @param {String} eventType
+ * @param {Function} callback
+ * @return {Boolean} true when the error channel was subscribed
+ */
+bemap.Map.prototype._subscribeErrorChannel = function (eventType, callback) {
+  if (typeof eventType === 'string' && eventType.indexOf('error') === 0 &&
+      typeof callback === 'function') {
+    this._onError(eventType, callback);
+    return true;
+  }
+  return false;
+};
+
 bemap.Map.prototype._onError = function (channel, callback) {
   if (typeof callback !== 'function') return;
   this._errorListeners = this._errorListeners || { all: [], auth: [], network: [], maplibreOnly: [] };
@@ -4453,9 +4629,35 @@ bemap.OlMap.prototype._onFeature = function (declaredObj, eventType, callback, o
  * @return {bemap.Listener} listner.
  */
 bemap.OlMap.prototype.on = function (eventType, callback, options) {
+  // 'error*' also reaches the map's error channel — the documented behaviour that
+  // this override used to drop (BEMAP-1898 audit). Additive: the _onFeature call
+  // below still happens exactly as before.
+  this._subscribeErrorChannel(eventType, callback);
   return this._onFeature(this, eventType, callback, options, {
     singleFeature: true
   });
+};
+
+/**
+ * Resolve the WMS "GetFeatureInfo URL" method of an OL source, across OL versions.
+ *
+ * OpenLayers 10 dropped the doubled "Get" on BOTH `TileWMS` and `ImageWMS`
+ * (`getGetFeatureInfoUrl` → `getFeatureInfoUrl`); the argument list is unchanged.
+ * The SDK still called the OL 4/5/6 name, so on OL 10 every SINGLECLICK inside
+ * `onGetFeatureInfo`'s listener threw `getGetFeatureInfoUrl is not a function` —
+ * click-to-query was entirely dead, and no spec caught it because the existing
+ * coverage never attaches a map and so never fires the click (BEMAP-1898 audit).
+ *
+ * Kept as a testable static rather than inlined, so a spec can exercise the real
+ * resolution instead of re-implementing it.
+ * @private
+ * @param {ol.source.Source} source
+ * @return {Function|null} the method, unbound — call it with `.call(source, …)`
+ */
+bemap.OlMap._featureInfoUrlGetter = function (source) {
+  if (!source) return null;
+  var fn = source.getFeatureInfoUrl || source.getGetFeatureInfoUrl;
+  return (typeof fn === 'function') ? fn : null;
 };
 
 /**
@@ -4469,6 +4671,7 @@ bemap.OlMap.prototype.on = function (eventType, callback, options) {
  */
 bemap.OlMap.prototype.onGetFeatureInfo = function (layer, options) {
   var opts = options ? options : {};
+  var _this = this;
   var popup = new bemap.Popup({
     information: "<p>onGetFeatureInfo</p>",
     coordinate: new bemap.Coordinate(0, 0),
@@ -4477,16 +4680,24 @@ bemap.OlMap.prototype.onGetFeatureInfo = function (layer, options) {
   this.addPopup(popup);
 
   var listener = this.on(bemap.Map.EventType.SINGLECLICK, function (evt) {
-    var url = layer.native
-      .getSource()
-      .getGetFeatureInfoUrl(
-        evt.native.coordinate,
-        evt.native.map.getView().getResolution(),
-        evt.native.map.getView().getProjection(), {
+    var source = layer.native.getSource();
+    var getUrl = bemap.OlMap._featureInfoUrlGetter(source);
+    if (!getUrl) {
+      _this._fireError(new bemap.Error({
+        code: bemap.Error.INVALID_ARGUMENT,
+        message: 'onGetFeatureInfo: the layer source exposes no getFeatureInfoUrl() — it must be a WMS source (ol.source.TileWMS / ol.source.ImageWMS)'
+      }));
+      return;
+    }
+    var url = getUrl.call(
+      source,
+      evt.native.coordinate,
+      evt.native.map.getView().getResolution(),
+      evt.native.map.getView().getProjection(), {
         'INFO_FORMAT': 'text/xml',
         'propertyName': 'NAME,AREA_CODE,DESCRIPTIO'
       }
-      );
+    );
 
     bemap.ajax('GET', url, null, function (xhr, data) {
       evt.listener = listener;
@@ -4621,7 +4832,11 @@ bemap.OlMap.prototype._draggableFeature = function (declaredObj, callback, optio
           coordinate: _this._fromNativeToLonLat(evt.coordinate),
           startX: startPixel[0],
           startY: startPixel[1],
-          startCoordinate: _this._fromNativeToLonLat(evt.coordinate),
+          // Was `evt.coordinate` — the SAME expression as `coordinate` above —
+          // so startCoordinate always equalled the END of the drag and every
+          // consumer computing a delta got zero. The captured mouse-down value
+          // was dead code. (BEMAP-1898 audit; startX/startY were already right.)
+          startCoordinate: _this._fromNativeToLonLat(startCoordinate),
           properties: options
         });
 
@@ -5156,10 +5371,10 @@ bemap.LeafletMap = function (context, target, options) {
     }).addTo(this.native);
   }
 
-  // overload the pointer events
-  bemap.Map.EventType.POINTERUP = 'mouseup';
-  bemap.Map.EventType.POINTERDOWN = 'mousedown';
-  bemap.Map.EventType.POINTERMOVE = 'mouseover';
+  // NOTE: this constructor used to rewrite bemap.Map.EventType.POINTERUP/
+  // POINTERDOWN/POINTERMOVE in place. See bemap.LeafletMap.EVENT_ALIAS below —
+  // the translation now happens per `on()` call, leaving the shared enum
+  // immutable.
 
   // Attribution widget (v1.5.0) — auto-instantiated unless options.attribution === false
   if (typeof bemap.AttributionWidget === 'function') {
@@ -5171,6 +5386,40 @@ bemap.LeafletMap = function (context, target, options) {
   }
 };
 bemap.inherits(bemap.LeafletMap, bemap.Map);
+
+/**
+ * Leaflet's native names for the three pointer events whose bemap constant has
+ * no Leaflet equivalent — Leaflet fires `mouseup`/`mousedown`/`mouseover`, never
+ * `pointerup`/`pointerdown`/`pointermove`.
+ *
+ * This used to be done by REWRITING `bemap.Map.EventType` inside the LeafletMap
+ * constructor. That enum is shared by all three engines, so on a page holding
+ * more than one map (the examples dashboard offers all three) whichever engine
+ * was constructed last redefined the constants for the others — and constructing
+ * a LeafletMap leaked into unrelated code, which is why Leaflet could not be
+ * loaded in the test harness at all. Translating per call fixes both.
+ * @public
+ * @since 2.0.2
+ */
+bemap.LeafletMap.EVENT_ALIAS = {
+  pointerup: 'mouseup',
+  pointerdown: 'mousedown',
+  pointermove: 'mouseover'
+};
+
+/**
+ * Translate a `bemap.Map.EventType` value to the event name Leaflet listens for.
+ * Unknown/other types pass through untouched.
+ * @private
+ * @param {String} eventType
+ * @return {String}
+ */
+bemap.LeafletMap._nativeEventName = function (eventType) {
+  var alias = bemap.LeafletMap.EVENT_ALIAS;
+  return (typeof eventType === 'string' && Object.prototype.hasOwnProperty.call(alias, eventType))
+    ? alias[eventType]
+    : eventType;
+};
 
 /**
  * Toggle keyboard navigation (arrow-pan + `+`/`-` zoom) at runtime.
@@ -5539,7 +5788,14 @@ bemap.LeafletMap.prototype.removeLayer = function (layer) {
 bemap.LeafletMap.prototype.on = function (eventType, callback, options) {
   var opts = options ? options : {};
 
-  var nativeListener = this.native.on(eventType, function (evt) {
+  // 'error*' also reaches the map's error channel (BEMAP-1898 audit). Additive:
+  // the native binding below is unchanged.
+  this._subscribeErrorChannel(eventType, callback);
+
+  // Translate here, not by mutating the shared enum (see EVENT_ALIAS).
+  var nativeType = bemap.LeafletMap._nativeEventName(eventType);
+
+  var nativeListener = this.native.on(nativeType, function (evt) {
     var mapEvent = new bemap.MapEvent({
       native: evt,
       bemapObject: this,
@@ -5554,9 +5810,12 @@ bemap.LeafletMap.prototype.on = function (eventType, callback, options) {
   var listener = new bemap.Listener({
     native: nativeListener,
     callback: callback,
+    // `key` stays the BEMAP type (consumers and specs read it); `nativeKey`
+    // records what Leaflet was actually bound to, so an unbind can be exact.
     key: eventType,
     bemapObject: this
   });
+  listener.nativeKey = nativeType;
   return listener;
 };
 
@@ -5743,17 +6002,14 @@ bemap.LeafletMap.prototype.removeHeatmap = function (id) {
 };
 
 /**
- * Leaflet has no native rotation. Every available BSD/MIT rotation
- * plugin is either GPL-licensed (`leaflet-rotate`), forks Leaflet
- * (`leaflet-rotate-map` — replaces our dependency, dormant, only
- * 2 stars, known re-center bug in Leaflet #7365), or breaks
- * interactivity (CSS pane transform). Direct customers to
- * MapLibreMap or OlMap for rotation.
- *
- * @deprecated Since 2.0 — use setBearing(deg) for the cross-engine
- *             API. On Leaflet both methods warn and no-op identically.
- * @param {Number} deg
- * @return {bemap.LeafletMap} this
+ * (Removed here, BEMAP-1898 audit: a SECOND, superseded doc block sat above the
+ * one below, claiming "on Leaflet both methods warn and no-op identically".
+ * That stopped being true when the CSS-pane rotation below was implemented —
+ * `rotation()` really rotates, and it emits `console.info`, not a warning. Two
+ * stacked blocks also meant JSDoc only ever published the lower one, so the
+ * contradiction was invisible in the generated reference. It went unnoticed
+ * because the spec asserting the old behaviour could never run: Leaflet was not
+ * loaded in the Karma harness.)
  */
 /**
  * Visually rotate the Leaflet map by applying a CSS `transform: rotate` to
@@ -7106,6 +7362,10 @@ bemap.MapLibreMap.prototype._onFeature = function(declaredObj, eventType, callba
 
 // Public event methods — all delegate to _onFeature
 bemap.MapLibreMap.prototype.on = function(eventType, callback, options) {
+  // 'error*' also reaches the map's error channel (BEMAP-1898 audit). Additive:
+  // MapLibre's own native 'error' event still arrives via _onFeature below, so a
+  // consumer already listening for tile/style failures keeps getting them.
+  this._subscribeErrorChannel(eventType, callback);
   return this._onFeature(this, eventType, callback, options, { singleFeature: true });
 };
 
@@ -11469,7 +11729,11 @@ bemap.Color = function(red, green, blue, alpha) {
 };
 
 bemap.Color.prototype._check = function(n) {
-  return Math.min(Math.round(n), 255);
+  // The lower bound was missing, so a negative channel survived and
+  // _toHexString() rendered it as e.g. "#-5ff0a" — six characters, so a length
+  // check passes, but invalid CSS. Every engine then silently fell back to its
+  // own default colour and the feature drew in the wrong one (BEMAP-1898 audit).
+  return Math.max(0, Math.min(Math.round(n), 255));
 };
 
 bemap.Color.prototype._toHexString = function(n) {
@@ -13346,7 +13610,7 @@ bemap.MultiMarker.prototype.setName = function(name) {
  * @public
  * @return {bemap.TextStyle} Return the bemap.TextStyle that define the style of text.
  */
-bemap.Marker.prototype.getTextStyle = function() {
+bemap.MultiMarker.prototype.getTextStyle = function() {
     return this.textStyle;
 };
 
@@ -13356,7 +13620,7 @@ bemap.Marker.prototype.getTextStyle = function() {
  * @param {bemap.TextStyle} icon the new text style to set.
  * @return {bemap.MultiMarker} this
  */
-bemap.Marker.prototype.setTextStyle = function(textStyle) {
+bemap.MultiMarker.prototype.setTextStyle = function(textStyle) {
     this.textStyle = textStyle;
     return this;
 };
@@ -15481,27 +15745,57 @@ bemap.OlMap.prototype.addCircle = function(circle, options) {
 };
 
 /**
+ * Rebuild a circle's native geometry from its CURRENT centre + radius (BEMAP-1898).
+ *
+ * `addCircle` builds the native as `ol.geom.Polygon.circular(...)` — a **Polygon**,
+ * whose coordinates are nested two deep (`[[[x,y],…]]`). A Polygon has no radius and
+ * no centre to poke, so both setters have to rebuild it, exactly the way `addCircle`
+ * does. The previous code instead pushed a FLAT `[x,y]` pair into
+ * `Polygon#setCoordinates`, which OL 4/5/6 tolerated (it produced a degenerate
+ * `[[],[]]`) but OL 10 rejects: `setLayout` descends two levels, lands on
+ * `undefined` and reads `.length` → `TypeError: Cannot read properties of undefined
+ * (reading 'length')`. That is the crash reported on the BeMap docs portal.
+ *
+ * `Number()` on the radius is deliberate: callers pass `<input>` values, which are
+ * strings. OL 10.8.0 happens to coerce them, but relying on that is luck.
+ * @private
+ * @param {bemap.Circle} circle
+ * @param {bemap.Coordinate} center
+ * @return {bemap.OlMap} this
+ */
+bemap.OlMap.prototype._rebuildCircleGeometry = function(circle, center) {
+  var geometry = ol.geom.Polygon.circular(
+    center.getLonLatArray(), Number(circle.getRadius()), 128);
+  geometry.transform(bemap.Map.PROJ.EPSG_WGS84, this.native.getView().getProjection());
+  circle.native.setGeometry(geometry);
+  return this;
+};
+
+/**
  * Set the coordinates of the circle.
  * @protected
- * @param {bemap.Circle} circle the circle object to remove.
+ * @param {bemap.Circle} circle the circle object to move.
  * @return {bemap.OlMap} this
  */
 bemap.OlMap.prototype.setCoordinateCircle = function(circle) {
-  var c = circle.getCenter();
-  circle.native.getGeometry().setCoordinates(this._fromLonLat(c.getLon(), c.getLat()));
-  return this;
+  // `getCoordinate()`, NOT `getCenter()`: getCenter() calls updateCircleCenter(),
+  // which overwrites circle.coordinate from the geometry that is still at the OLD
+  // position — so reading it here would throw away the centre we were just asked
+  // to move to and re-apply the previous one. `setCenter()` was a no-op for that
+  // reason even before the crash above (BEMAP-1898).
+  return this._rebuildCircleGeometry(circle, circle.getCoordinate());
 };
 
 /**
  * Set the radius of the circle.
  * @protected
- * @param {bemap.Circle} circle the circle object to remove.
+ * @param {bemap.Circle} circle the circle object to resize.
  * @return {bemap.OlMap} this
  */
 bemap.OlMap.prototype.setRadiusCircle = function(circle) {
-  var c = circle.getCenter();
-  circle.native.getGeometry().setCoordinates(this._fromLonLat(c.getLon(), c.getLat()));
-  return this;
+  // getCenter() is right here: the centre is NOT changing, and syncing it from the
+  // live geometry first keeps a circle that has been dragged in place.
+  return this._rebuildCircleGeometry(circle, circle.getCenter());
 };
 
 /**
@@ -15580,11 +15874,11 @@ bemap.OlMap.prototype.updateCircleCenter = function(circle) {
     circle.coordinate = new bemap.Coordinate(circ[0], circ[1]);
   }
 
-  if (circle.coordinate.length > cir.length) {
-    for (var j = cir.length; j < circle.coordinate.length; j++) {
-      circle.coordinate.pop();
-    }
-  }
+  // (Removed here, BEMAP-1898: a block that compared `circle.coordinate.length`
+  // against the extent's length and called `circle.coordinate.pop()`. A
+  // bemap.Coordinate is a plain `{lon, lat}` object — no `length`, no `pop` — so
+  // the guard was always `undefined > 4` === false and the body was unreachable.
+  // Had it ever run it would have thrown "pop is not a function".)
 };
 
 /**
@@ -17740,13 +18034,49 @@ bemap.LeafletMap.prototype.addPolygon = function(polygon, options) {
 };
 
 /**
- * Remove a polygon from his layer.
+ * Sync a polygon's MODEL coordinates FROM its native geometry.
+ *
+ * Direction matters, and this engine had it backwards (BEMAP-1898 audit).
+ * `bemap.Polygon.getCoordinates()` calls this and *then* returns `this.coords`,
+ * so the contract is a READ: native → model. That is what the OL engine does.
+ * Leaflet instead did `native.setLatLngs(polygon.getLatLonArrays())` — model →
+ * native — with two consequences:
+ *   • any native-side change (a vertex edit, a drag) was silently OVERWRITTEN by
+ *     the stale model on the next getCoordinates() call, and never reported;
+ *   • inside draggablePolygon's mousemove the native was reset to the previous
+ *     position, so the shape rendered one mousemove behind the cursor and landed
+ *     one delta short. The handler compensated with a manual delta loop, which
+ *     is removed now that this reads the right way round.
  * @public
- * @param {bemap.Polygon} polygon the polygon object to remove.
+ * @param {bemap.Polygon} polygon
+ * @return {bemap.LeafletMap} this
  */
 bemap.LeafletMap.prototype.updatePolygonCoordinates = function(polygon) {
   if (polygon && polygon.native && bemap.inheritsof(polygon, bemap.Polygon)) {
-    polygon.native.setLatLngs(polygon.getLatLonArrays());
+    // L.Polygon nests rings; descend until the elements are LatLngs, so a simple
+    // polygon ([[LatLng,…]]) and a multi-ring one both resolve to the outer ring.
+    var ring = polygon.native.getLatLngs();
+    while (ring && ring.length && ring[0] && ring[0].lat === undefined) {
+      ring = ring[0];
+    }
+    if (!ring) return this;
+
+    for (var i = 0; i < ring.length; i++) {
+      var coord = polygon.coords[i];
+      if (coord && coord !== null && bemap.inheritsof(coord, bemap.Coordinate)) {
+        // Mutate in place, like OL: a consumer may hold a reference.
+        coord.setLon(ring[i].lng);
+        coord.setLat(ring[i].lat);
+      } else {
+        polygon.coords[i] = new bemap.Coordinate(ring[i].lng, ring[i].lat);
+      }
+    }
+    // Drop any model vertices the native no longer has (same as OL).
+    if (polygon.coords.length > ring.length) {
+      for (var j = polygon.coords.length; j > ring.length; j--) {
+        polygon.coords.pop();
+      }
+    }
   }
   return this;
 };
@@ -17834,10 +18164,12 @@ bemap.LeafletMap.prototype.draggablePolygon = function(polygon, callback, option
       }
       polygon.native.setLatLngs(newRings);
 
-      var coords = polygon.getCoordinates();
-      for (var j = 0; j < coords.length; j++) {
-        coords[j].setLon(coords[j].getLon() + dLng).setLat(coords[j].getLat() + dLat);
-      }
+      // The native has already moved; pull the model from it. This used to add
+      // the delta to the model BY HAND, which was only correct while
+      // updatePolygonCoordinates pushed model → native (and even then it left
+      // the shape a mousemove behind). Now that the sync reads native → model,
+      // keeping the manual loop would apply the delta twice.
+      _this.updatePolygonCoordinates(polygon);
     };
 
     _this.native.on('mousemove', onMove);
@@ -18019,25 +18351,50 @@ bemap.LeafletMap.prototype.draggablePolyline = function(polyline, callback, opti
  * @param {object} options
  * @return {bemap.LeafletMap} this
  */
- bemap.LeafletMap.prototype.addPopup = function(popup, options) {
-   if (popup !== null && bemap.inheritsof(popup, bemap.Popup)) {
-     popup.native = L.popup({
-       autoPan: true
-     });
+bemap.LeafletMap.prototype.addPopup = function(popup, options) {
+  if (popup !== null && bemap.inheritsof(popup, bemap.Popup)) {
+    popup.native = L.popup({
+      autoPan: true
+    });
 
-     if (popup.map === null) {
-       popup.map = this;
-     }
-     popup.native.setLatLng(popup.getCoordinate().getLatLonArray());
-     popup.native.setContent(popup.getInformation());
-     if (!this.native.popups) {
-       this.native.popups = [];
-     }
-     this.native.popups.push(popup.native);
-     popup.native.addTo(this.native);
-   }
-   return this;
- };
+    if (popup.map === null) {
+      popup.map = this;
+    }
+    popup.native.setContent(popup.getInformation());
+    if (!this.native.popups) {
+      this.native.popups = [];
+    }
+    this.native.popups.push(popup.native);
+
+    // Track the MODEL as well, keyed on the map (same shape as MapLibre's
+    // `_bemapPopups`). `native.popups` holds L.Popup instances, so there is no
+    // route from it back to the bemap.Popup objects — which is why clearPopup()
+    // could close the natives but left every model claiming isVisible() === true,
+    // still holding `map` and a detached native.
+    if (!this._bemapPopups) this._bemapPopups = [];
+    if (this._bemapPopups.indexOf(popup) === -1) this._bemapPopups.push(popup);
+
+    // Parity with OL (bemap-map-ol-popup.js) and MapLibre: a popup is opened
+    // ONLY when it has a coordinate to sit at and has not been asked to stay
+    // hidden. This engine used to call addTo() unconditionally, which meant
+    // `visible:false` opened anyway, and a popup created without a coordinate
+    // threw a TypeError on `getCoordinate().getLatLonArray()`.
+    //
+    // Safe for existing consumers: `bemap.Popup` defaults `visible` to TRUE
+    // (bemap-popup.js), so anyone who never passes the option is unaffected —
+    // only an explicit `visible:false` behaves differently, which is the fix.
+    if (popup.coordinate !== undefined && popup.visible !== false) {
+      popup.native.setLatLng(popup.getCoordinate().getLatLonArray());
+      popup.native.addTo(this.native);
+      popup.visible = true;
+    } else {
+      // Cannot be placed (or was asked to stay closed): keep the model honest so
+      // isVisible() does not lie. Same resolution as the other two engines.
+      popup.visible = false;
+    }
+  }
+  return this;
+};
 
 /**
  * Remove a popup from the map.
@@ -18047,8 +18404,28 @@ bemap.LeafletMap.prototype.draggablePolyline = function(polyline, callback, opti
  */
 bemap.LeafletMap.prototype.removePopup = function(popup) {
   if (popup !== null && bemap.inheritsof(popup, bemap.Popup)) {
-    this.native.removeLayer(popup.native);
+    if (popup.native) {
+      this.native.removeLayer(popup.native);
+      // Drop the tracking entry too. It was never spliced, so every
+      // add/remove cycle leaked an L.Popup plus its detached DOM subtree, and
+      // clearPopup() then walked stale natives.
+      var list = this.native.popups;
+      if (list) {
+        var at = list.indexOf(popup.native);
+        if (at !== -1) {
+          list.splice(at, 1);
+        }
+      }
+      popup.native = null;
+    }
+    popup.visible = false;
     popup.map = null;
+  }
+  // Drop the model entry too, whether or not it still had a native, so a
+  // repeated remove cannot leave a stale reference behind.
+  if (popup && this._bemapPopups) {
+    var mAt = this._bemapPopups.indexOf(popup);
+    if (mAt !== -1) this._bemapPopups.splice(mAt, 1);
   }
   return this;
 };
@@ -18058,21 +18435,63 @@ bemap.LeafletMap.prototype.removePopup = function(popup) {
 * @return {bemap.LeafletMap} this;
  */
 bemap.LeafletMap.prototype.clearPopup = function() {
-var native = this.native;
-if (native.popups && native.popups.length !== 0) {
-  // Copy the array first — forEach + splice on the same array skips
-  // every other element (classic mutate-while-iterating bug).
-  var pending = native.popups.slice();
-  for (var i = 0; i < pending.length; i++) {
-    native.removeLayer(pending[i]);
+  var native = this.native;
+
+  // Go through removePopup() for every tracked MODEL, so each bemap.Popup ends
+  // up in the same state a single removePopup() leaves it in: visible = false,
+  // map = null, native released, tracking entries dropped. Closing only the
+  // native layers (what this used to do) left every model reporting
+  // isVisible() === true while holding a detached L.Popup — the same stale-state
+  // bug that was fixed on MapLibre, and it is fixed the same way here.
+  var owned = this._bemapPopups ? this._bemapPopups.slice() : [];
+  for (var m = 0; m < owned.length; m++) {
+    this.removePopup(owned[m]);
   }
-  native.popups.length = 0;
+  this._bemapPopups = [];
+
+  // Then sweep any native left in `native.popups` that had no model behind it —
+  // a popup added before this tracking existed, or one pushed there directly.
+  // Copy first: forEach + splice on the same array skips every other element.
+  if (native.popups && native.popups.length !== 0) {
+    var pending = native.popups.slice();
+    for (var i = 0; i < pending.length; i++) {
+      native.removeLayer(pending[i]);
+    }
+    native.popups.length = 0;
+  }
+  // `return this` used to sit INSIDE the `if`, so calling clearPopup() on a map
+  // with no popups returned undefined and broke the documented chaining
+  // contract — `map.clearPopup().addPopup(p)` threw on a fresh map.
   return this;
-}
-//alternative way to close all popups
- /*if ($(".leaflet-popup-close-button")[0]) {
-    $(".leaflet-popup-close-button")[0].click();
-  }*/
+};
+
+/**
+ * Show or hide a popup.
+ *
+ * Added in the BEMAP-1898 audit. LeafletMap had no implementation, so
+ * `popup.show()` / `popup.hide()` / `popup.setVisible()` (bemap-popup.js) fell
+ * through to the base-class no-op (bemap-map.js) and did nothing at all: on
+ * Leaflet there was NO way to close a popup, and `isVisible()` kept reporting
+ * whatever the constructor was given. OL and MapLibre both implement it.
+ * @public
+ * @param {bemap.Popup} popup
+ * @param {boolean} visible
+ * @return {bemap.LeafletMap} this
+ */
+bemap.LeafletMap.prototype.setVisiblePopup = function(popup, visible) {
+  if (popup !== null && bemap.inheritsof(popup, bemap.Popup) && popup.native) {
+    if (visible && popup.coordinate !== undefined) {
+      popup.visible = true;
+      popup.native.setLatLng(popup.getCoordinate().getLatLonArray());
+      popup.native.addTo(this.native);
+    } else {
+      // Includes "asked to show but has no coordinate": it cannot be placed, so
+      // report it as hidden rather than let isVisible() claim otherwise.
+      popup.visible = false;
+      this.native.closePopup(popup.native);
+    }
+  }
+  return this;
 };
 
 /**
@@ -20126,6 +20545,13 @@ bemap.MapLibreMap.prototype.addPopup = function(popup, options) {
   if (popup.information) popup.native.setHTML(popup.information);
   if (popup.map === null) popup.map = this;
 
+  // Track OUR popups per map instance so clearPopup() can be surgical. It used
+  // to sweep `document.querySelectorAll('.maplibregl-popup')`, which reached
+  // every popup on the page — other bemap maps' popups and any the host app had
+  // created itself (BEMAP-1898 audit).
+  if (!this._bemapPopups) this._bemapPopups = [];
+  if (this._bemapPopups.indexOf(popup) === -1) this._bemapPopups.push(popup);
+
   if (popup.coordinate && popup.visible !== false) {
     popup.native.setLngLat([popup.coordinate.getLon(), popup.coordinate.getLat()]);
     popup.native.addTo(this.native);
@@ -20146,8 +20572,15 @@ bemap.MapLibreMap.prototype.addPopup = function(popup, options) {
 bemap.MapLibreMap.prototype.removePopup = function(popup) {
   if (popup && popup.native) {
     popup.native.remove();
+    popup.visible = false;
     popup.map = null;
     popup.native = null;
+  }
+  // Drop the tracking entry whether or not it still had a native, so a repeated
+  // remove cannot leave a stale reference behind.
+  if (popup && this._bemapPopups) {
+    var at = this._bemapPopups.indexOf(popup);
+    if (at !== -1) this._bemapPopups.splice(at, 1);
   }
   return this;
 };
@@ -20165,11 +20598,28 @@ bemap.MapLibreMap.prototype.setVisiblePopup = function(popup, visible) {
   return this;
 };
 
+/**
+ * Remove all the popups THIS map owns.
+ *
+ * Used to be `document.querySelectorAll('.maplibregl-popup')` + `Element.remove()`,
+ * which had three faults (BEMAP-1898 audit):
+ *   • document-wide — it deleted popups belonging to other bemap maps on the
+ *     page, and any `maplibregl.Popup` the host application had created itself;
+ *   • it removed the DOM node instead of calling the popup's own `remove()`, so
+ *     MapLibre never detached its map listeners — each open/clear cycle leaked a
+ *     move + click + remove handler set;
+ *   • the bemap.Popup models were left reporting `isVisible() === true`.
+ * @public
+ * @return {bemap.MapLibreMap} this
+ */
 bemap.MapLibreMap.prototype.clearPopup = function() {
-  var popups = document.querySelectorAll('.maplibregl-popup');
-  for (var i = 0; i < popups.length; i++) {
-    popups[i].remove();
+  var owned = this._bemapPopups ? this._bemapPopups.slice() : [];
+  for (var i = 0; i < owned.length; i++) {
+    // Goes through removePopup so the native's own remove() runs (detaching its
+    // listeners), the model is marked hidden, and the tracking entry is dropped.
+    this.removePopup(owned[i]);
   }
+  this._bemapPopups = [];
   return this;
 };
 
@@ -21240,92 +21690,130 @@ bemap.TilesAuth.prototype._parseExp = function (token) {
 };
 
 /**
- * POST credentials and persist the new JWT.
- * @public
- * @param {String} [login]    Defaults to `ctx.login`.
- * @param {String} [password] Defaults to `ctx.password`.
- * @return {Promise<String>} The new JWT.
+ * INTERNAL — how long `ctx.tilesSessionProvider` may take before the login is
+ * failed. `whenTokenReady()` runs on EVERY tiles fetch, so a provider that never
+ * settles would stall the whole map with no error and no grey-tile recovery.
+ * A static (not an option) so it stays out of the public surface; tests override
+ * it. Any value `<= 0` (or a non-number) disables the timeout.
+ * @private
  */
-bemap.TilesAuth.prototype.login = function (login, password) {
+bemap.TilesAuth._sessionTimeoutMs = 10000;
+
+/**
+ * INTERNAL — normalise every way the session provider can go wrong into ONE
+ * `bemap.Error`. The session id is NEVER interpolated into the message: an
+ * uncaught-error handler or crash reporter must not capture it.
+ * @private
+ * @param {String} message
+ * @param {*} [cause]
+ * @return {bemap.Error}
+ */
+bemap.TilesAuth._sessionError = function (message, cause, code) {
+  var e = new bemap.Error({ code: code || bemap.Error.UNAUTHORIZED, message: message });
+  // `!== undefined`, not truthiness: a provider may reject with 0 or '' and the
+  // cause is still worth keeping for diagnostics.
+  if (cause !== undefined) e.cause = cause;
+  return e;
+};
+
+/**
+ * INTERNAL — the longest session id we will put in a header. Not a protocol
+ * limit; a guard so a buggy provider cannot push an unbounded value onto every
+ * login and renewal.
+ * @private
+ */
+bemap.TilesAuth._sessionMaxLength = 4096;
+
+/**
+ * INTERNAL — invoke the session provider under a timeout, converting a
+ * synchronous throw, a rejected promise, a non-string, a blank string and a
+ * header-hostile value into the same single error contract.
+ * @private
+ * @param {Function} provider
+ * @return {Promise<String>} the trimmed session id
+ */
+bemap.TilesAuth._callSessionProvider = function (provider) {
+  // `Promise.resolve().then(...)` so a SYNCHRONOUS throw inside the provider
+  // takes exactly the same path as a rejected promise — one error contract.
+  var call = Promise.resolve().then(function () {
+    return provider();
+  }).then(function (sessionId) {
+    var sid = (typeof sessionId === 'string') ? sessionId.trim() : '';
+    if (!sid) {
+      throw bemap.TilesAuth._sessionError(
+        'TilesAuth.login: the tiles session provider resolved no usable session');
+    }
+    // Anything outside printable US-ASCII cannot go in a header: `fetch` fails
+    // the request while building it, and for a NUL/control byte the engine's
+    // message QUOTES THE RAW VALUE — which would put the session id into an
+    // error a crash reporter captures, defeating the whole redaction rule. So
+    // the check is an allow-list, not a `[\r\n]` deny-list: CR, LF, NUL,
+    // U+2028/U+2029 and every non-Latin-1 code point are refused here, by us,
+    // with a message that names nothing.
+    if (/[^\x20-\x7E]/.test(sid)) {
+      throw bemap.TilesAuth._sessionError(
+        'TilesAuth.login: the tiles session provider returned a session with characters that cannot be sent in a header');
+    }
+    if (sid.length > bemap.TilesAuth._sessionMaxLength) {
+      throw bemap.TilesAuth._sessionError(
+        'TilesAuth.login: the tiles session provider returned a session longer than ' +
+        bemap.TilesAuth._sessionMaxLength + ' characters');
+    }
+    return sid;
+  }, function (cause) {
+    throw bemap.TilesAuth._sessionError('TilesAuth.login: the tiles session provider failed', cause);
+  });
+
+  var ms = bemap.TilesAuth._sessionTimeoutMs;
+  if (!(ms > 0)) return call;
+  return new Promise(function (resolve, reject) {
+    var settled = false;
+    var timer = setTimeout(function () {
+      if (settled) return;
+      settled = true;
+      // NETWORK, not UNAUTHORIZED: a portal that is slow has not refused us, and
+      // a caller reading `code` should be free to retry rather than treat it as
+      // a hard auth failure.
+      reject(bemap.TilesAuth._sessionError(
+        'TilesAuth.login: the tiles session provider timed out after ' + ms + ' ms',
+        undefined, bemap.Error.NETWORK));
+    }, ms);
+    call.then(function (v) {
+      if (settled) return;
+      settled = true; clearTimeout(timer); resolve(v);
+    }, function (e) {
+      if (settled) return;
+      settled = true; clearTimeout(timer); reject(e);
+    });
+  });
+};
+
+/**
+ * Issue the login POST and persist the resulting JWT.
+ *
+ * Extracted from `login()` verbatim so the CREDENTIAL-building step can be
+ * synchronous (Basic / proxy) or asynchronous (session mode) without duplicating
+ * the request chain — and, more importantly, so the existing paths keep their
+ * exact scheduling: `login()` still issues their `fetch` during the call itself.
+ * @private
+ * @param {String} url
+ * @param {Object} headers
+ * @param {String} credentials
+ * @param {String} [redirect] `fetch`'s redirect mode. Only session mode passes
+ *        one; omitted for Basic/proxy so their request init stays identical.
+ * @return {Promise<String>} the new JWT
+ */
+bemap.TilesAuth.prototype._startLogin = function (url, headers, credentials, redirect) {
   var self = this;
-  // Track the in-flight login promise so whenTokenReady() can await it
-  // without starting a second parallel login on every tile request.
-  if (this._loginInFlight) return this._loginInFlight;
-  var url = this.ctx && this.ctx.getTilesLoginUrl();
-  if (!url) {
-    return Promise.reject(new bemap.Error({
-      code: bemap.Error.UNAUTHORIZED,
-      message: 'TilesAuth.login: no tilesHost configured on Context'
-    }));
-  }
-  var user = login || (this.ctx && this.ctx.login);
-  var pass = password || (this.ctx && this.ctx.password);
-  // PROXY MODE (EVMOVE-307): credentials live on the proxy, so a credential-less
-  // Context is the NORMAL, supported case — skip both the rejection and the
-  // warning. No `Authorization` is ever sent; instead the proxy needs to know
-  // which mptiles environment will be read (each signs tokens with its own
-  // secret) via `X-BeMap-Tiles-Host`, plus the optional `X-BeMap-Env` selector.
-  var isProxy = !!(this.ctx && (typeof this.ctx.getProxy === 'function' ? this.ctx.getProxy() : this.ctx.proxy));
-  if (!isProxy && (!user || !pass)) {
-    // Loud, one-shot warning so the developer sees the cause immediately
-    // in the DevTools console (instead of just an unexplained 401 on the
-    // first PMTiles range request).
-    if (!bemap.TilesAuth._missingCredsWarned) {
-      bemap.TilesAuth._missingCredsWarned = true;
-      if (typeof console !== 'undefined' && console.warn) {
-        console.warn(
-          '[bemap.TilesAuth] No credentials on the Context — BeNomad Tiles\n' +
-          '   requests will all 401 because no /api/login POST can be sent.\n' +
-          '   Set `login` and `password` on your `new bemap.Context({...})`,\n' +
-          '   OR remove `tilesHost` to fall back to WMS.'
-        );
-      }
-    }
-    return Promise.reject(new bemap.Error({
-      code: bemap.Error.UNAUTHORIZED,
-      message: 'TilesAuth.login: missing credentials on Context (set ctx.login + ctx.password, or remove ctx.tilesHost)'
-    }));
-  }
-  var basic = isProxy ? null : ('Basic ' + ((typeof btoa === 'function')
-    ? btoa(user + ':' + pass)
-    : Buffer.from(user + ':' + pass).toString('base64')));
-
-  if (typeof navigator !== 'undefined' && navigator.onLine === false) {
-    self._queuedRenewal = true;
-    var err = new bemap.Error({ code: bemap.Error.OFFLINE, message: 'TilesAuth.login: offline, queued' });
-    self._onError(err);
-    return Promise.reject(err);
-  }
-
-  // In COOKIE mode, `credentials` MUST be sent so the browser STORES the
-  // Worker's `Set-Cookie: session=…; HttpOnly; Secure; SameSite=None` — without
-  // it the cookie is never stored and every tile 401s despite a valid in-memory
-  // token. In header/query mode the consumer opted out of cookies, so we use
-  // `'same-origin'` (no cross-site cookie); the body token still drives auth.
-  var loginCredentials = (self._authConfig && self._authConfig.mode === 'cookie')
-    ? (self._authConfig.credentials || 'include')
-    : 'same-origin';
-  // Header set: credentials mode sends Basic; proxy mode sends NO credential and
-  // instead tells the proxy which tiles env to mint for (+ the env selector when
-  // configured). `getProxyHeaders()` only yields X-BeMap-Env for a non-empty
-  // bemapEnv, so the literal string "null" can never reach the wire.
-  var loginHeaders = { 'Accept': 'application/json' };
-  if (isProxy) {
-    if (self.ctx.tilesHost) loginHeaders['X-BeMap-Tiles-Host'] = self.ctx.tilesHost;
-    if (typeof self.ctx.getProxyHeaders === 'function') {
-      var ph = self.ctx.getProxyHeaders();
-      for (var phk in ph) {
-        if (Object.prototype.hasOwnProperty.call(ph, phk)) loginHeaders[phk] = ph[phk];
-      }
-    }
-  } else {
-    loginHeaders['Authorization'] = basic;
-  }
-  var promise = fetch(url, {
+  var init = {
     method: 'POST',
-    credentials: loginCredentials,
-    headers: loginHeaders
-  }).then(function (resp) {
+    credentials: credentials,
+    headers: headers
+  };
+  // Added only when asked for, so the Basic/proxy init object is byte-identical
+  // to the one this code has always sent.
+  if (redirect) init.redirect = redirect;
+  return fetch(url, init).then(function (resp) {
     if (!resp.ok) {
       var code = resp.status === 401 ? bemap.Error.UNAUTHORIZED
         : resp.status === 403 ? bemap.Error.FORBIDDEN
@@ -21362,6 +21850,146 @@ bemap.TilesAuth.prototype.login = function (login, password) {
     }
     return token;
   });
+};
+
+/**
+ * POST credentials and persist the new JWT.
+ * @public
+ * @param {String} [login]    Defaults to `ctx.login`.
+ * @param {String} [password] Defaults to `ctx.password`.
+ * @return {Promise<String>} The new JWT.
+ */
+bemap.TilesAuth.prototype.login = function (login, password) {
+  var self = this;
+  // Track the in-flight login promise so whenTokenReady() can await it
+  // without starting a second parallel login on every tile request.
+  if (this._loginInFlight) return this._loginInFlight;
+  var url = this.ctx && this.ctx.getTilesLoginUrl();
+  if (!url) {
+    return Promise.reject(new bemap.Error({
+      code: bemap.Error.UNAUTHORIZED,
+      message: 'TilesAuth.login: no tilesHost configured on Context'
+    }));
+  }
+  var user = login || (this.ctx && this.ctx.login);
+  var pass = password || (this.ctx && this.ctx.password);
+  // PROXY MODE (EVMOVE-307): credentials live on the proxy, so a credential-less
+  // Context is the NORMAL, supported case — skip both the rejection and the
+  // warning. No `Authorization` is ever sent; instead the proxy needs to know
+  // which mptiles environment will be read (each signs tokens with its own
+  // secret) via `X-BeMap-Tiles-Host`, plus the optional `X-BeMap-Env` selector.
+  var isProxy = !!(this.ctx && (typeof this.ctx.getProxy === 'function' ? this.ctx.getProxy() : this.ctx.proxy));
+  // SESSION MODE (INTERNAL) — the host application already holds a BeMap session
+  // and cannot ship a password. Consulted ONLY when proxy has not already won:
+  // the provider does real work (a call to the portal) and must never run for a
+  // login that would not have used it. ONLY a function enables the mode — a
+  // truthy non-function falls through to the normal credential path and its
+  // existing error, instead of silently sending a request that can only 401.
+  var sessionProvider = (!isProxy && this.ctx && typeof this.ctx.tilesSessionProvider === 'function')
+    ? this.ctx.tilesSessionProvider : null;
+  // A provider that was SET but is not callable is a wiring mistake in the host
+  // application, not a customer misconfiguration — report it precisely, and only
+  // to whoever already tried to use the internal mode. The customer-facing
+  // missing-credentials message below stays deliberately unchanged: naming an
+  // undocumented option there would advertise it to every customer who ever
+  // forgets a password.
+  // The constructor and setter already report this, so the only way to arrive
+  // here is a RAW property write — which `bemap.RuntimeConfig`'s `set` trap does
+  // for every unknown key, straight onto the shared Context.
+  if (!isProxy && !sessionProvider && this.ctx && this.ctx.tilesSessionProvider &&
+      bemap.Context && typeof bemap.Context._warnBadSessionProvider === 'function') {
+    bemap.Context._warnBadSessionProvider(this.ctx.tilesSessionProvider);
+  }
+  if (!isProxy && !sessionProvider && (!user || !pass)) {
+    // Loud, one-shot warning so the developer sees the cause immediately
+    // in the DevTools console (instead of just an unexplained 401 on the
+    // first PMTiles range request).
+    if (!bemap.TilesAuth._missingCredsWarned) {
+      bemap.TilesAuth._missingCredsWarned = true;
+      if (typeof console !== 'undefined' && console.warn) {
+        console.warn(
+          '[bemap.TilesAuth] No credentials on the Context — BeNomad Tiles\n' +
+          '   requests will all 401 because no /api/login POST can be sent.\n' +
+          '   Set `login` and `password` on your `new bemap.Context({...})`,\n' +
+          '   OR remove `tilesHost` to fall back to WMS.'
+        );
+      }
+    }
+    return Promise.reject(new bemap.Error({
+      code: bemap.Error.UNAUTHORIZED,
+      message: 'TilesAuth.login: missing credentials on Context (set ctx.login + ctx.password, or remove ctx.tilesHost)'
+    }));
+  }
+  // Computed SYNCHRONOUSLY and exactly where it always was, so a `btoa` failure
+  // (a non-Latin-1 password) still throws out of `login()` the way it does
+  // today. Skipped entirely when a credential-less mode is active — session mode
+  // must never evaluate `user + ':' + pass`.
+  var basic = (isProxy || sessionProvider) ? null : ('Basic ' + ((typeof btoa === 'function')
+    ? btoa(user + ':' + pass)
+    : Buffer.from(user + ':' + pass).toString('base64')));
+
+  if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+    self._queuedRenewal = true;
+    var err = new bemap.Error({ code: bemap.Error.OFFLINE, message: 'TilesAuth.login: offline, queued' });
+    self._onError(err);
+    return Promise.reject(err);
+  }
+
+  // In COOKIE mode, `credentials` MUST be sent so the browser STORES the
+  // Worker's `Set-Cookie: session=…; HttpOnly; Secure; SameSite=None` — without
+  // it the cookie is never stored and every tile 401s despite a valid in-memory
+  // token. In header/query mode the consumer opted out of cookies, so we use
+  // `'same-origin'` (no cross-site cookie); the body token still drives auth.
+  var loginCredentials = (self._authConfig && self._authConfig.mode === 'cookie')
+    ? (self._authConfig.credentials || 'include')
+    : 'same-origin';
+  // Header set: credentials mode sends Basic; proxy mode sends NO credential and
+  // instead tells the proxy which tiles env to mint for (+ the env selector when
+  // configured). `getProxyHeaders()` only yields X-BeMap-Env for a non-empty
+  // bemapEnv, so the literal string "null" can never reach the wire.
+  var loginHeaders = { 'Accept': 'application/json' };
+  var promise;
+  if (sessionProvider) {
+    // The ONLY asynchronous path: the provider returns a Promise, so the header
+    // cannot be built synchronously. The two-argument `.then` is deliberate —
+    // the rejection handler sees provider failures ONLY, never a failure of
+    // `_startLogin` (which reports through `_onError` itself), so a login can
+    // never fire `_onError` twice.
+    promise = bemap.TilesAuth._callSessionProvider(sessionProvider).then(function (sessionId) {
+      // The provider round trip is the one place a login can stay pending for
+      // seconds, so it is the one place `destroy()` can realistically land in
+      // the middle of. Stop here rather than let _startLogin re-arm a renewal
+      // timer on a dead instance. (Basic/proxy issue their fetch in the same
+      // tick, so this window is specific to session mode.)
+      if (self._destroyed) {
+        throw bemap.TilesAuth._sessionError('TilesAuth.login: aborted — the auth instance was destroyed');
+      }
+      loginHeaders['X-BeMap-Session'] = sessionId;
+      // `redirect:'error'` for session mode ONLY. A browser strips
+      // `Authorization` on a cross-origin redirect, but it forwards a CUSTOM
+      // header — so a mis-pointed or hijacked login endpoint could bounce the
+      // session id to another origin. Basic/proxy keep their existing init.
+      return self._startLogin(url, loginHeaders, loginCredentials, 'error');
+    }, function (err) {
+      self._onError(err);
+      throw err;
+    });
+  } else {
+    if (isProxy) {
+      if (self.ctx.tilesHost) loginHeaders['X-BeMap-Tiles-Host'] = self.ctx.tilesHost;
+      if (typeof self.ctx.getProxyHeaders === 'function') {
+        var ph = self.ctx.getProxyHeaders();
+        for (var phk in ph) {
+          if (Object.prototype.hasOwnProperty.call(ph, phk)) loginHeaders[phk] = ph[phk];
+        }
+      }
+    } else {
+      loginHeaders['Authorization'] = basic;
+    }
+    // Unchanged scheduling: the request is issued during this call, exactly as
+    // before the session branch existed.
+    promise = this._startLogin(url, loginHeaders, loginCredentials);
+  }
   // Track and clear on settle. Both success and failure clear, so a
   // failed login does not pin a poisoned promise on subsequent calls.
   this._loginInFlight = promise;

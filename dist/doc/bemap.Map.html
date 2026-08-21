@@ -415,6 +415,74 @@
 
         
             
+<h4 class="name" id=".ENGINE_SURFACE"><span class="type-signature">(protected, static) </span>ENGINE_SURFACE<span class="type-signature"></span></h4>
+
+
+
+
+<div class="description">
+    Overlay methods that some engines implement and others do not. Declaring the
+surface in ONE place is the point: previously nothing in the codebase knew
+which methods were supposed to exist, so a gap was undetectable. The
+cross-engine parity spec (src-test/test-engine-parity.js) reads this list.
+</div>
+
+
+
+
+
+
+
+<dl class="details">
+
+    
+
+    
+    <dt class="tag-since">Since:</dt>
+    <dd class="tag-since"><ul class="dummy"><li>2.0.2</li></ul></dd>
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+    <dt class="tag-source">Source:</dt>
+    <dd class="tag-source"><ul class="dummy"><li>
+        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line1461">line 1461</a>
+    </li></ul></dd>
+    
+
+    
+
+    
+
+    
+</dl>
+
+
+
+
+
+
+        
+            
 <h4 class="name" id=".OWNREF"><span class="type-signature">(static) </span>OWNREF<span class="type-signature"></span></h4>
 
 
@@ -1796,7 +1864,7 @@ fallback and by the new auth/tile/cache error paths.
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line1432">line 1432</a>
+        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line1513">line 1513</a>
     </li></ul></dd>
     
 
@@ -1832,7 +1900,7 @@ fallback and by the new auth/tile/cache error paths.
     
 
     
-    <h4 class="name" id="_onError"><span class="type-signature"></span>_onError<span class="signature">()</span><span class="type-signature"></span></h4>
+    <h4 class="name" id="_notSupportedByEngine"><span class="type-signature">(protected) </span>_notSupportedByEngine<span class="signature">(methodName)</span><span class="type-signature"> &rarr; {<a href="bemap.Map.html">bemap.Map</a>}</span></h4>
     
 
     
@@ -1840,15 +1908,19 @@ fallback and by the new auth/tile/cache error paths.
 
 
 <div class="description">
-    Subscribe to the map's error channel. Accepts the unfiltered channel
-`'error'` and three filtered channels:
-  - `'error:auth'`         — `UNAUTHORIZED` / `FORBIDDEN`
-  - `'error:network'`      — `NETWORK` / `OFFLINE` / `RATE_LIMITED` / `TILE_LOAD_FAILED` / `STYLE_LOAD_FAILED`
-  - `'error:maplibre-only'`— `MAPLIBRE_ONLY`
+    Report that the ACTIVE engine does not implement `methodName`, then no-op.
 
-The library version of `on()` calls this when the event name starts with
-`'error'`; for other event names it delegates to the engine-specific
-implementation (see `LeafletMap.on`, `OlMap.on`, `MapLibreMap.on`).
+The base class is a hand-maintained stub list, and it was only half populated
+(BEMAP-1898 audit). The same defect — an engine not implementing an overlay
+method — therefore failed two different ways: silently (`return this` for the
+names that were listed) or with `TypeError: … is not a function` (for the ones
+that were not). Neither told the developer anything useful, and the silent half
+is how several Leaflet gaps shipped unnoticed.
+
+Every previously-absent name now lands here: one console.warn per method per
+map, plus a `bemap.Error` on the map's error channel, then a harmless no-op.
+A TypeError becomes a visible warning; a silent nothing becomes a visible
+warning. Nothing that already worked changes.
 </div>
 
 
@@ -1857,6 +1929,55 @@ implementation (see `LeafletMap.on`, `OlMap.on`, `MapLibreMap.on`).
 
 
 
+
+
+    <h5>Parameters:</h5>
+    
+
+<table class="params">
+    <thead>
+    <tr>
+        
+        <th>Name</th>
+        
+
+        <th>Type</th>
+
+        
+
+        
+
+        <th class="last">Description</th>
+    </tr>
+    </thead>
+
+    <tbody>
+    
+
+        <tr>
+            
+                <td class="name"><code>methodName</code></td>
+            
+
+            <td class="type">
+            
+                
+<span class="param-type">String</span>
+
+
+            
+            </td>
+
+            
+
+            
+
+            <td class="description last"></td>
+        </tr>
+
+    
+    </tbody>
+</table>
 
 
 
@@ -1869,7 +1990,7 @@ implementation (see `LeafletMap.on`, `OlMap.on`, `MapLibreMap.on`).
 
     
     <dt class="tag-since">Since:</dt>
-    <dd class="tag-since"><ul class="dummy"><li>2.0.0</li></ul></dd>
+    <dd class="tag-since"><ul class="dummy"><li>2.0.2</li></ul></dd>
     
 
     
@@ -1895,7 +2016,7 @@ implementation (see `LeafletMap.on`, `OlMap.on`, `MapLibreMap.on`).
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line1462">line 1462</a>
+        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line1426">line 1426</a>
     </li></ul></dd>
     
 
@@ -1920,6 +2041,28 @@ implementation (see `LeafletMap.on`, `OlMap.on`, `MapLibreMap.on`).
 
 
 
+<h5>Returns:</h5>
+
+        
+<div class="param-desc">
+    this
+</div>
+
+
+
+<dl>
+    <dt>
+        Type
+    </dt>
+    <dd>
+        
+<span class="param-type"><a href="bemap.Map.html">bemap.Map</a></span>
+
+
+    </dd>
+</dl>
+
+    
 
 
 
@@ -1990,7 +2133,7 @@ the hint; dev console gets a one-time `console.info`.
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line1632">line 1632</a>
+        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line1743">line 1743</a>
     </li></ul></dd>
     
 
@@ -2015,6 +2158,204 @@ the hint; dev console gets a one-time `console.info`.
 
 
 
+
+
+
+
+
+        
+            
+
+    
+
+    
+    <h4 class="name" id="_subscribeErrorChannel"><span class="type-signature">(protected) </span>_subscribeErrorChannel<span class="signature">(eventType, callback)</span><span class="type-signature"> &rarr; {Boolean}</span></h4>
+    
+
+    
+
+
+
+<div class="description">
+    Wire `on('error' | 'error:auth' | 'error:network' | 'error:maplibre-only')`
+through to the error channel, and report whether it did.
+
+The class doc for `_onError` has always claimed "the library version of `on()`
+calls this when the event name starts with 'error'" — but the base `on()` is an
+abstract `return new bemap.Listener()`, and all three engines override it and
+route straight to `_onFeature` / the native map. So the DOCUMENTED way to
+observe auth, tile and network failures silently subscribed to nothing on
+every engine (BEMAP-1898 audit).
+
+Deliberately ADDITIVE: each engine calls this first and then continues with
+whatever it did before, so a consumer relying on an engine's native `'error'`
+event (MapLibre fires one) keeps receiving it — it now simply also receives the
+`bemap.Error` objects that `_fireError` produces.
+</div>
+
+
+
+
+
+
+
+
+
+    <h5>Parameters:</h5>
+    
+
+<table class="params">
+    <thead>
+    <tr>
+        
+        <th>Name</th>
+        
+
+        <th>Type</th>
+
+        
+
+        
+
+        <th class="last">Description</th>
+    </tr>
+    </thead>
+
+    <tbody>
+    
+
+        <tr>
+            
+                <td class="name"><code>eventType</code></td>
+            
+
+            <td class="type">
+            
+                
+<span class="param-type">String</span>
+
+
+            
+            </td>
+
+            
+
+            
+
+            <td class="description last"></td>
+        </tr>
+
+    
+
+        <tr>
+            
+                <td class="name"><code>callback</code></td>
+            
+
+            <td class="type">
+            
+                
+<span class="param-type">function</span>
+
+
+            
+            </td>
+
+            
+
+            
+
+            <td class="description last"></td>
+        </tr>
+
+    
+    </tbody>
+</table>
+
+
+
+
+
+
+<dl class="details">
+
+    
+
+    
+    <dt class="tag-since">Since:</dt>
+    <dd class="tag-since"><ul class="dummy"><li>2.0.2</li></ul></dd>
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+    <dt class="tag-source">Source:</dt>
+    <dd class="tag-source"><ul class="dummy"><li>
+        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line1564">line 1564</a>
+    </li></ul></dd>
+    
+
+    
+
+    
+
+    
+</dl>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<h5>Returns:</h5>
+
+        
+<div class="param-desc">
+    true when the error channel was subscribed
+</div>
+
+
+
+<dl>
+    <dt>
+        Type
+    </dt>
+    <dd>
+        
+<span class="param-type">Boolean</span>
+
+
+    </dd>
+</dl>
+
+    
 
 
 
@@ -4751,7 +5092,7 @@ the registry is cleared at the end regardless.
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line1605">line 1605</a>
+        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line1716">line 1716</a>
     </li></ul></dd>
     
 
@@ -7339,7 +7680,7 @@ update; subscribe via `onEffectChange` for live notification.
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line1586">line 1586</a>
+        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line1697">line 1697</a>
     </li></ul></dd>
     
 
@@ -9468,7 +9809,7 @@ false`). The dashboard's active-effects bar consumes this.
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line1566">line 1566</a>
+        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line1677">line 1677</a>
     </li></ul></dd>
     
 
@@ -15694,7 +16035,7 @@ the map container so the engine-specific selectors all hit at once.
 <br class="clear">
 
 <footer>
-    Documentation generated by <a href="https://github.com/jsdoc/jsdoc">JSDoc 3.6.3</a> on Thu Aug 06 2026 10:35:48 GMT+0200 (heure d’été d’Europe centrale)
+    Documentation generated by <a href="https://github.com/jsdoc/jsdoc">JSDoc 3.6.3</a> on Fri Aug 21 2026 09:26:09 GMT+0200 (heure d’été d’Europe centrale)
 </footer>
 
 <script> prettyPrint(); </script>

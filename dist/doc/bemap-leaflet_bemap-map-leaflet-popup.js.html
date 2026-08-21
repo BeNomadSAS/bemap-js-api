@@ -33,25 +33,50 @@
  * @param {object} options
  * @return {bemap.LeafletMap} this
  */
- bemap.LeafletMap.prototype.addPopup = function(popup, options) {
-   if (popup !== null &amp;&amp; bemap.inheritsof(popup, bemap.Popup)) {
-     popup.native = L.popup({
-       autoPan: true
-     });
+bemap.LeafletMap.prototype.addPopup = function(popup, options) {
+  if (popup !== null &amp;&amp; bemap.inheritsof(popup, bemap.Popup)) {
+    popup.native = L.popup({
+      autoPan: true
+    });
 
-     if (popup.map === null) {
-       popup.map = this;
-     }
-     popup.native.setLatLng(popup.getCoordinate().getLatLonArray());
-     popup.native.setContent(popup.getInformation());
-     if (!this.native.popups) {
-       this.native.popups = [];
-     }
-     this.native.popups.push(popup.native);
-     popup.native.addTo(this.native);
-   }
-   return this;
- };
+    if (popup.map === null) {
+      popup.map = this;
+    }
+    popup.native.setContent(popup.getInformation());
+    if (!this.native.popups) {
+      this.native.popups = [];
+    }
+    this.native.popups.push(popup.native);
+
+    // Track the MODEL as well, keyed on the map (same shape as MapLibre's
+    // `_bemapPopups`). `native.popups` holds L.Popup instances, so there is no
+    // route from it back to the bemap.Popup objects — which is why clearPopup()
+    // could close the natives but left every model claiming isVisible() === true,
+    // still holding `map` and a detached native.
+    if (!this._bemapPopups) this._bemapPopups = [];
+    if (this._bemapPopups.indexOf(popup) === -1) this._bemapPopups.push(popup);
+
+    // Parity with OL (bemap-map-ol-popup.js) and MapLibre: a popup is opened
+    // ONLY when it has a coordinate to sit at and has not been asked to stay
+    // hidden. This engine used to call addTo() unconditionally, which meant
+    // `visible:false` opened anyway, and a popup created without a coordinate
+    // threw a TypeError on `getCoordinate().getLatLonArray()`.
+    //
+    // Safe for existing consumers: `bemap.Popup` defaults `visible` to TRUE
+    // (bemap-popup.js), so anyone who never passes the option is unaffected —
+    // only an explicit `visible:false` behaves differently, which is the fix.
+    if (popup.coordinate !== undefined &amp;&amp; popup.visible !== false) {
+      popup.native.setLatLng(popup.getCoordinate().getLatLonArray());
+      popup.native.addTo(this.native);
+      popup.visible = true;
+    } else {
+      // Cannot be placed (or was asked to stay closed): keep the model honest so
+      // isVisible() does not lie. Same resolution as the other two engines.
+      popup.visible = false;
+    }
+  }
+  return this;
+};
 
 /**
  * Remove a popup from the map.
@@ -61,8 +86,28 @@
  */
 bemap.LeafletMap.prototype.removePopup = function(popup) {
   if (popup !== null &amp;&amp; bemap.inheritsof(popup, bemap.Popup)) {
-    this.native.removeLayer(popup.native);
+    if (popup.native) {
+      this.native.removeLayer(popup.native);
+      // Drop the tracking entry too. It was never spliced, so every
+      // add/remove cycle leaked an L.Popup plus its detached DOM subtree, and
+      // clearPopup() then walked stale natives.
+      var list = this.native.popups;
+      if (list) {
+        var at = list.indexOf(popup.native);
+        if (at !== -1) {
+          list.splice(at, 1);
+        }
+      }
+      popup.native = null;
+    }
+    popup.visible = false;
     popup.map = null;
+  }
+  // Drop the model entry too, whether or not it still had a native, so a
+  // repeated remove cannot leave a stale reference behind.
+  if (popup &amp;&amp; this._bemapPopups) {
+    var mAt = this._bemapPopups.indexOf(popup);
+    if (mAt !== -1) this._bemapPopups.splice(mAt, 1);
   }
   return this;
 };
@@ -72,21 +117,63 @@ bemap.LeafletMap.prototype.removePopup = function(popup) {
 * @return {bemap.LeafletMap} this;
  */
 bemap.LeafletMap.prototype.clearPopup = function() {
-var native = this.native;
-if (native.popups &amp;&amp; native.popups.length !== 0) {
-  // Copy the array first — forEach + splice on the same array skips
-  // every other element (classic mutate-while-iterating bug).
-  var pending = native.popups.slice();
-  for (var i = 0; i &lt; pending.length; i++) {
-    native.removeLayer(pending[i]);
+  var native = this.native;
+
+  // Go through removePopup() for every tracked MODEL, so each bemap.Popup ends
+  // up in the same state a single removePopup() leaves it in: visible = false,
+  // map = null, native released, tracking entries dropped. Closing only the
+  // native layers (what this used to do) left every model reporting
+  // isVisible() === true while holding a detached L.Popup — the same stale-state
+  // bug that was fixed on MapLibre, and it is fixed the same way here.
+  var owned = this._bemapPopups ? this._bemapPopups.slice() : [];
+  for (var m = 0; m &lt; owned.length; m++) {
+    this.removePopup(owned[m]);
   }
-  native.popups.length = 0;
+  this._bemapPopups = [];
+
+  // Then sweep any native left in `native.popups` that had no model behind it —
+  // a popup added before this tracking existed, or one pushed there directly.
+  // Copy first: forEach + splice on the same array skips every other element.
+  if (native.popups &amp;&amp; native.popups.length !== 0) {
+    var pending = native.popups.slice();
+    for (var i = 0; i &lt; pending.length; i++) {
+      native.removeLayer(pending[i]);
+    }
+    native.popups.length = 0;
+  }
+  // `return this` used to sit INSIDE the `if`, so calling clearPopup() on a map
+  // with no popups returned undefined and broke the documented chaining
+  // contract — `map.clearPopup().addPopup(p)` threw on a fresh map.
   return this;
-}
-//alternative way to close all popups
- /*if ($(".leaflet-popup-close-button")[0]) {
-    $(".leaflet-popup-close-button")[0].click();
-  }*/
+};
+
+/**
+ * Show or hide a popup.
+ *
+ * Added in the BEMAP-1898 audit. LeafletMap had no implementation, so
+ * `popup.show()` / `popup.hide()` / `popup.setVisible()` (bemap-popup.js) fell
+ * through to the base-class no-op (bemap-map.js) and did nothing at all: on
+ * Leaflet there was NO way to close a popup, and `isVisible()` kept reporting
+ * whatever the constructor was given. OL and MapLibre both implement it.
+ * @public
+ * @param {bemap.Popup} popup
+ * @param {boolean} visible
+ * @return {bemap.LeafletMap} this
+ */
+bemap.LeafletMap.prototype.setVisiblePopup = function(popup, visible) {
+  if (popup !== null &amp;&amp; bemap.inheritsof(popup, bemap.Popup) &amp;&amp; popup.native) {
+    if (visible &amp;&amp; popup.coordinate !== undefined) {
+      popup.visible = true;
+      popup.native.setLatLng(popup.getCoordinate().getLatLonArray());
+      popup.native.addTo(this.native);
+    } else {
+      // Includes "asked to show but has no coordinate": it cannot be placed, so
+      // report it as hidden rather than let isVisible() claim otherwise.
+      popup.visible = false;
+      this.native.closePopup(popup.native);
+    }
+  }
+  return this;
 };
 
 /**
@@ -122,7 +209,7 @@ bemap.LeafletMap.prototype.setCoordinatePopup = function(popup, coordinate, opti
 <br class="clear">
 
 <footer>
-    Documentation generated by <a href="https://github.com/jsdoc/jsdoc">JSDoc 3.6.3</a> on Thu Aug 06 2026 10:35:47 GMT+0200 (heure d’été d’Europe centrale)
+    Documentation generated by <a href="https://github.com/jsdoc/jsdoc">JSDoc 3.6.3</a> on Fri Aug 21 2026 09:26:08 GMT+0200 (heure d’été d’Europe centrale)
 </footer>
 
 <script> prettyPrint(); </script>

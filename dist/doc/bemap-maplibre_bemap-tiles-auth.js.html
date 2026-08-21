@@ -340,92 +340,130 @@ bemap.TilesAuth.prototype._parseExp = function (token) {
 };
 
 /**
- * POST credentials and persist the new JWT.
- * @public
- * @param {String} [login]    Defaults to `ctx.login`.
- * @param {String} [password] Defaults to `ctx.password`.
- * @return {Promise&lt;String>} The new JWT.
+ * INTERNAL — how long `ctx.tilesSessionProvider` may take before the login is
+ * failed. `whenTokenReady()` runs on EVERY tiles fetch, so a provider that never
+ * settles would stall the whole map with no error and no grey-tile recovery.
+ * A static (not an option) so it stays out of the public surface; tests override
+ * it. Any value `&lt;= 0` (or a non-number) disables the timeout.
+ * @private
  */
-bemap.TilesAuth.prototype.login = function (login, password) {
+bemap.TilesAuth._sessionTimeoutMs = 10000;
+
+/**
+ * INTERNAL — normalise every way the session provider can go wrong into ONE
+ * `bemap.Error`. The session id is NEVER interpolated into the message: an
+ * uncaught-error handler or crash reporter must not capture it.
+ * @private
+ * @param {String} message
+ * @param {*} [cause]
+ * @return {bemap.Error}
+ */
+bemap.TilesAuth._sessionError = function (message, cause, code) {
+  var e = new bemap.Error({ code: code || bemap.Error.UNAUTHORIZED, message: message });
+  // `!== undefined`, not truthiness: a provider may reject with 0 or '' and the
+  // cause is still worth keeping for diagnostics.
+  if (cause !== undefined) e.cause = cause;
+  return e;
+};
+
+/**
+ * INTERNAL — the longest session id we will put in a header. Not a protocol
+ * limit; a guard so a buggy provider cannot push an unbounded value onto every
+ * login and renewal.
+ * @private
+ */
+bemap.TilesAuth._sessionMaxLength = 4096;
+
+/**
+ * INTERNAL — invoke the session provider under a timeout, converting a
+ * synchronous throw, a rejected promise, a non-string, a blank string and a
+ * header-hostile value into the same single error contract.
+ * @private
+ * @param {Function} provider
+ * @return {Promise&lt;String>} the trimmed session id
+ */
+bemap.TilesAuth._callSessionProvider = function (provider) {
+  // `Promise.resolve().then(...)` so a SYNCHRONOUS throw inside the provider
+  // takes exactly the same path as a rejected promise — one error contract.
+  var call = Promise.resolve().then(function () {
+    return provider();
+  }).then(function (sessionId) {
+    var sid = (typeof sessionId === 'string') ? sessionId.trim() : '';
+    if (!sid) {
+      throw bemap.TilesAuth._sessionError(
+        'TilesAuth.login: the tiles session provider resolved no usable session');
+    }
+    // Anything outside printable US-ASCII cannot go in a header: `fetch` fails
+    // the request while building it, and for a NUL/control byte the engine's
+    // message QUOTES THE RAW VALUE — which would put the session id into an
+    // error a crash reporter captures, defeating the whole redaction rule. So
+    // the check is an allow-list, not a `[\r\n]` deny-list: CR, LF, NUL,
+    // U+2028/U+2029 and every non-Latin-1 code point are refused here, by us,
+    // with a message that names nothing.
+    if (/[^\x20-\x7E]/.test(sid)) {
+      throw bemap.TilesAuth._sessionError(
+        'TilesAuth.login: the tiles session provider returned a session with characters that cannot be sent in a header');
+    }
+    if (sid.length > bemap.TilesAuth._sessionMaxLength) {
+      throw bemap.TilesAuth._sessionError(
+        'TilesAuth.login: the tiles session provider returned a session longer than ' +
+        bemap.TilesAuth._sessionMaxLength + ' characters');
+    }
+    return sid;
+  }, function (cause) {
+    throw bemap.TilesAuth._sessionError('TilesAuth.login: the tiles session provider failed', cause);
+  });
+
+  var ms = bemap.TilesAuth._sessionTimeoutMs;
+  if (!(ms > 0)) return call;
+  return new Promise(function (resolve, reject) {
+    var settled = false;
+    var timer = setTimeout(function () {
+      if (settled) return;
+      settled = true;
+      // NETWORK, not UNAUTHORIZED: a portal that is slow has not refused us, and
+      // a caller reading `code` should be free to retry rather than treat it as
+      // a hard auth failure.
+      reject(bemap.TilesAuth._sessionError(
+        'TilesAuth.login: the tiles session provider timed out after ' + ms + ' ms',
+        undefined, bemap.Error.NETWORK));
+    }, ms);
+    call.then(function (v) {
+      if (settled) return;
+      settled = true; clearTimeout(timer); resolve(v);
+    }, function (e) {
+      if (settled) return;
+      settled = true; clearTimeout(timer); reject(e);
+    });
+  });
+};
+
+/**
+ * Issue the login POST and persist the resulting JWT.
+ *
+ * Extracted from `login()` verbatim so the CREDENTIAL-building step can be
+ * synchronous (Basic / proxy) or asynchronous (session mode) without duplicating
+ * the request chain — and, more importantly, so the existing paths keep their
+ * exact scheduling: `login()` still issues their `fetch` during the call itself.
+ * @private
+ * @param {String} url
+ * @param {Object} headers
+ * @param {String} credentials
+ * @param {String} [redirect] `fetch`'s redirect mode. Only session mode passes
+ *        one; omitted for Basic/proxy so their request init stays identical.
+ * @return {Promise&lt;String>} the new JWT
+ */
+bemap.TilesAuth.prototype._startLogin = function (url, headers, credentials, redirect) {
   var self = this;
-  // Track the in-flight login promise so whenTokenReady() can await it
-  // without starting a second parallel login on every tile request.
-  if (this._loginInFlight) return this._loginInFlight;
-  var url = this.ctx &amp;&amp; this.ctx.getTilesLoginUrl();
-  if (!url) {
-    return Promise.reject(new bemap.Error({
-      code: bemap.Error.UNAUTHORIZED,
-      message: 'TilesAuth.login: no tilesHost configured on Context'
-    }));
-  }
-  var user = login || (this.ctx &amp;&amp; this.ctx.login);
-  var pass = password || (this.ctx &amp;&amp; this.ctx.password);
-  // PROXY MODE (EVMOVE-307): credentials live on the proxy, so a credential-less
-  // Context is the NORMAL, supported case — skip both the rejection and the
-  // warning. No `Authorization` is ever sent; instead the proxy needs to know
-  // which mptiles environment will be read (each signs tokens with its own
-  // secret) via `X-BeMap-Tiles-Host`, plus the optional `X-BeMap-Env` selector.
-  var isProxy = !!(this.ctx &amp;&amp; (typeof this.ctx.getProxy === 'function' ? this.ctx.getProxy() : this.ctx.proxy));
-  if (!isProxy &amp;&amp; (!user || !pass)) {
-    // Loud, one-shot warning so the developer sees the cause immediately
-    // in the DevTools console (instead of just an unexplained 401 on the
-    // first PMTiles range request).
-    if (!bemap.TilesAuth._missingCredsWarned) {
-      bemap.TilesAuth._missingCredsWarned = true;
-      if (typeof console !== 'undefined' &amp;&amp; console.warn) {
-        console.warn(
-          '[bemap.TilesAuth] No credentials on the Context — BeNomad Tiles\n' +
-          '   requests will all 401 because no /api/login POST can be sent.\n' +
-          '   Set `login` and `password` on your `new bemap.Context({...})`,\n' +
-          '   OR remove `tilesHost` to fall back to WMS.'
-        );
-      }
-    }
-    return Promise.reject(new bemap.Error({
-      code: bemap.Error.UNAUTHORIZED,
-      message: 'TilesAuth.login: missing credentials on Context (set ctx.login + ctx.password, or remove ctx.tilesHost)'
-    }));
-  }
-  var basic = isProxy ? null : ('Basic ' + ((typeof btoa === 'function')
-    ? btoa(user + ':' + pass)
-    : Buffer.from(user + ':' + pass).toString('base64')));
-
-  if (typeof navigator !== 'undefined' &amp;&amp; navigator.onLine === false) {
-    self._queuedRenewal = true;
-    var err = new bemap.Error({ code: bemap.Error.OFFLINE, message: 'TilesAuth.login: offline, queued' });
-    self._onError(err);
-    return Promise.reject(err);
-  }
-
-  // In COOKIE mode, `credentials` MUST be sent so the browser STORES the
-  // Worker's `Set-Cookie: session=…; HttpOnly; Secure; SameSite=None` — without
-  // it the cookie is never stored and every tile 401s despite a valid in-memory
-  // token. In header/query mode the consumer opted out of cookies, so we use
-  // `'same-origin'` (no cross-site cookie); the body token still drives auth.
-  var loginCredentials = (self._authConfig &amp;&amp; self._authConfig.mode === 'cookie')
-    ? (self._authConfig.credentials || 'include')
-    : 'same-origin';
-  // Header set: credentials mode sends Basic; proxy mode sends NO credential and
-  // instead tells the proxy which tiles env to mint for (+ the env selector when
-  // configured). `getProxyHeaders()` only yields X-BeMap-Env for a non-empty
-  // bemapEnv, so the literal string "null" can never reach the wire.
-  var loginHeaders = { 'Accept': 'application/json' };
-  if (isProxy) {
-    if (self.ctx.tilesHost) loginHeaders['X-BeMap-Tiles-Host'] = self.ctx.tilesHost;
-    if (typeof self.ctx.getProxyHeaders === 'function') {
-      var ph = self.ctx.getProxyHeaders();
-      for (var phk in ph) {
-        if (Object.prototype.hasOwnProperty.call(ph, phk)) loginHeaders[phk] = ph[phk];
-      }
-    }
-  } else {
-    loginHeaders['Authorization'] = basic;
-  }
-  var promise = fetch(url, {
+  var init = {
     method: 'POST',
-    credentials: loginCredentials,
-    headers: loginHeaders
-  }).then(function (resp) {
+    credentials: credentials,
+    headers: headers
+  };
+  // Added only when asked for, so the Basic/proxy init object is byte-identical
+  // to the one this code has always sent.
+  if (redirect) init.redirect = redirect;
+  return fetch(url, init).then(function (resp) {
     if (!resp.ok) {
       var code = resp.status === 401 ? bemap.Error.UNAUTHORIZED
         : resp.status === 403 ? bemap.Error.FORBIDDEN
@@ -462,6 +500,146 @@ bemap.TilesAuth.prototype.login = function (login, password) {
     }
     return token;
   });
+};
+
+/**
+ * POST credentials and persist the new JWT.
+ * @public
+ * @param {String} [login]    Defaults to `ctx.login`.
+ * @param {String} [password] Defaults to `ctx.password`.
+ * @return {Promise&lt;String>} The new JWT.
+ */
+bemap.TilesAuth.prototype.login = function (login, password) {
+  var self = this;
+  // Track the in-flight login promise so whenTokenReady() can await it
+  // without starting a second parallel login on every tile request.
+  if (this._loginInFlight) return this._loginInFlight;
+  var url = this.ctx &amp;&amp; this.ctx.getTilesLoginUrl();
+  if (!url) {
+    return Promise.reject(new bemap.Error({
+      code: bemap.Error.UNAUTHORIZED,
+      message: 'TilesAuth.login: no tilesHost configured on Context'
+    }));
+  }
+  var user = login || (this.ctx &amp;&amp; this.ctx.login);
+  var pass = password || (this.ctx &amp;&amp; this.ctx.password);
+  // PROXY MODE (EVMOVE-307): credentials live on the proxy, so a credential-less
+  // Context is the NORMAL, supported case — skip both the rejection and the
+  // warning. No `Authorization` is ever sent; instead the proxy needs to know
+  // which mptiles environment will be read (each signs tokens with its own
+  // secret) via `X-BeMap-Tiles-Host`, plus the optional `X-BeMap-Env` selector.
+  var isProxy = !!(this.ctx &amp;&amp; (typeof this.ctx.getProxy === 'function' ? this.ctx.getProxy() : this.ctx.proxy));
+  // SESSION MODE (INTERNAL) — the host application already holds a BeMap session
+  // and cannot ship a password. Consulted ONLY when proxy has not already won:
+  // the provider does real work (a call to the portal) and must never run for a
+  // login that would not have used it. ONLY a function enables the mode — a
+  // truthy non-function falls through to the normal credential path and its
+  // existing error, instead of silently sending a request that can only 401.
+  var sessionProvider = (!isProxy &amp;&amp; this.ctx &amp;&amp; typeof this.ctx.tilesSessionProvider === 'function')
+    ? this.ctx.tilesSessionProvider : null;
+  // A provider that was SET but is not callable is a wiring mistake in the host
+  // application, not a customer misconfiguration — report it precisely, and only
+  // to whoever already tried to use the internal mode. The customer-facing
+  // missing-credentials message below stays deliberately unchanged: naming an
+  // undocumented option there would advertise it to every customer who ever
+  // forgets a password.
+  // The constructor and setter already report this, so the only way to arrive
+  // here is a RAW property write — which `bemap.RuntimeConfig`'s `set` trap does
+  // for every unknown key, straight onto the shared Context.
+  if (!isProxy &amp;&amp; !sessionProvider &amp;&amp; this.ctx &amp;&amp; this.ctx.tilesSessionProvider &amp;&amp;
+      bemap.Context &amp;&amp; typeof bemap.Context._warnBadSessionProvider === 'function') {
+    bemap.Context._warnBadSessionProvider(this.ctx.tilesSessionProvider);
+  }
+  if (!isProxy &amp;&amp; !sessionProvider &amp;&amp; (!user || !pass)) {
+    // Loud, one-shot warning so the developer sees the cause immediately
+    // in the DevTools console (instead of just an unexplained 401 on the
+    // first PMTiles range request).
+    if (!bemap.TilesAuth._missingCredsWarned) {
+      bemap.TilesAuth._missingCredsWarned = true;
+      if (typeof console !== 'undefined' &amp;&amp; console.warn) {
+        console.warn(
+          '[bemap.TilesAuth] No credentials on the Context — BeNomad Tiles\n' +
+          '   requests will all 401 because no /api/login POST can be sent.\n' +
+          '   Set `login` and `password` on your `new bemap.Context({...})`,\n' +
+          '   OR remove `tilesHost` to fall back to WMS.'
+        );
+      }
+    }
+    return Promise.reject(new bemap.Error({
+      code: bemap.Error.UNAUTHORIZED,
+      message: 'TilesAuth.login: missing credentials on Context (set ctx.login + ctx.password, or remove ctx.tilesHost)'
+    }));
+  }
+  // Computed SYNCHRONOUSLY and exactly where it always was, so a `btoa` failure
+  // (a non-Latin-1 password) still throws out of `login()` the way it does
+  // today. Skipped entirely when a credential-less mode is active — session mode
+  // must never evaluate `user + ':' + pass`.
+  var basic = (isProxy || sessionProvider) ? null : ('Basic ' + ((typeof btoa === 'function')
+    ? btoa(user + ':' + pass)
+    : Buffer.from(user + ':' + pass).toString('base64')));
+
+  if (typeof navigator !== 'undefined' &amp;&amp; navigator.onLine === false) {
+    self._queuedRenewal = true;
+    var err = new bemap.Error({ code: bemap.Error.OFFLINE, message: 'TilesAuth.login: offline, queued' });
+    self._onError(err);
+    return Promise.reject(err);
+  }
+
+  // In COOKIE mode, `credentials` MUST be sent so the browser STORES the
+  // Worker's `Set-Cookie: session=…; HttpOnly; Secure; SameSite=None` — without
+  // it the cookie is never stored and every tile 401s despite a valid in-memory
+  // token. In header/query mode the consumer opted out of cookies, so we use
+  // `'same-origin'` (no cross-site cookie); the body token still drives auth.
+  var loginCredentials = (self._authConfig &amp;&amp; self._authConfig.mode === 'cookie')
+    ? (self._authConfig.credentials || 'include')
+    : 'same-origin';
+  // Header set: credentials mode sends Basic; proxy mode sends NO credential and
+  // instead tells the proxy which tiles env to mint for (+ the env selector when
+  // configured). `getProxyHeaders()` only yields X-BeMap-Env for a non-empty
+  // bemapEnv, so the literal string "null" can never reach the wire.
+  var loginHeaders = { 'Accept': 'application/json' };
+  var promise;
+  if (sessionProvider) {
+    // The ONLY asynchronous path: the provider returns a Promise, so the header
+    // cannot be built synchronously. The two-argument `.then` is deliberate —
+    // the rejection handler sees provider failures ONLY, never a failure of
+    // `_startLogin` (which reports through `_onError` itself), so a login can
+    // never fire `_onError` twice.
+    promise = bemap.TilesAuth._callSessionProvider(sessionProvider).then(function (sessionId) {
+      // The provider round trip is the one place a login can stay pending for
+      // seconds, so it is the one place `destroy()` can realistically land in
+      // the middle of. Stop here rather than let _startLogin re-arm a renewal
+      // timer on a dead instance. (Basic/proxy issue their fetch in the same
+      // tick, so this window is specific to session mode.)
+      if (self._destroyed) {
+        throw bemap.TilesAuth._sessionError('TilesAuth.login: aborted — the auth instance was destroyed');
+      }
+      loginHeaders['X-BeMap-Session'] = sessionId;
+      // `redirect:'error'` for session mode ONLY. A browser strips
+      // `Authorization` on a cross-origin redirect, but it forwards a CUSTOM
+      // header — so a mis-pointed or hijacked login endpoint could bounce the
+      // session id to another origin. Basic/proxy keep their existing init.
+      return self._startLogin(url, loginHeaders, loginCredentials, 'error');
+    }, function (err) {
+      self._onError(err);
+      throw err;
+    });
+  } else {
+    if (isProxy) {
+      if (self.ctx.tilesHost) loginHeaders['X-BeMap-Tiles-Host'] = self.ctx.tilesHost;
+      if (typeof self.ctx.getProxyHeaders === 'function') {
+        var ph = self.ctx.getProxyHeaders();
+        for (var phk in ph) {
+          if (Object.prototype.hasOwnProperty.call(ph, phk)) loginHeaders[phk] = ph[phk];
+        }
+      }
+    } else {
+      loginHeaders['Authorization'] = basic;
+    }
+    // Unchanged scheduling: the request is issued during this call, exactly as
+    // before the session branch existed.
+    promise = this._startLogin(url, loginHeaders, loginCredentials);
+  }
   // Track and clear on settle. Both success and failure clear, so a
   // failed login does not pin a poisoned promise on subsequent calls.
   this._loginInFlight = promise;
@@ -759,7 +937,7 @@ bemap.TilesAuth.prototype.destroy = function () {
 <br class="clear">
 
 <footer>
-    Documentation generated by <a href="https://github.com/jsdoc/jsdoc">JSDoc 3.6.3</a> on Thu Aug 06 2026 10:35:47 GMT+0200 (heure d’été d’Europe centrale)
+    Documentation generated by <a href="https://github.com/jsdoc/jsdoc">JSDoc 3.6.3</a> on Fri Aug 21 2026 09:26:08 GMT+0200 (heure d’été d’Europe centrale)
 </footer>
 
 <script> prettyPrint(); </script>

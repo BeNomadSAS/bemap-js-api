@@ -299,7 +299,7 @@ All are constructed as `new bemap.<Class>(ctx)`.
 
 ## Versioning
 
-- Latest: **v2.0.2** (see [CHANGELOG.md](CHANGELOG.md)).
+- Latest: **v2.0.3** (see [CHANGELOG.md](CHANGELOG.md)).
 - BeNomad Tiles features (`MapLibreMap`, SW cache, JWT auth) require v2.
 - v1 consumers (BFleet, EVMove5, zone-optimizer, BeMap-Doc) keep
   working on v2 unchanged — the full suite (2,287 specs, including the

@@ -7,7 +7,7 @@
 ### 🌐 **[▶ Open the live demo →](https://benomadsas.github.io/bemap-js-api/)**
 
 [![live demo](https://img.shields.io/badge/▶_live_demo-online-2ea44f?style=flat-square)](https://benomadsas.github.io/bemap-js-api/)
-![version](https://img.shields.io/badge/version-2.0.2-2ea44f?style=flat-square)
+![version](https://img.shields.io/badge/version-2.0.3-2ea44f?style=flat-square)
 ![engines](https://img.shields.io/badge/engines-MapLibre%20GL%20·%20Leaflet%20·%20OpenLayers-1f6feb?style=flat-square)
 ![tiles](https://img.shields.io/badge/BeNomad%20Tiles-PMTiles%20vector-8957e5?style=flat-square)
 ![license](https://img.shields.io/badge/license-Commercial-f0883e?style=flat-square)

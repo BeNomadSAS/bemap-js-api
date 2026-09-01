@@ -5,7 +5,7 @@
 
 var bemap = bemap || {};
 
-bemap.version = '2.0.3';
+bemap.version = '2.0.4';
 bemap.olVersion = '10.8.0';
 bemap.maplibreVersion = '5.24.0';
 

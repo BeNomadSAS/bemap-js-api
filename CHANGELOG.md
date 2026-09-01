@@ -8,6 +8,40 @@ In-progress work on the `major_update_leaflet_ol_and_vector` branch; everything 
 
 ---
 
+## [2.0.4] — documentation-only: the tiles integration skill catches up
+
+**No code changed.** The runtime is byte-identical to 2.0.3; this release exists only so the corrected `benomad-tiles-integration/` skill is reachable from a pinned tag. `v2.0.3` on the public repo is permanently attached to the distribution that still carried the wrong text, so a consumer pinning it would never see the fix.
+
+### Fixed — the integration skill contradicted the bundle (BEMAP-1909)
+
+The skill declared itself verified against **v2.0.0** while the bundle shipped 2.0.3. It is what AI coding assistants read to wire BeNomad Tiles into a customer app, so the stale text was actively handing customers the wrong architecture. Every claim below was re-tested against live beta on 2026-08-26 rather than re-read.
+
+- **The default tile read path was wrong.** The skill presented `pmtiles://` + HTTP `Range` as the normal route. Since 2.0.1 the default is `tilesSliceMode: '200'` — `?r=A-B`, no `Range` header, plain 200, natively browser-cacheable — and the tile Service Worker auto-disables in that mode. Integrators were installing a Service Worker they do not need, on an architecture that is no longer the default.
+- **`ctx.proxy` was absent entirely.** 2.0.2 shipped it as the supported answer to "no credentials in the browser"; the skill still pointed only at its own hand-rolled token-proxy template, so the guidance led to `login`/`password` readable in DevTools.
+- **"BeNomad Tiles = MapLibre engine only" was wrong.** Three engines ship — `MapLibreMap`, `LeafletMap`, `OlMap` (not `OpenLayersMap`). It is the PMTiles *basemap* that is MapLibre-only, and there is a typed `bemap.Error.MAPLIBRE_ONLY` to branch on.
+- **"Never patch `window.fetch`"** — the SDK patches it itself in three places (`TilesAuth`, `RangeFetchPolicy`). Reworded to never add a *second* patch.
+- **"Use the v1 class names"** — misleading: eleven un-suffixed classes extend `ServiceV2` and *are* the modern Promise API. The `V2` suffix is not the modernity marker.
+- **The service table was missing eleven exports**, including `TraceRoute`, `NearPoiSearch`, `Autocomplete`, `EvSmartRouting`, `ChargingTime`, `EvReachableArea` and `AttributionWidget`.
+- `/api/maps` also returns `versions` and `aliasVersions`, the 2.0.1 cache-busting tokens.
+- Tiles require **`ROLE_MAPPING` and `ROLE_MAPPING_MPTILES`**, not `ROLE_MAPPING` alone. Token lifetime is exactly 3600 s, not "~1 h".
+- **The User-Agent rule was inverted.** It is a blocklist, not a required header: `Python-urllib/3.11` gets **403**, an *empty* UA gets **200**. The rule now asks for a plausible UA and explains why.
+- 403 responses carry actionable JSON bodies (`{"error":"Range header required for PMTiles files"}`, `{"error":"Range too large (…). Max: 10485760 bytes"}`); recorded verbatim.
+- **The `204`-on-empty-tile claim is marked unconfirmed.** Three ocean tiles (z10/z12/z14) all returned **200** with a 38–65-octet MVT. Integrators are told to check payload size instead until this is settled.
+
+### Added
+
+- The `dev` environment row (`mptiles-api-dev.benomad.net`, local origins only).
+- `map.getTilesConfig()` as the documented entry point for debugging anything tile-shaped.
+- A troubleshooting row for the stale-archive blank map fixed in 2.0.1 (`versions` / `?v=` token).
+- A caching note on `templates/web-raw-maplibre.html` explaining why that template legitimately stays on 206, and what it costs.
+- A `?r=` slice step in the copy-paste auth probe.
+
+### Changed
+
+- **The style filename is no longer named anywhere.** `/api/default-style` is documented as authoritative. Hard-coding `charte_2026.json` is what made the page go stale in the first place — beta now serves a different filename — so the docs describe how to ask instead of what the answer was.
+
+---
+
 ## [2.0.3] — OpenLayers 10 compatibility
 
 Bug-fix release. **No API additions, removals or renames** — every entry below repairs behaviour that was already documented, so upgrading is a drop-in bundle swap.

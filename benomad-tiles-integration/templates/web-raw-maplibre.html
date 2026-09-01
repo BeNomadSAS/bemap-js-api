@@ -7,6 +7,13 @@
      Auth here uses the ?token= query on the pmtiles:// URL — the simplest method
      that works with pmtiles.js Range requests. Header auth (X-Session-Token) is
      more secure but needs request plumbing the SDK already provides.
+
+     NOTE ON CACHING: pmtiles.js reads the archive with HTTP Range (206). Browsers
+     do not reliably cache 206 partials, so repeat visits re-download. Since 2.0.1
+     the SDK defaults to the 200-slice route instead (`GET <archive>?r=A-B`, no
+     Range header), which the browser HTTP cache stores natively — measurably
+     faster on warm loads. Reproducing that here means bypassing pmtiles.js's own
+     fetch, which is exactly the plumbing Path A gives you for free.
 ============================================================================ -->
 <html lang="en">
 <head>

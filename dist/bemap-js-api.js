@@ -2520,7 +2520,10 @@ bemap.Map.prototype.switchBackgroundLayer = function (geoserver) {
   var filter = bemap.Map.DEFAULT_LAYER.BACKGROUND + '_' + geoserver;
   for (var j = 0; j < this.layers.length; j++) {
     var layer = this.layers[j];
-    if (layer.name.indexOf(bemap.Map.DEFAULT_LAYER.BACKGROUND) != 0) {
+    // An unnamed layer threw out of the loop, leaving the switch half-applied
+    // — the wrong basemap on every other attempt (BEMAP-1905).
+    if (!layer || !layer.name ||
+        layer.name.indexOf(bemap.Map.DEFAULT_LAYER.BACKGROUND) != 0) {
       continue;
     }
     if (layer.name == filter) {
@@ -7183,9 +7186,51 @@ bemap.MapLibreMap.prototype.defaultLayers = function(options) {
   return this;
 };
 
-// backgroundLayers / switchBackgroundLayer not yet supported for MapLibre
+/**
+ * No-op, kept so `.backgroundLayers(list).switchBackgroundLayer(name)` stays
+ * valid cross-engine. MapLibre needs no pre-declared layers.
+ *
+ * @public
+ * @param {Array.<String>} geoservers Ignored.
+ * @param {Object} [options] Ignored.
+ * @return {bemap.MapLibreMap} Return this.
+ */
 bemap.MapLibreMap.prototype.backgroundLayers = function(geoservers, options) { return this; };
-bemap.MapLibreMap.prototype.switchBackgroundLayer = function(geoserver) { return this; };
+
+/**
+ * Point the basemap at another geoserver's tiles, in place.
+ *
+ * Leaflet and OpenLayers toggle pre-created raster layers; MapLibre re-resolves
+ * the archive and re-applies the current style, so the map instance and its
+ * overlays survive. Was a stub, so a geoserver selector had no effect on any
+ * MapLibre map (BEMAP-1905).
+ *
+ * `setStyle` does the work — re-registers the slice source, re-resolves the
+ * placeholders, replays the overlays. The name is passed EXPLICITLY so it
+ * outranks `ctx.tilesFile`, and `_tilesFileExplicit` is cleared so a provider
+ * with no archive falls back to the default map instead of a 403.
+ *
+ * @public
+ * @since 2.0.4
+ * @param {String} geoserver Geoserver / tiles name, e.g. `'osm'`.
+ * @return {bemap.MapLibreMap} Return this.
+ */
+bemap.MapLibreMap.prototype.switchBackgroundLayer = function(geoserver) {
+  if (!geoserver || !this.ctx || typeof this.ctx.resolveTilesFile !== 'function') return this;
+  // No tiles config → the basemap is the WMS raster fallback (defaultLayers).
+  if (!this._hasTilesConfig) return this;
+
+  var name = this.ctx.resolveTilesFile(geoserver);
+  if (name === this._tilesFile) return this;
+
+  this._tilesFile = name;
+  this._tilesFileExplicit = false;
+
+  if (this._currentStyleSpec) {
+    this.setStyle(this._currentStyleSpec, { tilesFile: geoserver, _internal: true });
+  }
+  return this;
+};
 
 // =========================================================================
 // Internal Helpers

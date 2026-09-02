@@ -8,11 +8,25 @@ In-progress work on the `major_update_leaflet_ol_and_vector` branch; everything 
 
 ---
 
-## [2.0.4] — the default marker, and the tiles skill catches up
+## [2.0.4] — the default marker, the geoserver switch, and the tiles skill catches up
 
-Two fixes, no API change. One line of runtime moved — the default `bemap.Icon()` image — plus the corrected `benomad-tiles-integration/` skill. Upgrading is a drop-in bundle swap.
+No API change — one method that was a stub now works, and two defects are repaired. Upgrading is a drop-in bundle swap.
 
-This release also exists so the corrected skill is reachable from a pinned tag: `v2.0.3` on the public repo is permanently attached to the distribution that still carried the wrong text, so a consumer pinning it would never see the fix.
+This release also exists so the corrected `benomad-tiles-integration/` skill is reachable from a pinned tag: `v2.0.3` on the public repo is permanently attached to the distribution that still carried the wrong text, so a consumer pinning it would never see the fix.
+
+> **The `switchBackgroundLayer` entry below landed after the initial 2.0.4 publish**, so the `v2.0.4` tag does not contain it — only `main` does. A consumer pinning `@v2.0.4` gets the marker fix and the corrected skill, but not the geoserver switch.
+
+### Fixed — `switchBackgroundLayer` did nothing on MapLibre, and half-applied elsewhere (BEMAP-1905)
+
+Changing the geoserver had no effect on any BeNomad Tiles map, and only intermittent effect on Leaflet / OpenLayers. Two independent causes.
+
+**MapLibre never implemented it.** `bemap.MapLibreMap.prototype.switchBackgroundLayer` was a stub returning `this`. Leaflet and OpenLayers pre-create one raster layer per geoserver and toggle visibility, which MapLibre cannot do — it reads a single PMTiles archive whose name is resolved once, in the constructor. So the fix re-resolves the archive and re-applies the **current** style against it: the caller keeps its map instance, its overlays, and anything the user has typed on the page. No rebuild, no page reload.
+
+`setStyle` already did the heavy lifting — it re-registers the slice source under the new archive url with its `?v=` token, re-resolves the style placeholders and replays the overlay catalogue. The name is passed as the explicit argument to `resolveTilesFile`, so it outranks `ctx.tilesFile`; `_tilesFileExplicit` is then cleared, which keeps the Worker-catalog fallback — selecting a provider that has no archive lands on the server-resolved default map rather than a guaranteed 403. `backgroundLayers` stays a no-op so the cross-engine chain `.backgroundLayers(list).switchBackgroundLayer(name)` remains valid.
+
+**The shared Leaflet / OpenLayers implementation crashed on an unnamed layer.** `bemap.Map.prototype.switchBackgroundLayer` read `layer.name.indexOf(...)` with no null check, and because the loop calls `setVisible()` as it walks, one unnamed overlay left the switch **half-applied** — the layers before it toggled, the rest never did. The symptom was the wrong basemap on roughly every other attempt, which reads as flakiness rather than a crash.
+
+11 specs cover both: the archive is re-pointed, the *current* style is re-applied rather than resetting to the fallback, `map.native` is unchanged, the same geoserver is a no-op, the explicit pin is cleared, a missing name is ignored, a map without tiles config does nothing, the chain stays valid — and for the base implementation, an unnamed layer neither throws nor stops the layers past it from being applied.
 
 ### Fixed — the default `bemap.Icon()` never rendered on an HTTPS page (BEMAP-1908)
 

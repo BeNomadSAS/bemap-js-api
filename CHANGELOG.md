@@ -10,11 +10,21 @@ In-progress work on the `major_update_leaflet_ol_and_vector` branch; everything 
 
 ## [2.0.4] — the default marker, the geoserver switch, and the tiles skill catches up
 
-No API change — one method that was a stub now works, and two defects are repaired. Upgrading is a drop-in bundle swap.
+No breaking API change — one method that was a stub now works, two defects are repaired, and one additive Context option changes what a provider without a vector map renders. Upgrading is a drop-in bundle swap.
 
 This release also exists so the corrected `benomad-tiles-integration/` skill is reachable from a pinned tag: `v2.0.3` on the public repo is permanently attached to the distribution that still carried the wrong text, so a consumer pinning it would never see the fix.
 
-> **The `switchBackgroundLayer` entry below landed after the initial 2.0.4 publish**, so the `v2.0.4` tag does not contain it — only `main` does. A consumer pinning `@v2.0.4` gets the marker fix and the corrected skill, but not the geoserver switch.
+> **The `switchBackgroundLayer` and `tilesFallbackToDefault` entries below landed after the initial 2.0.4 publish**, so the `v2.0.4` tag does not contain them — only `main` does. A consumer pinning `@v2.0.4` gets the marker fix and the corrected skill, but not the geoserver switch.
+
+### Changed — a geoserver with no vector map no longer loads the default map (BEMAP-1906)
+
+Pick a provider that BeMap offers for routing, geocoding and WMS but that the tiles Worker serves no PMTiles archive for — `herehlp`, `addok`, `photon`, `nominatim`, `tomtom` — and the basemap quietly became the Worker's **default** map. The user selected one provider and was shown another provider's data, with nothing on screen saying so. That is worse than showing nothing, which is what it does now: an empty vector basemap.
+
+The catalog check itself is unchanged (it is what 2.0.4 added: `/api/maps` is consulted, and a name merely inherited from `ctx.geoserver` is validated against it). Only the verdict changed. When the archive is absent, the style is replaced with a source-free one — so no PMTiles URL is registered and no slice is requested — and the pending init style is cancelled, or the server default would paint straight over the empty map. The console still says which provider had no vector map, and that `geoserver` continues to apply to WMS layers and services.
+
+**`ctx.tilesFallbackToDefault: true` restores the old behaviour** for an application that would rather always have a basemap. An explicit `tilesFile` pin is unaffected either way and keeps surfacing its own 403/404 — a misspelled or unauthorised tileset is a configuration error, not a provider without tiles.
+
+`switchBackgroundLayer` is two-way: the map that blanked keeps its last real style spec, so selecting a provider that *does* have an archive brings the basemap straight back. Without that the selector would be one-way — blank until a page reload — which is why the fix is not simply "stop falling back".
 
 ### Fixed — `switchBackgroundLayer` did nothing on MapLibre, and half-applied elsewhere (BEMAP-1905)
 

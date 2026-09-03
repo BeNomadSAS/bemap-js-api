@@ -144,7 +144,7 @@
 
             
 
-            <td class="description last">Source of the image. It can be an URL or an folder path.</td>
+            <td class="description last">Source of the image. It can be an URL or an folder path.  Defaults to <a href="bemap.Icon.html#.DEFAULT_SRC">bemap.Icon.DEFAULT_SRC</a>, an inline SVG pin — no network  request, so it also works offline and on a closed network.</td>
         </tr>
 
     
@@ -307,7 +307,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-model_bemap-icon.js.html">bemap-model/bemap-icon.js</a>, <a href="bemap-model_bemap-icon.js.html#line18">line 18</a>
+        <a href="bemap-model_bemap-icon.js.html">bemap-model/bemap-icon.js</a>, <a href="bemap-model_bemap-icon.js.html#line20">line 20</a>
     </li></ul></dd>
     
 
@@ -354,6 +354,78 @@
 
     
         <h3 class="subsection-title">Members</h3>
+
+        
+            
+<h4 class="name" id=".DEFAULT_SRC"><span class="type-signature">(static, constant) </span>DEFAULT_SRC<span class="type-signature"> :String</span></h4>
+
+
+
+
+<div class="description">
+    Default marker image, used when no `src` is given.An inline SVG `data:` URI rather than a URL. The previous default pointed at`openlayers.org/en/v3.18.2/examples/data/icon.png` — a third-party host, overplain HTTP, in the example data of a long-abandoned OpenLayers release. On anHTTPS page Chrome upgrades that request and the upgrade fails too, so themarker never appeared and nothing was thrown (BEMAP-1908).A `data:` URI is used deliberately: it needs no network, so it works offlineand on a customer's closed network, it sends nothing to a third party, and itadds no file to ship or host. The shape is a 25x41 pin whose tip sits at thebottom centre, matching the `anchorX: 0.5` / `anchorY: 1` defaults above.Spaces and `#` are percent-encoded so the URI stays valid in a CSS context(Leaflet) as well as in an `Image.src` (OpenLayers) and `loadImage`(MapLibre).
+</div>
+
+
+
+    <h5>Type:</h5>
+    <ul>
+        <li>
+            
+<span class="param-type">String</span>
+
+
+        </li>
+    </ul>
+
+
+
+
+
+<dl class="details">
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+    <dt class="tag-source">Source:</dt>
+    <dd class="tag-source"><ul class="dummy"><li>
+        <a href="bemap-model_bemap-icon.js.html">bemap-model/bemap-icon.js</a>, <a href="bemap-model_bemap-icon.js.html#line106">line 106</a>
+    </li></ul></dd>
+    
+
+    
+
+    
+
+    
+</dl>
+
+
+
+
+
 
         
             
@@ -407,7 +479,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-model_bemap-icon.js.html">bemap-model/bemap-icon.js</a>, <a href="bemap-model_bemap-icon.js.html#line49">line 49</a>
+        <a href="bemap-model_bemap-icon.js.html">bemap-model/bemap-icon.js</a>, <a href="bemap-model_bemap-icon.js.html#line51">line 51</a>
     </li></ul></dd>
     
 
@@ -475,7 +547,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-model_bemap-icon.js.html">bemap-model/bemap-icon.js</a>, <a href="bemap-model_bemap-icon.js.html#line61">line 61</a>
+        <a href="bemap-model_bemap-icon.js.html">bemap-model/bemap-icon.js</a>, <a href="bemap-model_bemap-icon.js.html#line63">line 63</a>
     </li></ul></dd>
     
 
@@ -543,7 +615,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-model_bemap-icon.js.html">bemap-model/bemap-icon.js</a>, <a href="bemap-model_bemap-icon.js.html#line55">line 55</a>
+        <a href="bemap-model_bemap-icon.js.html">bemap-model/bemap-icon.js</a>, <a href="bemap-model_bemap-icon.js.html#line57">line 57</a>
     </li></ul></dd>
     
 
@@ -605,7 +677,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-model_bemap-icon.js.html">bemap-model/bemap-icon.js</a>, <a href="bemap-model_bemap-icon.js.html#line67">line 67</a>
+        <a href="bemap-model_bemap-icon.js.html">bemap-model/bemap-icon.js</a>, <a href="bemap-model_bemap-icon.js.html#line69">line 69</a>
     </li></ul></dd>
     
 
@@ -673,7 +745,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-model_bemap-icon.js.html">bemap-model/bemap-icon.js</a>, <a href="bemap-model_bemap-icon.js.html#line43">line 43</a>
+        <a href="bemap-model_bemap-icon.js.html">bemap-model/bemap-icon.js</a>, <a href="bemap-model_bemap-icon.js.html#line45">line 45</a>
     </li></ul></dd>
     
 
@@ -741,7 +813,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-model_bemap-icon.js.html">bemap-model/bemap-icon.js</a>, <a href="bemap-model_bemap-icon.js.html#line25">line 25</a>
+        <a href="bemap-model_bemap-icon.js.html">bemap-model/bemap-icon.js</a>, <a href="bemap-model_bemap-icon.js.html#line27">line 27</a>
     </li></ul></dd>
     
 
@@ -809,7 +881,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-model_bemap-icon.js.html">bemap-model/bemap-icon.js</a>, <a href="bemap-model_bemap-icon.js.html#line73">line 73</a>
+        <a href="bemap-model_bemap-icon.js.html">bemap-model/bemap-icon.js</a>, <a href="bemap-model_bemap-icon.js.html#line75">line 75</a>
     </li></ul></dd>
     
 
@@ -877,7 +949,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-model_bemap-icon.js.html">bemap-model/bemap-icon.js</a>, <a href="bemap-model_bemap-icon.js.html#line79">line 79</a>
+        <a href="bemap-model_bemap-icon.js.html">bemap-model/bemap-icon.js</a>, <a href="bemap-model_bemap-icon.js.html#line81">line 81</a>
     </li></ul></dd>
     
 
@@ -945,7 +1017,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-model_bemap-icon.js.html">bemap-model/bemap-icon.js</a>, <a href="bemap-model_bemap-icon.js.html#line31">line 31</a>
+        <a href="bemap-model_bemap-icon.js.html">bemap-model/bemap-icon.js</a>, <a href="bemap-model_bemap-icon.js.html#line33">line 33</a>
     </li></ul></dd>
     
 
@@ -1013,7 +1085,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-model_bemap-icon.js.html">bemap-model/bemap-icon.js</a>, <a href="bemap-model_bemap-icon.js.html#line37">line 37</a>
+        <a href="bemap-model_bemap-icon.js.html">bemap-model/bemap-icon.js</a>, <a href="bemap-model_bemap-icon.js.html#line39">line 39</a>
     </li></ul></dd>
     
 
@@ -1093,7 +1165,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-model_bemap-icon.js.html">bemap-model/bemap-icon.js</a>, <a href="bemap-model_bemap-icon.js.html#line144">line 144</a>
+        <a href="bemap-model_bemap-icon.js.html">bemap-model/bemap-icon.js</a>, <a href="bemap-model_bemap-icon.js.html#line174">line 174</a>
     </li></ul></dd>
     
 
@@ -1203,7 +1275,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-model_bemap-icon.js.html">bemap-model/bemap-icon.js</a>, <a href="bemap-model_bemap-icon.js.html#line182">line 182</a>
+        <a href="bemap-model_bemap-icon.js.html">bemap-model/bemap-icon.js</a>, <a href="bemap-model_bemap-icon.js.html#line212">line 212</a>
     </li></ul></dd>
     
 
@@ -1313,7 +1385,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-model_bemap-icon.js.html">bemap-model/bemap-icon.js</a>, <a href="bemap-model_bemap-icon.js.html#line163">line 163</a>
+        <a href="bemap-model_bemap-icon.js.html">bemap-model/bemap-icon.js</a>, <a href="bemap-model_bemap-icon.js.html#line193">line 193</a>
     </li></ul></dd>
     
 
@@ -1423,7 +1495,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-model_bemap-icon.js.html">bemap-model/bemap-icon.js</a>, <a href="bemap-model_bemap-icon.js.html#line201">line 201</a>
+        <a href="bemap-model_bemap-icon.js.html">bemap-model/bemap-icon.js</a>, <a href="bemap-model_bemap-icon.js.html#line231">line 231</a>
     </li></ul></dd>
     
 
@@ -1533,7 +1605,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-model_bemap-icon.js.html">bemap-model/bemap-icon.js</a>, <a href="bemap-model_bemap-icon.js.html#line125">line 125</a>
+        <a href="bemap-model_bemap-icon.js.html">bemap-model/bemap-icon.js</a>, <a href="bemap-model_bemap-icon.js.html#line155">line 155</a>
     </li></ul></dd>
     
 
@@ -1643,7 +1715,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-model_bemap-icon.js.html">bemap-model/bemap-icon.js</a>, <a href="bemap-model_bemap-icon.js.html#line220">line 220</a>
+        <a href="bemap-model_bemap-icon.js.html">bemap-model/bemap-icon.js</a>, <a href="bemap-model_bemap-icon.js.html#line250">line 250</a>
     </li></ul></dd>
     
 
@@ -1753,7 +1825,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-model_bemap-icon.js.html">bemap-model/bemap-icon.js</a>, <a href="bemap-model_bemap-icon.js.html#line87">line 87</a>
+        <a href="bemap-model_bemap-icon.js.html">bemap-model/bemap-icon.js</a>, <a href="bemap-model_bemap-icon.js.html#line117">line 117</a>
     </li></ul></dd>
     
 
@@ -1863,7 +1935,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-model_bemap-icon.js.html">bemap-model/bemap-icon.js</a>, <a href="bemap-model_bemap-icon.js.html#line106">line 106</a>
+        <a href="bemap-model_bemap-icon.js.html">bemap-model/bemap-icon.js</a>, <a href="bemap-model_bemap-icon.js.html#line136">line 136</a>
     </li></ul></dd>
     
 
@@ -1973,7 +2045,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-model_bemap-icon.js.html">bemap-model/bemap-icon.js</a>, <a href="bemap-model_bemap-icon.js.html#line153">line 153</a>
+        <a href="bemap-model_bemap-icon.js.html">bemap-model/bemap-icon.js</a>, <a href="bemap-model_bemap-icon.js.html#line183">line 183</a>
     </li></ul></dd>
     
 
@@ -2083,7 +2155,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-model_bemap-icon.js.html">bemap-model/bemap-icon.js</a>, <a href="bemap-model_bemap-icon.js.html#line191">line 191</a>
+        <a href="bemap-model_bemap-icon.js.html">bemap-model/bemap-icon.js</a>, <a href="bemap-model_bemap-icon.js.html#line221">line 221</a>
     </li></ul></dd>
     
 
@@ -2193,7 +2265,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-model_bemap-icon.js.html">bemap-model/bemap-icon.js</a>, <a href="bemap-model_bemap-icon.js.html#line172">line 172</a>
+        <a href="bemap-model_bemap-icon.js.html">bemap-model/bemap-icon.js</a>, <a href="bemap-model_bemap-icon.js.html#line202">line 202</a>
     </li></ul></dd>
     
 
@@ -2303,7 +2375,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-model_bemap-icon.js.html">bemap-model/bemap-icon.js</a>, <a href="bemap-model_bemap-icon.js.html#line210">line 210</a>
+        <a href="bemap-model_bemap-icon.js.html">bemap-model/bemap-icon.js</a>, <a href="bemap-model_bemap-icon.js.html#line240">line 240</a>
     </li></ul></dd>
     
 
@@ -2413,7 +2485,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-model_bemap-icon.js.html">bemap-model/bemap-icon.js</a>, <a href="bemap-model_bemap-icon.js.html#line134">line 134</a>
+        <a href="bemap-model_bemap-icon.js.html">bemap-model/bemap-icon.js</a>, <a href="bemap-model_bemap-icon.js.html#line164">line 164</a>
     </li></ul></dd>
     
 
@@ -2523,7 +2595,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-model_bemap-icon.js.html">bemap-model/bemap-icon.js</a>, <a href="bemap-model_bemap-icon.js.html#line229">line 229</a>
+        <a href="bemap-model_bemap-icon.js.html">bemap-model/bemap-icon.js</a>, <a href="bemap-model_bemap-icon.js.html#line259">line 259</a>
     </li></ul></dd>
     
 
@@ -2633,7 +2705,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-model_bemap-icon.js.html">bemap-model/bemap-icon.js</a>, <a href="bemap-model_bemap-icon.js.html#line96">line 96</a>
+        <a href="bemap-model_bemap-icon.js.html">bemap-model/bemap-icon.js</a>, <a href="bemap-model_bemap-icon.js.html#line126">line 126</a>
     </li></ul></dd>
     
 
@@ -2743,7 +2815,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-model_bemap-icon.js.html">bemap-model/bemap-icon.js</a>, <a href="bemap-model_bemap-icon.js.html#line115">line 115</a>
+        <a href="bemap-model_bemap-icon.js.html">bemap-model/bemap-icon.js</a>, <a href="bemap-model_bemap-icon.js.html#line145">line 145</a>
     </li></ul></dd>
     
 
@@ -2817,7 +2889,7 @@
 <br class="clear">
 
 <footer>
-    Documentation generated by <a href="https://github.com/jsdoc/jsdoc">JSDoc 3.6.3</a> on Fri Aug 21 2026 09:49:46 GMT+0200 (heure d’été d’Europe centrale)
+    Documentation generated by <a href="https://github.com/jsdoc/jsdoc">JSDoc 3.6.3</a> on Thu Sep 03 2026 10:21:05 GMT+0200 (heure d’été d’Europe centrale)
 </footer>
 
 <script> prettyPrint(); </script>

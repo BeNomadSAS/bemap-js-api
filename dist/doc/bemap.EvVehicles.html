@@ -50,27 +50,7 @@
 
 
 <div class="description">
-    BeNomad BeMap JavaScript API - EvVehicles service (v1.5)
-
-Promise-based wrapper around the v1.1 vehicle catalogue endpoints:
-
-  - `GET service/vehicle/1.1/getbrands`     → `{brands: [{id, label}, ...]}`
-  - `GET service/vehicle/1.1/findvehicles`  → `{vehicles: [VehicleInfo, ...]}`
-
-**Why v1.1 (not the lightweight `evsmartrouting/vehicles*` endpoints).**
-v1.1 returns structured plaintext fields — brandName, name, year,
-variant, batteryName (kWh), chargerPowerDC (kW), chargerPowerAcThreePhases
-(kW), connectorTypes[], wltp, consumptionInWhPerKm, dimensions — same
-shape the Flutter SDK consumes via
-`bemap-flutter-api/lib/service/vehicle/model/vehicle.dart`. No regex
-parsing of pre-formatted titles, no AES decryption of `encDatasheet`.
-
-Auth roles: `ROLE_VEHICLE` (+ `ROLE_VEHICLE_DATASHEET` for
-`enableDatasheet: true`).
-
-`bemap.EvSmartRouting.getBrands()` / `.getVehicles()` keep their existing
-lightweight `evsmartrouting/vehicles*` endpoints for backward compat —
-the two services serve different use cases.
+    BeNomad BeMap JavaScript API - EvVehicles service (v1.5)Promise-based wrapper around the v1.1 vehicle catalogue endpoints:  - `GET service/vehicle/1.1/getbrands`     → `{brands: [{id, label}, ...]}`  - `GET service/vehicle/1.1/findvehicles`  → `{vehicles: [VehicleInfo, ...]}`**Why v1.1 (not the lightweight `evsmartrouting/vehicles*` endpoints).**v1.1 returns structured plaintext fields — brandName, name, year,variant, batteryName (kWh), chargerPowerDC (kW), chargerPowerAcThreePhases(kW), connectorTypes[], wltp, consumptionInWhPerKm, dimensions — sameshape the Flutter SDK consumes via`bemap-flutter-api/lib/service/vehicle/model/vehicle.dart`. No regexparsing of pre-formatted titles, no AES decryption of `encDatasheet`.Auth roles: `ROLE_VEHICLE` (+ `ROLE_VEHICLE_DATASHEET` for`enableDatasheet: true`).`bemap.EvSmartRouting.getBrands()` / `.getVehicles()` keep their existinglightweight `evsmartrouting/vehicles*` endpoints for backward compat —the two services serve different use cases.
 </div>
 
 
@@ -284,12 +264,7 @@ the two services serve different use cases.
 
 
 <div class="description">
-    Fetch the JSON-wrapped logo description for an EV brand (includes the
-base64-encoded image bytes and the picture format). Wraps
-`GET service/vehicle/1.1/getbrandlogo`.
-
-For embedding the logo directly in `<img src="...">` markup, prefer
-`getBrandLogoUrl()` — it returns the URL of the binary endpoint.
+    Fetch the JSON-wrapped logo description for an EV brand (includes thebase64-encoded image bytes and the picture format). Wraps`GET service/vehicle/1.1/getbrandlogo`.For embedding the logo directly in `<img src="...">` markup, prefer`getBrandLogoUrl()` — it returns the URL of the binary endpoint.
 </div>
 
 
@@ -1095,15 +1070,7 @@ For embedding the logo directly in `<img src="...">` markup, prefer
 
 
 <div class="description">
-    Build the URL of the binary brand-logo endpoint
-(`GET service/vehicle/1.1/getbrandlogolite`) — returns raw image bytes
-with the correct `Content-Type`. Customers fetch this with their own
-auth (Basic via `Authorization` header) and turn the response into a
-`Blob` URL for `<img src>`.
-
-**In proxy mode** (`ctx.proxy`, EVMOVE-307) do NOT add an `Authorization`
-header — the URL already points at the proxy, which injects the credentials
-server-side. Fetch it with no auth header at all.
+    Build the URL of the binary brand-logo endpoint(`GET service/vehicle/1.1/getbrandlogolite`) — returns raw image byteswith the correct `Content-Type`. Customers fetch this with their ownauth (Basic via `Authorization` header) and turn the response into a`Blob` URL for `<img src>`.**In proxy mode** (`ctx.proxy`, EVMOVE-307) do NOT add an `Authorization`header — the URL already points at the proxy, which injects the credentialsserver-side. Fetch it with no auth header at all.
 </div>
 
 
@@ -1265,10 +1232,7 @@ server-side. Fetch it with no auth header at all.
 
 
 <div class="description">
-    Build the URL of the vehicle-photo endpoint
-(`GET service/vehicle/picture/1.0/getone?vehicleUuidKey=<key>`). Used
-by customer UIs (e.g. `evmove5`'s car-select screen) to render vehicle
-thumbnails. Customers fetch with their own auth.
+    Build the URL of the vehicle-photo endpoint(`GET service/vehicle/picture/1.0/getone?vehicleUuidKey=<key>`). Usedby customer UIs (e.g. `evmove5`'s car-select screen) to render vehiclethumbnails. Customers fetch with their own auth.
 </div>
 
 
@@ -1426,16 +1390,7 @@ thumbnails. Customers fetch with their own auth.
 
 
 <div class="description">
-    Walk the catalogue progressively, one attribute at a time — used by
-cascading "brand → name → variant → battery → DC power → AC power"
-UI flows (as in the `evmove5` car-select screen). Wraps
-`GET service/vehicle/1.1/getlevelvehicleinfo`.
-
-The `level` argument names which attribute the server returns. Each
-deeper level filters by the levels already chosen.
-
-Levels: `'NAME'` · `'VARIANT'` · `'YEAR'` · `'BATTERY_NAME'` ·
-`'CHARGE_POWER_DC'` · `'CHARGE_POWER_AC'` · `'MOTOR_TYPE'`.
+    Walk the catalogue progressively, one attribute at a time — used bycascading "brand → name → variant → battery → DC power → AC power"UI flows (as in the `evmove5` car-select screen). Wraps`GET service/vehicle/1.1/getlevelvehicleinfo`.The `level` argument names which attribute the server returns. Eachdeeper level filters by the levels already chosen.Levels: `'NAME'` · `'VARIANT'` · `'YEAR'` · `'BATTERY_NAME'` ·`'CHARGE_POWER_DC'` · `'CHARGE_POWER_AC'` · `'MOTOR_TYPE'`.
 </div>
 
 
@@ -2331,9 +2286,7 @@ Levels: `'NAME'` · `'VARIANT'` · `'YEAR'` · `'BATTERY_NAME'` ·
 
 
 <div class="description">
-    Convenience: fetch a vehicle and return a `RoutingVehicleProfile` ready
-to plug into `bemap.RoutingV2.calculate()` or
-`bemap.EvSmartRouting.calculate()`.
+    Convenience: fetch a vehicle and return a `RoutingVehicleProfile` readyto plug into `bemap.RoutingV2.calculate()` or`bemap.EvSmartRouting.calculate()`.
 </div>
 
 
@@ -2600,7 +2553,7 @@ to plug into `bemap.RoutingV2.calculate()` or
 <br class="clear">
 
 <footer>
-    Documentation generated by <a href="https://github.com/jsdoc/jsdoc">JSDoc 3.6.3</a> on Fri Aug 21 2026 09:49:46 GMT+0200 (heure d’été d’Europe centrale)
+    Documentation generated by <a href="https://github.com/jsdoc/jsdoc">JSDoc 3.6.3</a> on Thu Sep 03 2026 10:21:04 GMT+0200 (heure d’été d’Europe centrale)
 </footer>
 
 <script> prettyPrint(); </script>

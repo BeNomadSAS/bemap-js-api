@@ -423,6 +423,22 @@ bemap.Context = function (options) {
   this.tilesFile = opts.tilesFile || 'default';
 
   /**
+   * What to do when `geoserver` was inherited as the PMTiles map name but the
+   * Worker's `/api/maps` catalog has no such map — a BGIS-only provider
+   * (`herehlp`, `addok`, `photon`, `nominatim`, `tomtom`) has no vector map.
+   * `false` (the default) leaves the basemap empty, so a map never silently
+   * shows a DIFFERENT provider's data than the one that was selected. `true`
+   * loads the Worker's server-default map instead (the earlier behaviour).
+   * An explicit `tilesFile` pin is unaffected either way — it keeps surfacing
+   * its own 403/404, since a misspelled or unauthorised tileset is a
+   * configuration error, not a provider without tiles.
+   * @public
+   * @since 2.0.4
+   * @type {boolean}
+   */
+  this.tilesFallbackToDefault = opts.tilesFallbackToDefault === true;
+
+  /**
    * BeNomad-Tiles archive version tokens, keyed by resolved map name
    * (EVMOVE-457). Populated at runtime from the Worker's `/api/maps`
    * (`aliasVersions`/`versions`). When a token is present, `getTilesFileUrl()`
@@ -7208,7 +7224,8 @@ bemap.MapLibreMap.prototype.backgroundLayers = function(geoservers, options) { r
  * `setStyle` does the work — re-registers the slice source, re-resolves the
  * placeholders, replays the overlays. The name is passed EXPLICITLY so it
  * outranks `ctx.tilesFile`, and `_tilesFileExplicit` is cleared so a provider
- * with no archive falls back to the default map instead of a 403.
+ * with no archive is treated as "no vector map" rather than a misconfiguration.
+ * Selecting a provider that HAS one restores the basemap.
  *
  * @public
  * @since 2.0.4
@@ -7223,11 +7240,21 @@ bemap.MapLibreMap.prototype.switchBackgroundLayer = function(geoserver) {
   var name = this.ctx.resolveTilesFile(geoserver);
   if (name === this._tilesFile) return this;
 
+  // A map blanked by the catalog check (a provider with no vector map) has the
+  // source-free style as its _currentStyleSpec, so re-applying THAT would stay
+  // blank. Restore the last real spec instead, and keep the current one on the
+  // way in so there is always something to come back to.
+  var wasMissing = !!this._tilesFileMissing;
+  if (!wasMissing) this._tilesLastStyleSpec = this._currentStyleSpec;
   this._tilesFile = name;
   this._tilesFileExplicit = false;
+  this._tilesFileMissing = false;
 
-  if (this._currentStyleSpec) {
-    this.setStyle(this._currentStyleSpec, { tilesFile: geoserver, _internal: true });
+  var spec = wasMissing
+    ? (this._tilesLastStyleSpec || JSON.parse(JSON.stringify(bemap.fallbackStyle)))
+    : this._currentStyleSpec;
+  if (spec) {
+    this.setStyle(spec, { tilesFile: geoserver, _internal: true });
   }
   return this;
 };
@@ -8738,11 +8765,33 @@ bemap.MapLibreMap.prototype._discoverTilesVersion = function() {
           }
         }
         if (!known) {
+          // Only swap in the server-resolved 'default' map if the app asked for
+          // it (ctx.tilesFallbackToDefault, off by default): the user
+          // picked geoserver X, so quietly rendering ANOTHER provider's map is
+          // worse UX than rendering none. Default → render none.
+          var useDefault = !!(self.ctx && self.ctx.tilesFallbackToDefault);
           try {
-            console.info('[bemap] BeNomad Tiles: no map named "' + name + '" on this Worker — using the server default map instead (the geoserver setting still applies to WMS layers and services).');
+            console.info('[bemap] BeNomad Tiles: no map named "' + name + '" on this Worker — ' +
+              (useDefault ? 'using the server default map instead' : 'showing an empty vector basemap') +
+              ' (the geoserver setting still applies to WMS layers and services).');
           } catch (e) { /* ignore */ }
-          name = 'default';
-          self._tilesFile = 'default';   // registration + style follow this (key identity)
+          if (useDefault) {
+            name = 'default';
+            self._tilesFile = 'default';   // registration + style follow this (key identity)
+          } else {
+            // A source-free style: nothing references the absent archive any
+            // more, so no slice is requested. The pending init style has to be
+            // cancelled too — _applyInitStyle() runs when this promise settles,
+            // and the server default would paint straight over the empty map.
+            // The last real spec is kept so switchBackgroundLayer() can restore
+            // it as soon as a provider that HAS a map is selected.
+            self._tilesFileMissing = true;
+            self._tilesLastStyleSpec = self._currentStyleSpec;
+            self._refreshDefaultOnInit = false;
+            self._pendingStyleName = null;
+            self.setStyle({ version: 8, sources: {}, layers: [] }, { _internal: true });
+            return;   // no map → no version token to resolve
+          }
         }
       }
       var token = cfg ? (ciGet(cfg.aliasVersions, name) || ciGet(cfg.versions, name) || null) : null;

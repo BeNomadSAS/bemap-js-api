@@ -161,10 +161,7 @@
 
 
 <div class="description">
-    Whether the zoom (+/-) control is currently visible. Initialised from
-the resolved `zoomControl` option (default OFF — opt-in) and flipped at
-runtime by `setZoomControl()`. Kept in sync so `getZoomControl()` is
-accurate before any runtime toggle.
+    Whether the zoom (+/-) control is currently visible. Initialised fromthe resolved `zoomControl` option (default OFF — opt-in) and flipped atruntime by `setZoomControl()`. Kept in sync so `getZoomControl()` isaccurate before any runtime toggle.
 </div>
 
 
@@ -734,8 +731,7 @@ accurate before any runtime toggle.
 
 
 <div class="description">
-    Fire an error onto the map's error channel(s). Used by the warn-and-no-op
-fallback and by the new auth/tile/cache error paths.
+    Fire an error onto the map's error channel(s). Used by the warn-and-no-opfallback and by the new auth/tile/cache error paths.
 </div>
 
 
@@ -836,7 +832,7 @@ fallback and by the new auth/tile/cache error paths.
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line1513">line 1513</a>
+        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line1516">line 1516</a>
     </li></ul></dd>
     
 
@@ -968,19 +964,7 @@ fallback and by the new auth/tile/cache error paths.
 
 
 <div class="description">
-    Report that the ACTIVE engine does not implement `methodName`, then no-op.
-
-The base class is a hand-maintained stub list, and it was only half populated
-(BEMAP-1898 audit). The same defect — an engine not implementing an overlay
-method — therefore failed two different ways: silently (`return this` for the
-names that were listed) or with `TypeError: … is not a function` (for the ones
-that were not). Neither told the developer anything useful, and the silent half
-is how several Leaflet gaps shipped unnoticed.
-
-Every previously-absent name now lands here: one console.warn per method per
-map, plus a `bemap.Error` on the map's error channel, then a harmless no-op.
-A TypeError becomes a visible warning; a silent nothing becomes a visible
-warning. Nothing that already worked changes.
+    Report that the ACTIVE engine does not implement `methodName`, then no-op.The base class is a hand-maintained stub list, and it was only half populated(BEMAP-1898 audit). The same defect — an engine not implementing an overlaymethod — therefore failed two different ways: silently (`return this` for thenames that were listed) or with `TypeError: … is not a function` (for the onesthat were not). Neither told the developer anything useful, and the silent halfis how several Leaflet gaps shipped unnoticed.Every previously-absent name now lands here: one console.warn per method permap, plus a `bemap.Error` on the map's error channel, then a harmless no-op.A TypeError becomes a visible warning; a silent nothing becomes a visiblewarning. Nothing that already worked changes.
 </div>
 
 
@@ -1081,7 +1065,7 @@ warning. Nothing that already worked changes.
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line1426">line 1426</a>
+        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line1429">line 1429</a>
     </li></ul></dd>
     
 
@@ -1323,11 +1307,7 @@ warning. Nothing that already worked changes.
 
 
 <div class="description">
-    Emit a one-time `info`-level error on the map's error channel when
-a `setLight` / `setSky` / etc. is called on a non-globe projection
-where the effect won't be visible. NOT auto-enabling globe — too
-surprising for a public API. The customer's error subscriber sees
-the hint; dev console gets a one-time `console.info`.
+    Emit a one-time `info`-level error on the map's error channel whena `setLight` / `setSky` / etc. is called on a non-globe projectionwhere the effect won't be visible. NOT auto-enabling globe — toosurprising for a public API. The customer's error subscriber seesthe hint; dev console gets a one-time `console.info`.
 </div>
 
 
@@ -1379,7 +1359,7 @@ the hint; dev console gets a one-time `console.info`.
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line1743">line 1743</a>
+        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line1746">line 1746</a>
     </li></ul></dd>
     
 
@@ -1513,20 +1493,7 @@ the hint; dev console gets a one-time `console.info`.
 
 
 <div class="description">
-    Wire `on('error' | 'error:auth' | 'error:network' | 'error:maplibre-only')`
-through to the error channel, and report whether it did.
-
-The class doc for `_onError` has always claimed "the library version of `on()`
-calls this when the event name starts with 'error'" — but the base `on()` is an
-abstract `return new bemap.Listener()`, and all three engines override it and
-route straight to `_onFeature` / the native map. So the DOCUMENTED way to
-observe auth, tile and network failures silently subscribed to nothing on
-every engine (BEMAP-1898 audit).
-
-Deliberately ADDITIVE: each engine calls this first and then continues with
-whatever it did before, so a consumer relying on an engine's native `'error'`
-event (MapLibre fires one) keeps receiving it — it now simply also receives the
-`bemap.Error` objects that `_fireError` produces.
+    Wire `on('error' | 'error:auth' | 'error:network' | 'error:maplibre-only')`through to the error channel, and report whether it did.The class doc for `_onError` has always claimed "the library version of `on()`calls this when the event name starts with 'error'" — but the base `on()` is anabstract `return new bemap.Listener()`, and all three engines override it androute straight to `_onFeature` / the native map. So the DOCUMENTED way toobserve auth, tile and network failures silently subscribed to nothing onevery engine (BEMAP-1898 audit).Deliberately ADDITIVE: each engine calls this first and then continues withwhatever it did before, so a consumer relying on an engine's native `'error'`event (MapLibre fires one) keeps receiving it — it now simply also receives the`bemap.Error` objects that `_fireError` produces.
 </div>
 
 
@@ -1650,7 +1617,7 @@ event (MapLibre fires one) keeps receiving it — it now simply also receives th
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line1564">line 1564</a>
+        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line1567">line 1567</a>
     </li></ul></dd>
     
 
@@ -2194,7 +2161,7 @@ event (MapLibre fires one) keeps receiving it — it now simply also receives th
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line1212">line 1212</a>
+        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line1215">line 1215</a>
     </li></ul></dd>
     
 
@@ -2633,7 +2600,7 @@ event (MapLibre fires one) keeps receiving it — it now simply also receives th
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line1273">line 1273</a>
+        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line1276">line 1276</a>
     </li></ul></dd>
     
 
@@ -2820,7 +2787,7 @@ event (MapLibre fires one) keeps receiving it — it now simply also receives th
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line1144">line 1144</a>
+        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line1147">line 1147</a>
     </li></ul></dd>
     
 
@@ -3095,7 +3062,7 @@ event (MapLibre fires one) keeps receiving it — it now simply also receives th
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line1160">line 1160</a>
+        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line1163">line 1163</a>
     </li></ul></dd>
     
 
@@ -3282,7 +3249,7 @@ event (MapLibre fires one) keeps receiving it — it now simply also receives th
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line557">line 557</a>
+        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line560">line 560</a>
     </li></ul></dd>
     
 
@@ -3562,7 +3529,7 @@ event (MapLibre fires one) keeps receiving it — it now simply also receives th
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line748">line 748</a>
+        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line751">line 751</a>
     </li></ul></dd>
     
 
@@ -4795,7 +4762,7 @@ event (MapLibre fires one) keeps receiving it — it now simply also receives th
     
 
     
-    <h4 class="name" id="backgroundLayers"><span class="type-signature"></span>backgroundLayers<span class="signature">(geoservers)</span><span class="type-signature"> &rarr; {<a href="bemap.Map.html">bemap.Map</a>}</span></h4>
+    <h4 class="name" id="backgroundLayers"><span class="type-signature"></span>backgroundLayers<span class="signature">(geoservers, options<span class="signature-attributes">opt</span>)</span><span class="type-signature"> &rarr; {<a href="bemap.MapLibreMap.html">bemap.MapLibreMap</a>}</span></h4>
     
 
     
@@ -4803,7 +4770,7 @@ event (MapLibre fires one) keeps receiving it — it now simply also receives th
 
 
 <div class="description">
-    Create a background layer for each geoserver name.
+    No-op, kept so `.backgroundLayers(list).switchBackgroundLayer(name)` staysvalid cross-engine. MapLibre needs no pre-declared layers.
 </div>
 
 
@@ -4827,6 +4794,8 @@ event (MapLibre fires one) keeps receiving it — it now simply also receives th
         <th>Type</th>
 
         
+        <th>Attributes</th>
+        
 
         
 
@@ -4845,17 +4814,58 @@ event (MapLibre fires one) keeps receiving it — it now simply also receives th
             <td class="type">
             
                 
-<span class="param-type">array</span>
+<span class="param-type">Array.&lt;String></span>
 
 
             
             </td>
 
             
+                <td class="attributes">
+                
+
+                
+
+                
+                </td>
+            
 
             
 
-            <td class="description last">List of geoserver name.</td>
+            <td class="description last">Ignored.</td>
+        </tr>
+
+    
+
+        <tr>
+            
+                <td class="name"><code>options</code></td>
+            
+
+            <td class="type">
+            
+                
+<span class="param-type">Object</span>
+
+
+            
+            </td>
+
+            
+                <td class="attributes">
+                
+                    &lt;optional><br>
+                
+
+                
+
+                
+                </td>
+            
+
+            
+
+            <td class="description last">Ignored.</td>
         </tr>
 
     
@@ -4901,7 +4911,7 @@ event (MapLibre fires one) keeps receiving it — it now simply also receives th
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line505">line 505</a>
+        <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html">bemap-maplibre/bemap-maplibre-v5/bemap-map-maplibre.js</a>, <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html#line923">line 923</a>
     </li></ul></dd>
     
 
@@ -4930,7 +4940,7 @@ event (MapLibre fires one) keeps receiving it — it now simply also receives th
 
         
 <div class="param-desc">
-    this
+    Return this.
 </div>
 
 
@@ -4941,7 +4951,7 @@ event (MapLibre fires one) keeps receiving it — it now simply also receives th
     </dt>
     <dd>
         
-<span class="param-type"><a href="bemap.Map.html">bemap.Map</a></span>
+<span class="param-type"><a href="bemap.MapLibreMap.html">bemap.MapLibreMap</a></span>
 
 
     </dd>
@@ -5088,7 +5098,7 @@ event (MapLibre fires one) keeps receiving it — it now simply also receives th
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line713">line 713</a>
+        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line716">line 716</a>
     </li></ul></dd>
     
 
@@ -5275,7 +5285,7 @@ event (MapLibre fires one) keeps receiving it — it now simply also receives th
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line771">line 771</a>
+        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line774">line 774</a>
     </li></ul></dd>
     
 
@@ -5341,11 +5351,7 @@ event (MapLibre fires one) keeps receiving it — it now simply also receives th
 
 
 <div class="description">
-    Tear down every registered effect. Invokes each teardown in
-registration order, swallowing errors per-teardown so one failure
-doesn't block the rest. Each teardown is expected to call
-`_unregisterEffect` itself via the matching `remove*`/`stop*` path;
-the registry is cleared at the end regardless.
+    Tear down every registered effect. Invokes each teardown inregistration order, swallowing errors per-teardown so one failuredoesn't block the rest. Each teardown is expected to call`_unregisterEffect` itself via the matching `remove*`/`stop*` path;the registry is cleared at the end regardless.
 </div>
 
 
@@ -5397,7 +5403,7 @@ the registry is cleared at the end regardless.
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line1716">line 1716</a>
+        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line1719">line 1719</a>
     </li></ul></dd>
     
 
@@ -5557,7 +5563,7 @@ the registry is cleared at the end regardless.
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line815">line 815</a>
+        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line818">line 818</a>
     </li></ul></dd>
     
 
@@ -6237,7 +6243,7 @@ the registry is cleared at the end regardless.
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line956">line 956</a>
+        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line959">line 959</a>
     </li></ul></dd>
     
 
@@ -6473,7 +6479,7 @@ the registry is cleared at the end regardless.
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line968">line 968</a>
+        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line971">line 971</a>
     </li></ul></dd>
     
 
@@ -6709,7 +6715,7 @@ the registry is cleared at the end regardless.
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line980">line 980</a>
+        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line983">line 983</a>
     </li></ul></dd>
     
 
@@ -6968,7 +6974,7 @@ the registry is cleared at the end regardless.
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line993">line 993</a>
+        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line996">line 996</a>
     </li></ul></dd>
     
 
@@ -7204,7 +7210,7 @@ the registry is cleared at the end regardless.
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line1005">line 1005</a>
+        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line1008">line 1008</a>
     </li></ul></dd>
     
 
@@ -7270,8 +7276,7 @@ the registry is cleared at the end regardless.
 
 
 <div class="description">
-    BeNomad BeMap JavaScript API - MapLibre v5 - Draw Interaction
-Manual implementation using GeoJSON sources + mouse events.
+    BeNomad BeMap JavaScript API - MapLibre v5 - Draw InteractionManual implementation using GeoJSON sources + mouse events.
 </div>
 
 
@@ -7462,7 +7467,7 @@ Manual implementation using GeoJSON sources + mouse events.
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line1181">line 1181</a>
+        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line1184">line 1184</a>
     </li></ul></dd>
     
 
@@ -7575,7 +7580,7 @@ Manual implementation using GeoJSON sources + mouse events.
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html">bemap-maplibre/bemap-maplibre-v5/bemap-map-maplibre.js</a>, <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html#line2291">line 2291</a>
+        <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html">bemap-maplibre/bemap-maplibre-v5/bemap-map-maplibre.js</a>, <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html#line2344">line 2344</a>
     </li></ul></dd>
     
 
@@ -7684,7 +7689,7 @@ Manual implementation using GeoJSON sources + mouse events.
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html">bemap-maplibre/bemap-maplibre-v5/bemap-map-maplibre.js</a>, <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html#line2302">line 2302</a>
+        <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html">bemap-maplibre/bemap-maplibre-v5/bemap-map-maplibre.js</a>, <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html#line2355">line 2355</a>
     </li></ul></dd>
     
 
@@ -7793,7 +7798,7 @@ Manual implementation using GeoJSON sources + mouse events.
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html">bemap-maplibre/bemap-maplibre-v5/bemap-map-maplibre.js</a>, <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html#line2313">line 2313</a>
+        <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html">bemap-maplibre/bemap-maplibre-v5/bemap-map-maplibre.js</a>, <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html#line2366">line 2366</a>
     </li></ul></dd>
     
 
@@ -7902,7 +7907,7 @@ Manual implementation using GeoJSON sources + mouse events.
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html">bemap-maplibre/bemap-maplibre-v5/bemap-map-maplibre.js</a>, <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html#line2325">line 2325</a>
+        <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html">bemap-maplibre/bemap-maplibre-v5/bemap-map-maplibre.js</a>, <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html#line2378">line 2378</a>
     </li></ul></dd>
     
 
@@ -8131,7 +8136,7 @@ Manual implementation using GeoJSON sources + mouse events.
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line626">line 626</a>
+        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line629">line 629</a>
     </li></ul></dd>
     
 
@@ -8175,8 +8180,7 @@ Manual implementation using GeoJSON sources + mouse events.
 
 
 <div class="description">
-    Names of every currently-active effect. Snapshot — does not auto-
-update; subscribe via `onEffectChange` for live notification.
+    Names of every currently-active effect. Snapshot — does not auto-update; subscribe via `onEffectChange` for live notification.
 </div>
 
 
@@ -8228,7 +8232,7 @@ update; subscribe via `onEffectChange` for live notification.
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line1697">line 1697</a>
+        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line1700">line 1700</a>
     </li></ul></dd>
     
 
@@ -8339,7 +8343,7 @@ update; subscribe via `onEffectChange` for live notification.
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line1102">line 1102</a>
+        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line1105">line 1105</a>
     </li></ul></dd>
     
 
@@ -8454,7 +8458,7 @@ update; subscribe via `onEffectChange` for live notification.
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line1072">line 1072</a>
+        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line1075">line 1075</a>
     </li></ul></dd>
     
 
@@ -8569,7 +8573,7 @@ update; subscribe via `onEffectChange` for live notification.
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line1064">line 1064</a>
+        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line1067">line 1067</a>
     </li></ul></dd>
     
 
@@ -8817,7 +8821,7 @@ update; subscribe via `onEffectChange` for live notification.
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line570">line 570</a>
+        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line573">line 573</a>
     </li></ul></dd>
     
 
@@ -8932,7 +8936,7 @@ update; subscribe via `onEffectChange` for live notification.
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line1089">line 1089</a>
+        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line1092">line 1092</a>
     </li></ul></dd>
     
 
@@ -9047,7 +9051,7 @@ update; subscribe via `onEffectChange` for live notification.
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line690">line 690</a>
+        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line693">line 693</a>
     </li></ul></dd>
     
 
@@ -9160,7 +9164,7 @@ update; subscribe via `onEffectChange` for live notification.
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html">bemap-maplibre/bemap-maplibre-v5/bemap-map-maplibre.js</a>, <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html#line2838">line 2838</a>
+        <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html">bemap-maplibre/bemap-maplibre-v5/bemap-map-maplibre.js</a>, <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html#line2913">line 2913</a>
     </li></ul></dd>
     
 
@@ -9262,7 +9266,7 @@ update; subscribe via `onEffectChange` for live notification.
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html">bemap-maplibre/bemap-maplibre-v5/bemap-map-maplibre.js</a>, <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html#line1599">line 1599</a>
+        <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html">bemap-maplibre/bemap-maplibre-v5/bemap-map-maplibre.js</a>, <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html#line1652">line 1652</a>
     </li></ul></dd>
     
 
@@ -9353,7 +9357,7 @@ update; subscribe via `onEffectChange` for live notification.
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html">bemap-maplibre/bemap-maplibre-v5/bemap-map-maplibre.js</a>, <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html#line1546">line 1546</a>
+        <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html">bemap-maplibre/bemap-maplibre-v5/bemap-map-maplibre.js</a>, <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html#line1599">line 1599</a>
     </li></ul></dd>
     
 
@@ -9464,7 +9468,7 @@ update; subscribe via `onEffectChange` for live notification.
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line669">line 669</a>
+        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line672">line 672</a>
     </li></ul></dd>
     
 
@@ -9717,7 +9721,7 @@ update; subscribe via `onEffectChange` for live notification.
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line588">line 588</a>
+        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line591">line 591</a>
     </li></ul></dd>
     
 
@@ -9881,7 +9885,7 @@ update; subscribe via `onEffectChange` for live notification.
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line1174">line 1174</a>
+        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line1177">line 1177</a>
     </li></ul></dd>
     
 
@@ -10252,7 +10256,7 @@ update; subscribe via `onEffectChange` for live notification.
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html">bemap-maplibre/bemap-maplibre-v5/bemap-map-maplibre.js</a>, <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html#line1726">line 1726</a>
+        <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html">bemap-maplibre/bemap-maplibre-v5/bemap-map-maplibre.js</a>, <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html#line1779">line 1779</a>
     </li></ul></dd>
     
 
@@ -10434,7 +10438,7 @@ update; subscribe via `onEffectChange` for live notification.
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html">bemap-maplibre/bemap-maplibre-v5/bemap-map-maplibre.js</a>, <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html#line1248">line 1248</a>
+        <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html">bemap-maplibre/bemap-maplibre-v5/bemap-map-maplibre.js</a>, <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html#line1301">line 1301</a>
     </li></ul></dd>
     
 
@@ -10667,7 +10671,7 @@ update; subscribe via `onEffectChange` for live notification.
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line615">line 615</a>
+        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line618">line 618</a>
     </li></ul></dd>
     
 
@@ -10854,7 +10858,7 @@ update; subscribe via `onEffectChange` for live notification.
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line636">line 636</a>
+        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line639">line 639</a>
     </li></ul></dd>
     
 
@@ -11041,7 +11045,7 @@ update; subscribe via `onEffectChange` for live notification.
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line648">line 648</a>
+        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line651">line 651</a>
     </li></ul></dd>
     
 
@@ -11251,7 +11255,7 @@ update; subscribe via `onEffectChange` for live notification.
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line863">line 863</a>
+        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line866">line 866</a>
     </li></ul></dd>
     
 
@@ -11317,9 +11321,7 @@ update; subscribe via `onEffectChange` for live notification.
 
 
 <div class="description">
-    Subscribe to active-effect changes. Fires `{name, active}` whenever
-an effect is registered (`active: true`) or torn down (`active:
-false`). The dashboard's active-effects bar consumes this.
+    Subscribe to active-effect changes. Fires `{name, active}` wheneveran effect is registered (`active: true`) or torn down (`active:false`). The dashboard's active-effects bar consumes this.
 </div>
 
 
@@ -11371,7 +11373,7 @@ false`). The dashboard's active-effects bar consumes this.
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line1677">line 1677</a>
+        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line1680">line 1680</a>
     </li></ul></dd>
     
 
@@ -11608,7 +11610,7 @@ false`). The dashboard's active-effects bar consumes this.
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line942">line 942</a>
+        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line945">line 945</a>
     </li></ul></dd>
     
 
@@ -11841,7 +11843,7 @@ false`). The dashboard's active-effects bar consumes this.
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line877">line 877</a>
+        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line880">line 880</a>
     </li></ul></dd>
     
 
@@ -12051,7 +12053,7 @@ false`). The dashboard's active-effects bar consumes this.
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line890">line 890</a>
+        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line893">line 893</a>
     </li></ul></dd>
     
 
@@ -12261,7 +12263,7 @@ false`). The dashboard's active-effects bar consumes this.
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line903">line 903</a>
+        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line906">line 906</a>
     </li></ul></dd>
     
 
@@ -12494,7 +12496,7 @@ false`). The dashboard's active-effects bar consumes this.
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line917">line 917</a>
+        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line920">line 920</a>
     </li></ul></dd>
     
 
@@ -12704,7 +12706,7 @@ false`). The dashboard's active-effects bar consumes this.
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line930">line 930</a>
+        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line933">line 933</a>
     </li></ul></dd>
     
 
@@ -12891,7 +12893,7 @@ false`). The dashboard's active-effects bar consumes this.
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line1189">line 1189</a>
+        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line1192">line 1192</a>
     </li></ul></dd>
     
 
@@ -13055,7 +13057,7 @@ false`). The dashboard's active-effects bar consumes this.
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line701">line 701</a>
+        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line704">line 704</a>
     </li></ul></dd>
     
 
@@ -13219,7 +13221,7 @@ false`). The dashboard's active-effects bar consumes this.
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line804">line 804</a>
+        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line807">line 807</a>
     </li></ul></dd>
     
 
@@ -13383,7 +13385,7 @@ false`). The dashboard's active-effects bar consumes this.
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line1219">line 1219</a>
+        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line1222">line 1222</a>
     </li></ul></dd>
     
 
@@ -13547,7 +13549,7 @@ false`). The dashboard's active-effects bar consumes this.
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line1167">line 1167</a>
+        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line1170">line 1170</a>
     </li></ul></dd>
     
 
@@ -13711,7 +13713,7 @@ false`). The dashboard's active-effects bar consumes this.
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line850">line 850</a>
+        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line853">line 853</a>
     </li></ul></dd>
     
 
@@ -13875,7 +13877,7 @@ false`). The dashboard's active-effects bar consumes this.
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line736">line 736</a>
+        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line739">line 739</a>
     </li></ul></dd>
     
 
@@ -14039,7 +14041,7 @@ false`). The dashboard's active-effects bar consumes this.
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line759">line 759</a>
+        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line762">line 762</a>
     </li></ul></dd>
     
 
@@ -14203,7 +14205,7 @@ false`). The dashboard's active-effects bar consumes this.
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line1204">line 1204</a>
+        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line1207">line 1207</a>
     </li></ul></dd>
     
 
@@ -14367,7 +14369,7 @@ false`). The dashboard's active-effects bar consumes this.
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line794">line 794</a>
+        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line797">line 797</a>
     </li></ul></dd>
     
 
@@ -14531,7 +14533,7 @@ false`). The dashboard's active-effects bar consumes this.
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line1026">line 1026</a>
+        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line1029">line 1029</a>
     </li></ul></dd>
     
 
@@ -14646,7 +14648,7 @@ false`). The dashboard's active-effects bar consumes this.
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line1115">line 1115</a>
+        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line1118">line 1118</a>
     </li></ul></dd>
     
 
@@ -14759,7 +14761,7 @@ false`). The dashboard's active-effects bar consumes this.
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html">bemap-maplibre/bemap-maplibre-v5/bemap-map-maplibre.js</a>, <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html#line2261">line 2261</a>
+        <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html">bemap-maplibre/bemap-maplibre-v5/bemap-map-maplibre.js</a>, <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html#line2314">line 2314</a>
     </li></ul></dd>
     
 
@@ -14901,7 +14903,7 @@ false`). The dashboard's active-effects bar consumes this.
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line1096">line 1096</a>
+        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line1099">line 1099</a>
     </li></ul></dd>
     
 
@@ -15160,7 +15162,7 @@ false`). The dashboard's active-effects bar consumes this.
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line1056">line 1056</a>
+        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line1059">line 1059</a>
     </li></ul></dd>
     
 
@@ -15347,7 +15349,7 @@ false`). The dashboard's active-effects bar consumes this.
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line600">line 600</a>
+        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line603">line 603</a>
     </li></ul></dd>
     
 
@@ -15666,7 +15668,7 @@ false`). The dashboard's active-effects bar consumes this.
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line1240">line 1240</a>
+        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line1243">line 1243</a>
     </li></ul></dd>
     
 
@@ -15830,7 +15832,7 @@ false`). The dashboard's active-effects bar consumes this.
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line1083">line 1083</a>
+        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line1086">line 1086</a>
     </li></ul></dd>
     
 
@@ -15994,7 +15996,7 @@ false`). The dashboard's active-effects bar consumes this.
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line1122">line 1122</a>
+        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line1125">line 1125</a>
     </li></ul></dd>
     
 
@@ -16158,7 +16160,7 @@ false`). The dashboard's active-effects bar consumes this.
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line1129">line 1129</a>
+        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line1132">line 1132</a>
     </li></ul></dd>
     
 
@@ -16276,7 +16278,7 @@ false`). The dashboard's active-effects bar consumes this.
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html">bemap-maplibre/bemap-maplibre-v5/bemap-map-maplibre.js</a>, <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html#line2726">line 2726</a>
+        <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html">bemap-maplibre/bemap-maplibre-v5/bemap-map-maplibre.js</a>, <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html#line2801">line 2801</a>
     </li></ul></dd>
     
 
@@ -16418,7 +16420,7 @@ false`). The dashboard's active-effects bar consumes this.
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line1109">line 1109</a>
+        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line1112">line 1112</a>
     </li></ul></dd>
     
 
@@ -16580,7 +16582,7 @@ false`). The dashboard's active-effects bar consumes this.
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html">bemap-maplibre/bemap-maplibre-v5/bemap-map-maplibre.js</a>, <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html#line1588">line 1588</a>
+        <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html">bemap-maplibre/bemap-maplibre-v5/bemap-map-maplibre.js</a>, <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html#line1641">line 1641</a>
     </li></ul></dd>
     
 
@@ -16742,7 +16744,7 @@ false`). The dashboard's active-effects bar consumes this.
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html">bemap-maplibre/bemap-maplibre-v5/bemap-map-maplibre.js</a>, <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html#line1613">line 1613</a>
+        <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html">bemap-maplibre/bemap-maplibre-v5/bemap-map-maplibre.js</a>, <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html#line1666">line 1666</a>
     </li></ul></dd>
     
 
@@ -16929,7 +16931,7 @@ false`). The dashboard's active-effects bar consumes this.
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line1036">line 1036</a>
+        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line1039">line 1039</a>
     </li></ul></dd>
     
 
@@ -16995,9 +16997,7 @@ false`). The dashboard's active-effects bar consumes this.
 
 
 <div class="description">
-    Show or hide the engine's native zoom (+/-) buttons at runtime.
-Uniform across Leaflet, OpenLayers and MapLibre — toggles a class on
-the map container so the engine-specific selectors all hit at once.
+    Show or hide the engine's native zoom (+/-) buttons at runtime.Uniform across Leaflet, OpenLayers and MapLibre — toggles a class onthe map container so the engine-specific selectors all hit at once.
 </div>
 
 
@@ -17364,7 +17364,7 @@ the map container so the engine-specific selectors all hit at once.
     
 
     
-    <h4 class="name" id="switchBackgroundLayer"><span class="type-signature"></span>switchBackgroundLayer<span class="signature">(geoserver)</span><span class="type-signature"> &rarr; {<a href="bemap.Map.html">bemap.Map</a>}</span></h4>
+    <h4 class="name" id="switchBackgroundLayer"><span class="type-signature"></span>switchBackgroundLayer<span class="signature">(geoserver)</span><span class="type-signature"> &rarr; {<a href="bemap.MapLibreMap.html">bemap.MapLibreMap</a>}</span></h4>
     
 
     
@@ -17372,7 +17372,7 @@ the map container so the engine-specific selectors all hit at once.
 
 
 <div class="description">
-    Switch bytween several background layers.
+    Point the basemap at another geoserver's tiles, in place.Leaflet and OpenLayers toggle pre-created raster layers; MapLibre re-resolvesthe archive and re-applies the current style, so the map instance and itsoverlays survive. Was a stub, so a geoserver selector had no effect on anyMapLibre map (BEMAP-1905).`setStyle` does the work — re-registers the slice source, re-resolves theplaceholders, replays the overlays. The name is passed EXPLICITLY so itoutranks `ctx.tilesFile`, and `_tilesFileExplicit` is cleared so a providerwith no archive is treated as "no vector map" rather than a misconfiguration.Selecting a provider that HAS one restores the basemap.
 </div>
 
 
@@ -17424,7 +17424,7 @@ the map container so the engine-specific selectors all hit at once.
 
             
 
-            <td class="description last">Name of geoserver.</td>
+            <td class="description last">Geoserver / tiles name, e.g. `'osm'`.</td>
         </tr>
 
     
@@ -17440,6 +17440,9 @@ the map container so the engine-specific selectors all hit at once.
 
     
 
+    
+    <dt class="tag-since">Since:</dt>
+    <dd class="tag-since"><ul class="dummy"><li>2.0.4</li></ul></dd>
     
 
     
@@ -17470,7 +17473,7 @@ the map container so the engine-specific selectors all hit at once.
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line533">line 533</a>
+        <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html">bemap-maplibre/bemap-maplibre-v5/bemap-map-maplibre.js</a>, <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html#line944">line 944</a>
     </li></ul></dd>
     
 
@@ -17499,7 +17502,7 @@ the map container so the engine-specific selectors all hit at once.
 
         
 <div class="param-desc">
-    this
+    Return this.
 </div>
 
 
@@ -17510,7 +17513,7 @@ the map container so the engine-specific selectors all hit at once.
     </dt>
     <dd>
         
-<span class="param-type"><a href="bemap.Map.html">bemap.Map</a></span>
+<span class="param-type"><a href="bemap.MapLibreMap.html">bemap.MapLibreMap</a></span>
 
 
     </dd>
@@ -17657,7 +17660,7 @@ the map container so the engine-specific selectors all hit at once.
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line1152">line 1152</a>
+        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line1155">line 1155</a>
     </li></ul></dd>
     
 
@@ -17844,7 +17847,7 @@ the map container so the engine-specific selectors all hit at once.
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line827">line 827</a>
+        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line830">line 830</a>
     </li></ul></dd>
     
 
@@ -18031,7 +18034,7 @@ the map container so the engine-specific selectors all hit at once.
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html">bemap-maplibre/bemap-maplibre-v5/bemap-map-maplibre.js</a>, <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html#line1978">line 1978</a>
+        <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html">bemap-maplibre/bemap-maplibre-v5/bemap-map-maplibre.js</a>, <a href="bemap-maplibre_bemap-maplibre-v5_bemap-map-maplibre.js.html#line2031">line 2031</a>
     </li></ul></dd>
     
 
@@ -18218,7 +18221,7 @@ the map container so the engine-specific selectors all hit at once.
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line660">line 660</a>
+        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line663">line 663</a>
     </li></ul></dd>
     
 
@@ -18292,7 +18295,7 @@ the map container so the engine-specific selectors all hit at once.
 <br class="clear">
 
 <footer>
-    Documentation generated by <a href="https://github.com/jsdoc/jsdoc">JSDoc 3.6.3</a> on Fri Aug 21 2026 09:49:46 GMT+0200 (heure d’été d’Europe centrale)
+    Documentation generated by <a href="https://github.com/jsdoc/jsdoc">JSDoc 3.6.3</a> on Thu Sep 03 2026 10:21:05 GMT+0200 (heure d’été d’Europe centrale)
 </footer>
 
 <script> prettyPrint(); </script>

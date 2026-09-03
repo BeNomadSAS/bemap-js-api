@@ -251,10 +251,7 @@
 
 
 <div class="description">
-    Whether the zoom (+/-) control is currently visible. Initialised from
-the resolved `zoomControl` option (default OFF — opt-in) and flipped at
-runtime by `setZoomControl()`. Kept in sync so `getZoomControl()` is
-accurate before any runtime toggle.
+    Whether the zoom (+/-) control is currently visible. Initialised fromthe resolved `zoomControl` option (default OFF — opt-in) and flipped atruntime by `setZoomControl()`. Kept in sync so `getZoomControl()` isaccurate before any runtime toggle.
 </div>
 
 
@@ -1994,8 +1991,7 @@ accurate before any runtime toggle.
 
 
 <div class="description">
-    Fire an error onto the map's error channel(s). Used by the warn-and-no-op
-fallback and by the new auth/tile/cache error paths.
+    Fire an error onto the map's error channel(s). Used by the warn-and-no-opfallback and by the new auth/tile/cache error paths.
 </div>
 
 
@@ -2096,7 +2092,7 @@ fallback and by the new auth/tile/cache error paths.
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line1513">line 1513</a>
+        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line1516">line 1516</a>
     </li></ul></dd>
     
 
@@ -3080,19 +3076,7 @@ fallback and by the new auth/tile/cache error paths.
 
 
 <div class="description">
-    Report that the ACTIVE engine does not implement `methodName`, then no-op.
-
-The base class is a hand-maintained stub list, and it was only half populated
-(BEMAP-1898 audit). The same defect — an engine not implementing an overlay
-method — therefore failed two different ways: silently (`return this` for the
-names that were listed) or with `TypeError: … is not a function` (for the ones
-that were not). Neither told the developer anything useful, and the silent half
-is how several Leaflet gaps shipped unnoticed.
-
-Every previously-absent name now lands here: one console.warn per method per
-map, plus a `bemap.Error` on the map's error channel, then a harmless no-op.
-A TypeError becomes a visible warning; a silent nothing becomes a visible
-warning. Nothing that already worked changes.
+    Report that the ACTIVE engine does not implement `methodName`, then no-op.The base class is a hand-maintained stub list, and it was only half populated(BEMAP-1898 audit). The same defect — an engine not implementing an overlaymethod — therefore failed two different ways: silently (`return this` for thenames that were listed) or with `TypeError: … is not a function` (for the onesthat were not). Neither told the developer anything useful, and the silent halfis how several Leaflet gaps shipped unnoticed.Every previously-absent name now lands here: one console.warn per method permap, plus a `bemap.Error` on the map's error channel, then a harmless no-op.A TypeError becomes a visible warning; a silent nothing becomes a visiblewarning. Nothing that already worked changes.
 </div>
 
 
@@ -3193,7 +3177,7 @@ warning. Nothing that already worked changes.
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line1426">line 1426</a>
+        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line1429">line 1429</a>
     </li></ul></dd>
     
 
@@ -3761,11 +3745,7 @@ warning. Nothing that already worked changes.
 
 
 <div class="description">
-    Emit a one-time `info`-level error on the map's error channel when
-a `setLight` / `setSky` / etc. is called on a non-globe projection
-where the effect won't be visible. NOT auto-enabling globe — too
-surprising for a public API. The customer's error subscriber sees
-the hint; dev console gets a one-time `console.info`.
+    Emit a one-time `info`-level error on the map's error channel whena `setLight` / `setSky` / etc. is called on a non-globe projectionwhere the effect won't be visible. NOT auto-enabling globe — toosurprising for a public API. The customer's error subscriber seesthe hint; dev console gets a one-time `console.info`.
 </div>
 
 
@@ -3817,7 +3797,7 @@ the hint; dev console gets a one-time `console.info`.
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line1743">line 1743</a>
+        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line1746">line 1746</a>
     </li></ul></dd>
     
 
@@ -3861,20 +3841,7 @@ the hint; dev console gets a one-time `console.info`.
 
 
 <div class="description">
-    Wire `on('error' | 'error:auth' | 'error:network' | 'error:maplibre-only')`
-through to the error channel, and report whether it did.
-
-The class doc for `_onError` has always claimed "the library version of `on()`
-calls this when the event name starts with 'error'" — but the base `on()` is an
-abstract `return new bemap.Listener()`, and all three engines override it and
-route straight to `_onFeature` / the native map. So the DOCUMENTED way to
-observe auth, tile and network failures silently subscribed to nothing on
-every engine (BEMAP-1898 audit).
-
-Deliberately ADDITIVE: each engine calls this first and then continues with
-whatever it did before, so a consumer relying on an engine's native `'error'`
-event (MapLibre fires one) keeps receiving it — it now simply also receives the
-`bemap.Error` objects that `_fireError` produces.
+    Wire `on('error' | 'error:auth' | 'error:network' | 'error:maplibre-only')`through to the error channel, and report whether it did.The class doc for `_onError` has always claimed "the library version of `on()`calls this when the event name starts with 'error'" — but the base `on()` is anabstract `return new bemap.Listener()`, and all three engines override it androute straight to `_onFeature` / the native map. So the DOCUMENTED way toobserve auth, tile and network failures silently subscribed to nothing onevery engine (BEMAP-1898 audit).Deliberately ADDITIVE: each engine calls this first and then continues withwhatever it did before, so a consumer relying on an engine's native `'error'`event (MapLibre fires one) keeps receiving it — it now simply also receives the`bemap.Error` objects that `_fireError` produces.
 </div>
 
 
@@ -3998,7 +3965,7 @@ event (MapLibre fires one) keeps receiving it — it now simply also receives th
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line1564">line 1564</a>
+        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line1567">line 1567</a>
     </li></ul></dd>
     
 
@@ -4162,7 +4129,7 @@ event (MapLibre fires one) keeps receiving it — it now simply also receives th
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line1228">line 1228</a>
+        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line1231">line 1231</a>
     </li></ul></dd>
     
 
@@ -4879,7 +4846,7 @@ event (MapLibre fires one) keeps receiving it — it now simply also receives th
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line1273">line 1273</a>
+        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line1276">line 1276</a>
     </li></ul></dd>
     
 
@@ -5066,7 +5033,7 @@ event (MapLibre fires one) keeps receiving it — it now simply also receives th
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line1144">line 1144</a>
+        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line1147">line 1147</a>
     </li></ul></dd>
     
 
@@ -5253,7 +5220,7 @@ event (MapLibre fires one) keeps receiving it — it now simply also receives th
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line1160">line 1160</a>
+        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line1163">line 1163</a>
     </li></ul></dd>
     
 
@@ -9597,11 +9564,7 @@ event (MapLibre fires one) keeps receiving it — it now simply also receives th
 
 
 <div class="description">
-    Tear down every registered effect. Invokes each teardown in
-registration order, swallowing errors per-teardown so one failure
-doesn't block the rest. Each teardown is expected to call
-`_unregisterEffect` itself via the matching `remove*`/`stop*` path;
-the registry is cleared at the end regardless.
+    Tear down every registered effect. Invokes each teardown inregistration order, swallowing errors per-teardown so one failuredoesn't block the rest. Each teardown is expected to call`_unregisterEffect` itself via the matching `remove*`/`stop*` path;the registry is cleared at the end regardless.
 </div>
 
 
@@ -9653,7 +9616,7 @@ the registry is cleared at the end regardless.
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line1716">line 1716</a>
+        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line1719">line 1719</a>
     </li></ul></dd>
     
 
@@ -15282,7 +15245,7 @@ the registry is cleared at the end regardless.
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line1181">line 1181</a>
+        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line1184">line 1184</a>
     </li></ul></dd>
     
 
@@ -15770,8 +15733,7 @@ the registry is cleared at the end regardless.
 
 
 <div class="description">
-    Names of every currently-active effect. Snapshot — does not auto-
-update; subscribe via `onEffectChange` for live notification.
+    Names of every currently-active effect. Snapshot — does not auto-update; subscribe via `onEffectChange` for live notification.
 </div>
 
 
@@ -15823,7 +15785,7 @@ update; subscribe via `onEffectChange` for live notification.
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line1697">line 1697</a>
+        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line1700">line 1700</a>
     </li></ul></dd>
     
 
@@ -15934,7 +15896,7 @@ update; subscribe via `onEffectChange` for live notification.
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line1102">line 1102</a>
+        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line1105">line 1105</a>
     </li></ul></dd>
     
 
@@ -16642,7 +16604,7 @@ update; subscribe via `onEffectChange` for live notification.
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line570">line 570</a>
+        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line573">line 573</a>
     </li></ul></dd>
     
 
@@ -16757,7 +16719,7 @@ update; subscribe via `onEffectChange` for live notification.
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line1089">line 1089</a>
+        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line1092">line 1092</a>
     </li></ul></dd>
     
 
@@ -18018,7 +17980,7 @@ update; subscribe via `onEffectChange` for live notification.
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line1174">line 1174</a>
+        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line1177">line 1177</a>
     </li></ul></dd>
     
 
@@ -20272,9 +20234,7 @@ update; subscribe via `onEffectChange` for live notification.
 
 
 <div class="description">
-    Subscribe to active-effect changes. Fires `{name, active}` whenever
-an effect is registered (`active: true`) or torn down (`active:
-false`). The dashboard's active-effects bar consumes this.
+    Subscribe to active-effect changes. Fires `{name, active}` wheneveran effect is registered (`active: true`) or torn down (`active:false`). The dashboard's active-effects bar consumes this.
 </div>
 
 
@@ -20326,7 +20286,7 @@ false`). The dashboard's active-effects bar consumes this.
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line1677">line 1677</a>
+        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line1680">line 1680</a>
     </li></ul></dd>
     
 
@@ -24569,7 +24529,7 @@ false`). The dashboard's active-effects bar consumes this.
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line1189">line 1189</a>
+        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line1192">line 1192</a>
     </li></ul></dd>
     
 
@@ -25673,7 +25633,7 @@ false`). The dashboard's active-effects bar consumes this.
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line1167">line 1167</a>
+        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line1170">line 1170</a>
     </li></ul></dd>
     
 
@@ -28032,7 +27992,7 @@ false`). The dashboard's active-effects bar consumes this.
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line1115">line 1115</a>
+        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line1118">line 1118</a>
     </li></ul></dd>
     
 
@@ -28572,7 +28532,7 @@ false`). The dashboard's active-effects bar consumes this.
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line1096">line 1096</a>
+        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line1099">line 1099</a>
     </li></ul></dd>
     
 
@@ -30419,7 +30379,7 @@ false`). The dashboard's active-effects bar consumes this.
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line1240">line 1240</a>
+        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line1243">line 1243</a>
     </li></ul></dd>
     
 
@@ -30583,7 +30543,7 @@ false`). The dashboard's active-effects bar consumes this.
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line1083">line 1083</a>
+        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line1086">line 1086</a>
     </li></ul></dd>
     
 
@@ -30747,7 +30707,7 @@ false`). The dashboard's active-effects bar consumes this.
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line1122">line 1122</a>
+        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line1125">line 1125</a>
     </li></ul></dd>
     
 
@@ -31229,7 +31189,7 @@ false`). The dashboard's active-effects bar consumes this.
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line1129">line 1129</a>
+        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line1132">line 1132</a>
     </li></ul></dd>
     
 
@@ -31563,7 +31523,7 @@ false`). The dashboard's active-effects bar consumes this.
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line1109">line 1109</a>
+        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line1112">line 1112</a>
     </li></ul></dd>
     
 
@@ -32003,9 +31963,7 @@ false`). The dashboard's active-effects bar consumes this.
 
 
 <div class="description">
-    Show or hide the engine's native zoom (+/-) buttons at runtime.
-Uniform across Leaflet, OpenLayers and MapLibre — toggles a class on
-the map container so the engine-specific selectors all hit at once.
+    Show or hide the engine's native zoom (+/-) buttons at runtime.Uniform across Leaflet, OpenLayers and MapLibre — toggles a class onthe map container so the engine-specific selectors all hit at once.
 </div>
 
 
@@ -32633,7 +32591,7 @@ the map container so the engine-specific selectors all hit at once.
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line1152">line 1152</a>
+        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line1155">line 1155</a>
     </li></ul></dd>
     
 
@@ -34226,10 +34184,7 @@ the map container so the engine-specific selectors all hit at once.
 
 
 <div class="description">
-    Whether the zoom (+/-) control is currently visible. Initialised from
-the resolved `zoomControl` option (default OFF — opt-in) and flipped at
-runtime by `setZoomControl()`. Kept in sync so `getZoomControl()` is
-accurate before any runtime toggle.
+    Whether the zoom (+/-) control is currently visible. Initialised fromthe resolved `zoomControl` option (default OFF — opt-in) and flipped atruntime by `setZoomControl()`. Kept in sync so `getZoomControl()` isaccurate before any runtime toggle.
 </div>
 
 
@@ -35969,8 +35924,7 @@ accurate before any runtime toggle.
 
 
 <div class="description">
-    Fire an error onto the map's error channel(s). Used by the warn-and-no-op
-fallback and by the new auth/tile/cache error paths.
+    Fire an error onto the map's error channel(s). Used by the warn-and-no-opfallback and by the new auth/tile/cache error paths.
 </div>
 
 
@@ -36071,7 +36025,7 @@ fallback and by the new auth/tile/cache error paths.
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line1513">line 1513</a>
+        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line1516">line 1516</a>
     </li></ul></dd>
     
 
@@ -37055,19 +37009,7 @@ fallback and by the new auth/tile/cache error paths.
 
 
 <div class="description">
-    Report that the ACTIVE engine does not implement `methodName`, then no-op.
-
-The base class is a hand-maintained stub list, and it was only half populated
-(BEMAP-1898 audit). The same defect — an engine not implementing an overlay
-method — therefore failed two different ways: silently (`return this` for the
-names that were listed) or with `TypeError: … is not a function` (for the ones
-that were not). Neither told the developer anything useful, and the silent half
-is how several Leaflet gaps shipped unnoticed.
-
-Every previously-absent name now lands here: one console.warn per method per
-map, plus a `bemap.Error` on the map's error channel, then a harmless no-op.
-A TypeError becomes a visible warning; a silent nothing becomes a visible
-warning. Nothing that already worked changes.
+    Report that the ACTIVE engine does not implement `methodName`, then no-op.The base class is a hand-maintained stub list, and it was only half populated(BEMAP-1898 audit). The same defect — an engine not implementing an overlaymethod — therefore failed two different ways: silently (`return this` for thenames that were listed) or with `TypeError: … is not a function` (for the onesthat were not). Neither told the developer anything useful, and the silent halfis how several Leaflet gaps shipped unnoticed.Every previously-absent name now lands here: one console.warn per method permap, plus a `bemap.Error` on the map's error channel, then a harmless no-op.A TypeError becomes a visible warning; a silent nothing becomes a visiblewarning. Nothing that already worked changes.
 </div>
 
 
@@ -37168,7 +37110,7 @@ warning. Nothing that already worked changes.
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line1426">line 1426</a>
+        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line1429">line 1429</a>
     </li></ul></dd>
     
 
@@ -37736,11 +37678,7 @@ warning. Nothing that already worked changes.
 
 
 <div class="description">
-    Emit a one-time `info`-level error on the map's error channel when
-a `setLight` / `setSky` / etc. is called on a non-globe projection
-where the effect won't be visible. NOT auto-enabling globe — too
-surprising for a public API. The customer's error subscriber sees
-the hint; dev console gets a one-time `console.info`.
+    Emit a one-time `info`-level error on the map's error channel whena `setLight` / `setSky` / etc. is called on a non-globe projectionwhere the effect won't be visible. NOT auto-enabling globe — toosurprising for a public API. The customer's error subscriber seesthe hint; dev console gets a one-time `console.info`.
 </div>
 
 
@@ -37792,7 +37730,7 @@ the hint; dev console gets a one-time `console.info`.
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line1743">line 1743</a>
+        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line1746">line 1746</a>
     </li></ul></dd>
     
 
@@ -37836,20 +37774,7 @@ the hint; dev console gets a one-time `console.info`.
 
 
 <div class="description">
-    Wire `on('error' | 'error:auth' | 'error:network' | 'error:maplibre-only')`
-through to the error channel, and report whether it did.
-
-The class doc for `_onError` has always claimed "the library version of `on()`
-calls this when the event name starts with 'error'" — but the base `on()` is an
-abstract `return new bemap.Listener()`, and all three engines override it and
-route straight to `_onFeature` / the native map. So the DOCUMENTED way to
-observe auth, tile and network failures silently subscribed to nothing on
-every engine (BEMAP-1898 audit).
-
-Deliberately ADDITIVE: each engine calls this first and then continues with
-whatever it did before, so a consumer relying on an engine's native `'error'`
-event (MapLibre fires one) keeps receiving it — it now simply also receives the
-`bemap.Error` objects that `_fireError` produces.
+    Wire `on('error' | 'error:auth' | 'error:network' | 'error:maplibre-only')`through to the error channel, and report whether it did.The class doc for `_onError` has always claimed "the library version of `on()`calls this when the event name starts with 'error'" — but the base `on()` is anabstract `return new bemap.Listener()`, and all three engines override it androute straight to `_onFeature` / the native map. So the DOCUMENTED way toobserve auth, tile and network failures silently subscribed to nothing onevery engine (BEMAP-1898 audit).Deliberately ADDITIVE: each engine calls this first and then continues withwhatever it did before, so a consumer relying on an engine's native `'error'`event (MapLibre fires one) keeps receiving it — it now simply also receives the`bemap.Error` objects that `_fireError` produces.
 </div>
 
 
@@ -37973,7 +37898,7 @@ event (MapLibre fires one) keeps receiving it — it now simply also receives th
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line1564">line 1564</a>
+        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line1567">line 1567</a>
     </li></ul></dd>
     
 
@@ -38137,7 +38062,7 @@ event (MapLibre fires one) keeps receiving it — it now simply also receives th
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line1228">line 1228</a>
+        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line1231">line 1231</a>
     </li></ul></dd>
     
 
@@ -38854,7 +38779,7 @@ event (MapLibre fires one) keeps receiving it — it now simply also receives th
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line1273">line 1273</a>
+        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line1276">line 1276</a>
     </li></ul></dd>
     
 
@@ -39041,7 +38966,7 @@ event (MapLibre fires one) keeps receiving it — it now simply also receives th
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line1144">line 1144</a>
+        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line1147">line 1147</a>
     </li></ul></dd>
     
 
@@ -39228,7 +39153,7 @@ event (MapLibre fires one) keeps receiving it — it now simply also receives th
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line1160">line 1160</a>
+        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line1163">line 1163</a>
     </li></ul></dd>
     
 
@@ -43572,11 +43497,7 @@ event (MapLibre fires one) keeps receiving it — it now simply also receives th
 
 
 <div class="description">
-    Tear down every registered effect. Invokes each teardown in
-registration order, swallowing errors per-teardown so one failure
-doesn't block the rest. Each teardown is expected to call
-`_unregisterEffect` itself via the matching `remove*`/`stop*` path;
-the registry is cleared at the end regardless.
+    Tear down every registered effect. Invokes each teardown inregistration order, swallowing errors per-teardown so one failuredoesn't block the rest. Each teardown is expected to call`_unregisterEffect` itself via the matching `remove*`/`stop*` path;the registry is cleared at the end regardless.
 </div>
 
 
@@ -43628,7 +43549,7 @@ the registry is cleared at the end regardless.
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line1716">line 1716</a>
+        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line1719">line 1719</a>
     </li></ul></dd>
     
 
@@ -49257,7 +49178,7 @@ the registry is cleared at the end regardless.
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line1181">line 1181</a>
+        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line1184">line 1184</a>
     </li></ul></dd>
     
 
@@ -49745,8 +49666,7 @@ the registry is cleared at the end regardless.
 
 
 <div class="description">
-    Names of every currently-active effect. Snapshot — does not auto-
-update; subscribe via `onEffectChange` for live notification.
+    Names of every currently-active effect. Snapshot — does not auto-update; subscribe via `onEffectChange` for live notification.
 </div>
 
 
@@ -49798,7 +49718,7 @@ update; subscribe via `onEffectChange` for live notification.
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line1697">line 1697</a>
+        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line1700">line 1700</a>
     </li></ul></dd>
     
 
@@ -49909,7 +49829,7 @@ update; subscribe via `onEffectChange` for live notification.
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line1102">line 1102</a>
+        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line1105">line 1105</a>
     </li></ul></dd>
     
 
@@ -50617,7 +50537,7 @@ update; subscribe via `onEffectChange` for live notification.
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line570">line 570</a>
+        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line573">line 573</a>
     </li></ul></dd>
     
 
@@ -50732,7 +50652,7 @@ update; subscribe via `onEffectChange` for live notification.
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line1089">line 1089</a>
+        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line1092">line 1092</a>
     </li></ul></dd>
     
 
@@ -51993,7 +51913,7 @@ update; subscribe via `onEffectChange` for live notification.
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line1174">line 1174</a>
+        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line1177">line 1177</a>
     </li></ul></dd>
     
 
@@ -54247,9 +54167,7 @@ update; subscribe via `onEffectChange` for live notification.
 
 
 <div class="description">
-    Subscribe to active-effect changes. Fires `{name, active}` whenever
-an effect is registered (`active: true`) or torn down (`active:
-false`). The dashboard's active-effects bar consumes this.
+    Subscribe to active-effect changes. Fires `{name, active}` wheneveran effect is registered (`active: true`) or torn down (`active:false`). The dashboard's active-effects bar consumes this.
 </div>
 
 
@@ -54301,7 +54219,7 @@ false`). The dashboard's active-effects bar consumes this.
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line1677">line 1677</a>
+        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line1680">line 1680</a>
     </li></ul></dd>
     
 
@@ -58544,7 +58462,7 @@ false`). The dashboard's active-effects bar consumes this.
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line1189">line 1189</a>
+        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line1192">line 1192</a>
     </li></ul></dd>
     
 
@@ -59648,7 +59566,7 @@ false`). The dashboard's active-effects bar consumes this.
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line1167">line 1167</a>
+        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line1170">line 1170</a>
     </li></ul></dd>
     
 
@@ -62007,7 +61925,7 @@ false`). The dashboard's active-effects bar consumes this.
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line1115">line 1115</a>
+        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line1118">line 1118</a>
     </li></ul></dd>
     
 
@@ -62547,7 +62465,7 @@ false`). The dashboard's active-effects bar consumes this.
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line1096">line 1096</a>
+        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line1099">line 1099</a>
     </li></ul></dd>
     
 
@@ -64394,7 +64312,7 @@ false`). The dashboard's active-effects bar consumes this.
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line1240">line 1240</a>
+        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line1243">line 1243</a>
     </li></ul></dd>
     
 
@@ -64558,7 +64476,7 @@ false`). The dashboard's active-effects bar consumes this.
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line1083">line 1083</a>
+        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line1086">line 1086</a>
     </li></ul></dd>
     
 
@@ -64722,7 +64640,7 @@ false`). The dashboard's active-effects bar consumes this.
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line1122">line 1122</a>
+        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line1125">line 1125</a>
     </li></ul></dd>
     
 
@@ -65204,7 +65122,7 @@ false`). The dashboard's active-effects bar consumes this.
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line1129">line 1129</a>
+        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line1132">line 1132</a>
     </li></ul></dd>
     
 
@@ -65538,7 +65456,7 @@ false`). The dashboard's active-effects bar consumes this.
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line1109">line 1109</a>
+        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line1112">line 1112</a>
     </li></ul></dd>
     
 
@@ -65978,9 +65896,7 @@ false`). The dashboard's active-effects bar consumes this.
 
 
 <div class="description">
-    Show or hide the engine's native zoom (+/-) buttons at runtime.
-Uniform across Leaflet, OpenLayers and MapLibre — toggles a class on
-the map container so the engine-specific selectors all hit at once.
+    Show or hide the engine's native zoom (+/-) buttons at runtime.Uniform across Leaflet, OpenLayers and MapLibre — toggles a class onthe map container so the engine-specific selectors all hit at once.
 </div>
 
 
@@ -66608,7 +66524,7 @@ the map container so the engine-specific selectors all hit at once.
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line1152">line 1152</a>
+        <a href="bemap-map.js.html">bemap-map.js</a>, <a href="bemap-map.js.html#line1155">line 1155</a>
     </li></ul></dd>
     
 
@@ -67980,7 +67896,7 @@ the map container so the engine-specific selectors all hit at once.
 <br class="clear">
 
 <footer>
-    Documentation generated by <a href="https://github.com/jsdoc/jsdoc">JSDoc 3.6.3</a> on Fri Aug 21 2026 09:49:46 GMT+0200 (heure d’été d’Europe centrale)
+    Documentation generated by <a href="https://github.com/jsdoc/jsdoc">JSDoc 3.6.3</a> on Thu Sep 03 2026 10:21:05 GMT+0200 (heure d’été d’Europe centrale)
 </footer>
 
 <script> prettyPrint(); </script>

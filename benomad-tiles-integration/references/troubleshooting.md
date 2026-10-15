@@ -4,7 +4,7 @@ Symptom → most likely cause → fix. Ordered by how often it bites new integra
 
 | Symptom | Likely cause | Fix |
 | --- | --- | --- |
-| `new bemap.GeocoderV2 is not a constructor` (or any `*V2` except `RoutingV2`) | Followed `llms.txt`, which advertises services not in the bundle | Drop the suffix: `bemap.Geocoder`, `bemap.ReverseGeocoder`, `bemap.ChargingStations`, `bemap.EvVehicles`. Only `RoutingV2` carries a `V2` — but most un-suffixed classes are still the modern Promise API (see the contract). |
+| `new bemap.GeocoderV2 is not a constructor` (or any `*V2` except `RoutingV2`) | Guessed a `V2` suffix — only `RoutingV2` has one | Drop the suffix: `bemap.Geocoder`, `bemap.ReverseGeocoder`, `bemap.ChargingStations`, `bemap.EvVehicles`. Only `RoutingV2` carries a `V2` — but most un-suffixed classes are still the modern Promise API (see the contract). |
 | Point/marker lands in the wrong place (ocean) | lat/lon order swapped | Everything is **lon then lat**: `new bemap.Coordinate(lon, lat)`, `map.move(lon, lat, zoom)`. |
 | **Blank/plain map**, no tiles, but no auth error | Token OK but tiles never painted | Check `map.on('error', …)` and the Network tab. If tile requests are pending forever → connection stall (see hang row). If they 403 → tileset not entitled. If nothing is requested → style/source misconfigured. |
 | Login works in browser (200) but **fails 403 from a script/mobile/server** | Gateway blocklisting a bot-like `User-Agent` | Send a plausible `User-Agent` on every request. Measured on beta: `Python-urllib/3.11` → **403**, empty UA → **200** — it is a blocklist, not a required header, so never ship a default library UA. If still blocked, ask BeNomad to allowlist the client. NOT a credentials problem. |

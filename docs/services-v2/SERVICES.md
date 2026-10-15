@@ -732,7 +732,7 @@ Auth: `ROLE_VEHICLE` (+ `ROLE_VEHICLE_DATASHEET` when `enableDatasheet: true`).
 | `brandLogo(brandId, {signal?})` | `Promise<{brandId, pictureFileFormat, logo}>` | JSON description of the logo (`logo` is base64-encoded image bytes). |
 | `getBrandLogoUrl(brandId)` | `String` | URL of the binary logo endpoint, ready to fetch + turn into a `Blob` URL for `<img src>`. |
 | `getPictureUrl(vehicleKey)` | `String` | URL of the vehicle-photo endpoint (`service/vehicle/picture/1.0/getone`). |
-| `toRoutingProfile(vehicleKey, {signal?})` | `Promise<bemap.RoutingVehicleProfile>` | Convenience for chaining into `EvSmartRouting`. |
+| `toRoutingProfile(vehicleKey, {signal?})` | `Promise<bemap.RoutingVehicleProfile>` | Convenience for chaining into `RoutingV2` / `EvSmartRouting`: the vehicle's `transportType` becomes `transportMode`, and its dimensions and weights go under `routingVehicleFeature` — centimetres unchanged, weights converted from the catalogue's tons to tenths of a ton (44 t → `440`). |
 
 ## `bemap.EvBrand`
 `getId()` · `getLabel()`.

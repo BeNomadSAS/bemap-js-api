@@ -70,15 +70,16 @@ rather than on a string. Anything else unimplemented on an engine lands on
 ## Cardinal rules (these are where integrations break)
 
 1. **The `V2` suffix is not the modernity marker — check the class list.** Only
-   **`bemap.RoutingV2`** and the base `bemap.ServiceV2` carry it. The names
-   `GeocoderV2`, `ChargingStationsV2`, … that `llms.txt` advertises **do not
-   exist**. But plenty of un-suffixed classes *are* the modern Promise API:
+   **`bemap.RoutingV2`** and the base `bemap.ServiceV2` carry it. Names such as
+   `GeocoderV2` or `ChargingStationsV2` **do not exist**. But plenty of
+   un-suffixed classes *are* the modern Promise API:
    these 11 extend `ServiceV2` — `RoutingV2`, `ReverseGeocoder`,
    `ChargingStations`, `EvVehicles`, `EvSmartRouting`, `EvReachableArea`,
    `ChargingTime`, `TraceRoute`, `NearPoiSearch`, `AclService`,
-   `GeoServerInfoService`. Legacy callback classes: `Routing`, `Geocoder`,
-   `Isochrone` (which extends `Routing`; `RoutingV2.isochrone()` is the modern
-   route).
+   `GeoServerInfoService`. Legacy callback classes: `Routing` and `Isochrone`
+   (which extends `Routing`; `RoutingV2.isochrone()` is the modern route).
+   `Geocoder` is both: `.geocode(new bemap.GeocodingRequest({…}))` returns a
+   Promise, and its old `{ searchInfo, success, failed }` form still works.
 2. **Coordinates are lon-then-lat everywhere.** `new bemap.Coordinate(lon, lat)`,
    `map.move(lon, lat, zoom)`. Getting this backwards is the #1 "my point is in
    the ocean" bug.

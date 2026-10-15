@@ -3,8 +3,7 @@
 Verified against the shipped `dist/bemap-js-api.js` **v2.0.4** and live beta on
 **2026-08-26**. The probes below ran against 2.0.3; the only runtime change in
 2.0.4 is the default `bemap.Icon()` image (BEMAP-1908), which touches nothing
-described on this page. Where this disagrees with `llms.txt`, THIS wins
-(llms.txt over-advertises `*V2` services that were never bundled).
+described on this page. Where this disagrees with `llms.txt`, THIS wins.
 
 Every status code in the "Tile endpoints" and "Negative cases" tables below was
 re-measured on beta on that date; the two rows that did NOT reproduce are marked.

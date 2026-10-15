@@ -5479,6 +5479,12 @@ bemap.LeafletMap.prototype.addLayer = function (layer, options) {
         'TRANSPARENT': layer.transparent === true ? true : false,
         format: layer.format ? layer.format : 'image/png'
       };
+      // L.tileLayer.wms writes every option into the tile URL, `undefined`
+      // included: a Context without a geoserver sent `geoserver=undefined`,
+      // which BeMap answers with "GeoServer not found" instead of a tile, so
+      // the map stayed grey (BEMAP-1940). Left out, the server uses the
+      // account's default geoserver, as it does for OpenLayers.
+      if (!layerOption.geoserver) delete layerOption.geoserver;
 
       // Leaflet is the ONE engine that passes BeMap auth as layer OPTIONS (which
       // L.tileLayer.wms turns into query params) instead of via
@@ -5500,7 +5506,7 @@ bemap.LeafletMap.prototype.addLayer = function (layer, options) {
       layer.native._bemapWms = true;
 
     } else if (bemap.inheritsof(layer, bemap.WmsLayer)) {
-      layer.native = L.tileLayer.wms(layer.url, {
+      var wmsOption = {
         minZoom: layer.minZoom ? layer.minZoom : 2,
         maxZoom: layer.maxZoom ? layer.maxZoom : 20,
         'geoserver': layer.geoserver ? layer.geoserver : this.ctx.getGeoserver(),
@@ -5509,7 +5515,10 @@ bemap.LeafletMap.prototype.addLayer = function (layer, options) {
         'tiled': true,
         'TRANSPARENT': layer.transparent === true ? true : false,
         format: layer.format ? layer.format : 'image/png'
-      });
+      };
+      // Same as BemapLayer above: never send `geoserver=undefined` (BEMAP-1940).
+      if (!wmsOption.geoserver) delete wmsOption.geoserver;
+      layer.native = L.tileLayer.wms(layer.url, wmsOption);
 
     } else if (bemap.inheritsof(layer, bemap.OsmLayer)) {
       console.warn("TODO OsmLayer");
@@ -7516,8 +7525,12 @@ bemap.MapLibreMap.prototype.addLayer = function(layer, options) {
       bemap.Map.prototype.addLayer.call(this, layer);
       return this;
     }
+    // No geoserver → no parameter, so the server uses the account's default.
+    // Concatenated as is, a Context without one sent `geoserver=undefined`,
+    // which BeMap answers with "GeoServer not found" instead of a tile (BEMAP-1940).
+    var wmsGeoserver = layer.geoserver ? layer.geoserver : this.ctx.getGeoserver();
     var wmsUrl = this.ctx.getBaseUrl() + 'wms?' + this.ctx.getAuthUrlParams()
-      + '&geoserver=' + (layer.geoserver ? layer.geoserver : this.ctx.getGeoserver())
+      + (wmsGeoserver ? '&geoserver=' + wmsGeoserver : '')
       + '&LAYERS=' + (layer.layers ? layer.layers : 'default')
       + '&STYLES=' + (layer.styles ? layer.styles : '')
       + '&FORMAT=' + (layer.format ? layer.format : 'image/png')
@@ -9935,7 +9948,9 @@ bemap.Routing.prototype.buildRequest = function(options) {
 
   var opts = options || {};
 
-  var data = '&geoserver=' + (opts.geoserver ? opts.geoserver : this.ctx.getGeoserver());
+  // No geoserver → no parameter, never `geoserver=undefined` (BEMAP-1940).
+  var geoserver = opts.geoserver ? opts.geoserver : this.ctx.getGeoserver();
+  var data = geoserver ? '&geoserver=' + geoserver : '';
 
   for (i = 0; i < this.destinations.length; i++) {
     var des = this.destinations[i];
@@ -23948,7 +23963,9 @@ bemap.Geocoder.prototype.setBoundingBox = function(bbox) {
  */
 bemap.Geocoder.prototype.buildRequest = function(options) {
   var opts = options || {};
-  var data = '&geoserver=' + (opts.geoserver ? opts.geoserver : this.ctx.getGeoserver());
+  // No geoserver → no parameter, never `geoserver=undefined` (BEMAP-1940).
+  var geoserver = opts.geoserver ? opts.geoserver : this.ctx.getGeoserver();
+  var data = geoserver ? '&geoserver=' + geoserver : '';
 
   var searchInfo = opts.searchInfo;
 
@@ -27820,6 +27837,15 @@ bemap.EvVehicles.prototype.getPictureUrl = function(vehicleKey) {
  * to plug into `bemap.RoutingV2.calculate()` or
  * `bemap.EvSmartRouting.calculate()`.
  *
+ * The physical characteristics go under `routingVehicleFeature`. A profile
+ * only carries `transportMode`, `maxSpeeds` and the sub-objects, so anything
+ * set at the top level is dropped before the request is sent.
+ *
+ * Units differ between the two sides: the vehicle catalogue stores
+ * `maxWeight` and `maxWeightPerAxle` in whole metric tons, while
+ * `routingVehicleFeature.weight` and `.axleWeight` are in tenths of a ton
+ * (`35` = 3.5 t). Hence the `* 10`.
+ *
  * @public
  * @param {String} vehicleKey
  * @param {Object} [options]
@@ -27830,12 +27856,18 @@ bemap.EvVehicles.prototype.toRoutingProfile = function(vehicleKey, options) {
     return this.get(vehicleKey, options).then(function(vehicle) {
         var profile = {};
         if (vehicle.getTransportType()) profile.transportMode = vehicle.getTransportType();
+
+        var feature = {};
         var dims = vehicle.getDimensions();
-        if (dims && dims.height !== null) profile.height = dims.height;
-        if (dims && dims.width !== null) profile.width = dims.width;
-        if (dims && dims.length !== null) profile.length = dims.length;
-        if (vehicle.getMaxWeight() !== null) profile.weight = vehicle.getMaxWeight();
-        if (vehicle.getMaxWeightPerAxle() !== null) profile.axleWeight = vehicle.getMaxWeightPerAxle();
+        if (dims && dims.height !== null) feature.height = dims.height;
+        if (dims && dims.width !== null) feature.width = dims.width;
+        if (dims && dims.length !== null) feature.length = dims.length;
+        // The catalogue stores whole metric tons, routingVehicleFeature expects tenths (35 = 3.5 t).
+        if (vehicle.getMaxWeight() !== null) feature.weight = vehicle.getMaxWeight() * 10;
+        if (vehicle.getMaxWeightPerAxle() !== null) feature.axleWeight = vehicle.getMaxWeightPerAxle() * 10;
+
+        if (Object.keys(feature).length) profile.routingVehicleFeature = feature;
+
         return new bemap.RoutingVehicleProfile(profile);
     });
 };

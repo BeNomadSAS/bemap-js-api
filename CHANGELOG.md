@@ -14,7 +14,35 @@ No breaking API change — one method that was a stub now works, two defects are
 
 This release also exists so the corrected `benomad-tiles-integration/` skill is reachable from a pinned tag: `v2.0.3` on the public repo is permanently attached to the distribution that still carried the wrong text, so a consumer pinning it would never see the fix.
 
-> **The `switchBackgroundLayer` and `tilesFallbackToDefault` entries below landed after the initial 2.0.4 publish**, so the `v2.0.4` tag does not contain them — only `main` does. A consumer pinning `@v2.0.4` gets the marker fix and the corrected skill, but not the geoserver switch.
+> **The `geoserver=undefined`, `llms.txt`, `toRoutingProfile`, `switchBackgroundLayer` and `tilesFallbackToDefault` entries below landed after the initial 2.0.4 publish**, so the `v2.0.4` tag does not contain them — only `main` does. A consumer pinning `@v2.0.4` gets the marker fix and the corrected skill, but none of the later fixes.
+
+### Fixed — a Leaflet map stayed grey when the Context had no `geoserver` (BEMAP-1940)
+
+With no `geoserver` on the `bemap.Context` — exactly the README's quick start — every Leaflet tile asked for `…/bgis/wms?…&geoserver=undefined`. BeMap answers that with a `ServiceExceptionReport` ("GeoServer not found for 'undefined'") instead of an image, so the map stayed grey. `L.tileLayer.wms` writes every option into the URL, `undefined` included; OpenLayers leaves it out, which is why the same Context worked on `OlMap`.
+
+The parameter is now omitted when there is no geoserver, and the server uses the account's default. That applies to Leaflet's `BemapLayer` and `WmsLayer`, to the MapLibre WMS background used without `tilesHost` (which built the same URL by concatenation), and to the request body of the v1 `bemap.Geocoder` and `bemap.Routing`. A geoserver set on the Context, on the layer or on the call is sent exactly as before.
+
+Twelve specs cover it, reading the real Leaflet tile URL; the five that check the parameter is absent fail on the code before the fix.
+
+### Fixed — `llms.txt` was written for the wrong reader, and named methods that do not exist (BEMAP-1939)
+
+`llms.txt` is the file a customer's AI assistant reads. It mixed in guidance for whoever works on the library's source — the build pipeline, where to look in `src/`, the test contracts in `src-test/` — which sent the assistant to files a customer does not have, and it named internal applications. It now keeps only what serves a customer, and opens with an index of absolute links (the llmstxt.org convention), so a tool reading the file on its own can follow every one of them.
+
+Every class and method it names was then checked against the bundle. Three statements would have become broken code in a customer's application:
+
+- **`.getDragPan()` does not exist** on any map. Removed; `.setDragPan(bool)` and `.isDragPan()` remain.
+- **`.off(eventType, fn)` does not exist** on a map either. `.on()` returns a `bemap.Listener`; pass it to `.removeListener(listener)` to unbind.
+- **A provider with no vector map does not fall back to the default map** any more: since the `tilesFallbackToDefault` change below, the basemap stays empty unless `tilesFallbackToDefault: true`. The file still described the old behaviour.
+
+It also gains `EvVehicles.toRoutingProfile()` and a link to the BeMap REST API documentation. The `benomad-tiles-integration/` skill no longer warns that `llms.txt` advertises `*V2` service classes — it now warns against them — and it says that `Geocoder.geocode()` takes a `GeocodingRequest` and returns a Promise, besides its old callback form.
+
+### Fixed — `EvVehicles.toRoutingProfile()` dropped every vehicle restriction (BEMAP-1921)
+
+`toRoutingProfile()` set `height`, `width`, `length`, `weight` and `axleWeight` at the top level of the profile. `bemap.RoutingVehicleProfile` only carries `transportMode`, `maxSpeeds` and its sub-objects, so the constructor never copied them and `toJson()` never sent them: everything but the transport mode was dropped before the request left the browser, and nothing failed. Following the SDK reference and `examples/services-v2/ev-vehicles.js`, a 44 t truck was routed with no physical and no legal restriction.
+
+They now go under `routingVehicleFeature`, where the routing engine reads them. Height, width and length are in centimetres on both sides and pass through unchanged. The two weights do not: the vehicle catalogue holds `maxWeight` and `maxWeightPerAxle` in whole metric tons, while `routingVehicleFeature.weight` and `.axleWeight` are in tenths of a ton (`35` = 3.5 t). Both are multiplied by 10, so a 44 t truck leaves as `440` — sending `44` would have routed it as a 4.4 t van.
+
+The spec that covered this only checked that a `RoutingVehicleProfile` came back, which is how the bug went unseen. Four specs now pin the request body itself: the restrictions sit under `routingVehicleFeature`, nothing but `transportMode` stays at the top level, both weights are in tenths, and a vehicle with no dimension or weight sends no `routingVehicleFeature` at all.
 
 ### Changed — a geoserver with no vector map no longer loads the default map (BEMAP-1906)
 

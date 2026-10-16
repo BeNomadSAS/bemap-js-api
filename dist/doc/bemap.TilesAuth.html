@@ -50,7 +50,30 @@
 
 
 <div class="description">
-    BeNomad BeMap JavaScript API — TilesAuth (v2.0)JWT lifecycle for the BeNomad Tiles Worker. Replaces the buggyglobal `window.fetch` patch that the v1 prototype shipped with.Responsibilities: - POST credentials to `Context.getTilesLoginUrl()` and store the JWT. - Parse the `exp` claim and schedule **proactive** renewal 5 min before   expiry; fall back to 55 min when `exp` is unparseable. - Renew **reactively** on `401` errors caught from MapLibre's `error`   event, then trigger a `setStyle()` reload to retry pending tiles. - On `document.visibilitychange` → `visible`: full re-login if the token   is already expired, proactive refresh if within 5 min, no-op otherwise. - On `navigator.onLine === false`: queue the renewal until `online`. - Expose `attachTransformRequest(nativeMap)` that injects the   `X-Session-Token` header on every request whose origin matches the   configured `tilesHost`. The closure captures `getToken()` not the   token value, so renewal is transparent. - Keep the last 3 tokens in `_history` for diagnostics.Tokens are stored according to `Context.tokenStorage`: - `'session'` — `sessionStorage` (default; cleared on tab close) - `'local'`   — `localStorage` (persists across reloads) - `'memory'`  — never persisted
+    BeNomad BeMap JavaScript API — TilesAuth (v2.0)
+
+JWT lifecycle for the BeNomad Tiles Worker. Replaces the buggy
+global `window.fetch` patch that the v1 prototype shipped with.
+
+Responsibilities:
+ - POST credentials to `Context.getTilesLoginUrl()` and store the JWT.
+ - Parse the `exp` claim and schedule **proactive** renewal 5 min before
+   expiry; fall back to 55 min when `exp` is unparseable.
+ - Renew **reactively** on `401` errors caught from MapLibre's `error`
+   event, then trigger a `setStyle()` reload to retry pending tiles.
+ - On `document.visibilitychange` → `visible`: full re-login if the token
+   is already expired, proactive refresh if within 5 min, no-op otherwise.
+ - On `navigator.onLine === false`: queue the renewal until `online`.
+ - Expose `attachTransformRequest(nativeMap)` that injects the
+   `X-Session-Token` header on every request whose origin matches the
+   configured `tilesHost`. The closure captures `getToken()` not the
+   token value, so renewal is transparent.
+ - Keep the last 3 tokens in `_history` for diagnostics.
+
+Tokens are stored according to `Context.tokenStorage`:
+ - `'session'` — `sessionStorage` (default; cleared on tab close)
+ - `'local'`   — `localStorage` (persists across reloads)
+ - `'memory'`  — never persisted
 </div>
 
 
@@ -347,7 +370,9 @@
 
 
 <div class="description">
-    Uninstall the per-host registration. When the registry becomes empty,restore the original `window.fetch` so SPA navigation does not leakthe patch across map lifecycles.
+    Uninstall the per-host registration. When the registry becomes empty,
+restore the original `window.fetch` so SPA navigation does not leak
+the patch across map lifecycles.
 </div>
 
 
@@ -438,7 +463,11 @@
 
 
 <div class="description">
-    Build the MapLibre `transformRequest` function. Injects`X-Session-Token` on every request whose origin matches `ctx.tilesHost`.The closure captures `this.getToken` so token renewal is transparent.Surface the result as `map.native = new maplibregl.Map({ transformRequest: auth.buildTransformRequest() })`.
+    Build the MapLibre `transformRequest` function. Injects
+`X-Session-Token` on every request whose origin matches `ctx.tilesHost`.
+The closure captures `this.getToken` so token renewal is transparent.
+
+Surface the result as `map.native = new maplibregl.Map({ transformRequest: auth.buildTransformRequest() })`.
 </div>
 
 
@@ -632,7 +661,8 @@
 
 
 <div class="description">
-    Returns the last-3 history of superseded tokens — only the `exp` claim,never the raw JWT.
+    Returns the last-3 history of superseded tokens — only the `exp` claim,
+never the raw JWT.
 </div>
 
 
@@ -843,7 +873,9 @@
 
 
 <div class="description">
-    Mark a tile / style request as failed with HTTP 401 — triggers a refreshfollowed by a `setStyle` reload of the current style spec, so the renewedtoken is picked up by every pending request.
+    Mark a tile / style request as failed with HTTP 401 — triggers a refresh
+followed by a `setStyle` reload of the current style spec, so the renewed
+token is picked up by every pending request.
 </div>
 
 
@@ -905,7 +937,9 @@
 
             
 
-            <td class="description last">The map to reload — normally the bemap.MapLibreMap  WRAPPER (so its overlay-replay listener fires and `{_internal:true}` is  honoured), or a raw `map.native` instance (which ignores the option).</td>
+            <td class="description last">The map to reload — normally the bemap.MapLibreMap
+  WRAPPER (so its overlay-replay listener fires and `{_internal:true}` is
+  honoured), or a raw `map.native` instance (which ignores the option).</td>
         </tr>
 
     
@@ -1347,7 +1381,8 @@
 
 
 <div class="description">
-    Clear the token, the history, the storage, and the renewal timer.Optionally POST to the Worker logout endpoint to revoke server-side.
+    Clear the token, the history, the storage, and the renewal timer.
+Optionally POST to the Worker logout endpoint to revoke server-side.
 </div>
 
 
@@ -1583,7 +1618,10 @@
 
 
 <div class="description">
-    Proactive renewal — re-uses the original credentials. Returns the newtoken. Subscribers see exactly one `_onToken({ reason: 'refresh' })`event per logical refresh; the synthetic `'login'` event is suppressedduring refresh to avoid the 3-events-per-cycle problem.
+    Proactive renewal — re-uses the original credentials. Returns the new
+token. Subscribers see exactly one `_onToken({ reason: 'refresh' })`
+event per logical refresh; the synthetic `'login'` event is suppressed
+during refresh to avoid the 3-events-per-cycle problem.
 </div>
 
 
@@ -1689,7 +1727,10 @@
 
 
 <div class="description">
-    Resolve with the current valid JWT, kicking off (or joining) a loginif no token is available. The synchronisation primitive that thefetch interceptor uses to delay PMTiles range requests until logincompletes — without making the MapLibreMap constructor itself async.
+    Resolve with the current valid JWT, kicking off (or joining) a login
+if no token is available. The synchronisation primitive that the
+fetch interceptor uses to delay PMTiles range requests until login
+completes — without making the MapLibreMap constructor itself async.
 </div>
 
 
@@ -1806,7 +1847,7 @@
 <br class="clear">
 
 <footer>
-    Documentation generated by <a href="https://github.com/jsdoc/jsdoc">JSDoc 3.6.3</a> on Thu Oct 15 2026 11:33:03 GMT+0200 (heure d’été d’Europe centrale)
+    Documentation generated by <a href="https://github.com/jsdoc/jsdoc">JSDoc 3.6.3</a> on Fri Oct 16 2026 16:05:47 GMT+0200 (Central European Summer Time)
 </footer>
 
 <script> prettyPrint(); </script>

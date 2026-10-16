@@ -161,7 +161,10 @@
 
 
 <div class="description">
-    Whether the zoom (+/-) control is currently visible. Initialised fromthe resolved `zoomControl` option (default OFF — opt-in) and flipped atruntime by `setZoomControl()`. Kept in sync so `getZoomControl()` isaccurate before any runtime toggle.
+    Whether the zoom (+/-) control is currently visible. Initialised from
+the resolved `zoomControl` option (default OFF — opt-in) and flipped at
+runtime by `setZoomControl()`. Kept in sync so `getZoomControl()` is
+accurate before any runtime toggle.
 </div>
 
 
@@ -555,7 +558,12 @@
 
 
 <div class="description">
-    Normalize a bounds-shaped input into MapLibre's `[[west, south], [east, north]]`.Accepts MapLibre's own forms (passthrough), Leaflet LatLngBounds(getSouthWest/getNorthEast → {lat,lng}), bemap.BoundingBox({minLon,minLat,maxLon,maxLat}), and `[west,south,east,north]` flat arrays.Returns the original value when it can't be classified — let MapLibre throwits own error rather than swallow a genuinely bad input.
+    Normalize a bounds-shaped input into MapLibre's `[[west, south], [east, north]]`.
+Accepts MapLibre's own forms (passthrough), Leaflet LatLngBounds
+(getSouthWest/getNorthEast → {lat,lng}), bemap.BoundingBox
+({minLon,minLat,maxLon,maxLat}), and `[west,south,east,north]` flat arrays.
+Returns the original value when it can't be classified — let MapLibre throw
+its own error rather than swallow a genuinely bad input.
 </div>
 
 
@@ -731,7 +739,8 @@
 
 
 <div class="description">
-    Fire an error onto the map's error channel(s). Used by the warn-and-no-opfallback and by the new auth/tile/cache error paths.
+    Fire an error onto the map's error channel(s). Used by the warn-and-no-op
+fallback and by the new auth/tile/cache error paths.
 </div>
 
 
@@ -964,7 +973,19 @@
 
 
 <div class="description">
-    Report that the ACTIVE engine does not implement `methodName`, then no-op.The base class is a hand-maintained stub list, and it was only half populated(BEMAP-1898 audit). The same defect — an engine not implementing an overlaymethod — therefore failed two different ways: silently (`return this` for thenames that were listed) or with `TypeError: … is not a function` (for the onesthat were not). Neither told the developer anything useful, and the silent halfis how several Leaflet gaps shipped unnoticed.Every previously-absent name now lands here: one console.warn per method permap, plus a `bemap.Error` on the map's error channel, then a harmless no-op.A TypeError becomes a visible warning; a silent nothing becomes a visiblewarning. Nothing that already worked changes.
+    Report that the ACTIVE engine does not implement `methodName`, then no-op.
+
+The base class is a hand-maintained stub list, and it was only half populated
+(BEMAP-1898 audit). The same defect — an engine not implementing an overlay
+method — therefore failed two different ways: silently (`return this` for the
+names that were listed) or with `TypeError: … is not a function` (for the ones
+that were not). Neither told the developer anything useful, and the silent half
+is how several Leaflet gaps shipped unnoticed.
+
+Every previously-absent name now lands here: one console.warn per method per
+map, plus a `bemap.Error` on the map's error channel, then a harmless no-op.
+A TypeError becomes a visible warning; a silent nothing becomes a visible
+warning. Nothing that already worked changes.
 </div>
 
 
@@ -1219,7 +1240,9 @@
 
 
 <div class="description">
-    Show/hide original DOM markers based on cluster state.Clustered markers are hidden, unclustered are shown.Cluster bubbles (circles with count) are created as separate DOM elements.
+    Show/hide original DOM markers based on cluster state.
+Clustered markers are hidden, unclustered are shown.
+Cluster bubbles (circles with count) are created as separate DOM elements.
 </div>
 
 
@@ -1307,7 +1330,11 @@
 
 
 <div class="description">
-    Emit a one-time `info`-level error on the map's error channel whena `setLight` / `setSky` / etc. is called on a non-globe projectionwhere the effect won't be visible. NOT auto-enabling globe — toosurprising for a public API. The customer's error subscriber seesthe hint; dev console gets a one-time `console.info`.
+    Emit a one-time `info`-level error on the map's error channel when
+a `setLight` / `setSky` / etc. is called on a non-globe projection
+where the effect won't be visible. NOT auto-enabling globe — too
+surprising for a public API. The customer's error subscriber sees
+the hint; dev console gets a one-time `console.info`.
 </div>
 
 
@@ -1403,7 +1430,10 @@
 
 
 <div class="description">
-    Legacy auth path for the `opts.tiles` + `opts.tilesToken` usage shape.**Deprecated** in v2.0 — prefer `ctx.tilesHost` + `bemap.TilesAuth` (thev2 path uses MapLibre's `transformRequest` instead of patching the global`window.fetch`). Kept callable for backwards compatibility.
+    Legacy auth path for the `opts.tiles` + `opts.tilesToken` usage shape.
+**Deprecated** in v2.0 — prefer `ctx.tilesHost` + `bemap.TilesAuth` (the
+v2 path uses MapLibre's `transformRequest` instead of patching the global
+`window.fetch`). Kept callable for backwards compatibility.
 </div>
 
 
@@ -1493,7 +1523,20 @@
 
 
 <div class="description">
-    Wire `on('error' | 'error:auth' | 'error:network' | 'error:maplibre-only')`through to the error channel, and report whether it did.The class doc for `_onError` has always claimed "the library version of `on()`calls this when the event name starts with 'error'" — but the base `on()` is anabstract `return new bemap.Listener()`, and all three engines override it androute straight to `_onFeature` / the native map. So the DOCUMENTED way toobserve auth, tile and network failures silently subscribed to nothing onevery engine (BEMAP-1898 audit).Deliberately ADDITIVE: each engine calls this first and then continues withwhatever it did before, so a consumer relying on an engine's native `'error'`event (MapLibre fires one) keeps receiving it — it now simply also receives the`bemap.Error` objects that `_fireError` produces.
+    Wire `on('error' | 'error:auth' | 'error:network' | 'error:maplibre-only')`
+through to the error channel, and report whether it did.
+
+The class doc for `_onError` has always claimed "the library version of `on()`
+calls this when the event name starts with 'error'" — but the base `on()` is an
+abstract `return new bemap.Listener()`, and all three engines override it and
+route straight to `_onFeature` / the native map. So the DOCUMENTED way to
+observe auth, tile and network failures silently subscribed to nothing on
+every engine (BEMAP-1898 audit).
+
+Deliberately ADDITIVE: each engine calls this first and then continues with
+whatever it did before, so a consumer relying on an engine's native `'error'`
+event (MapLibre fires one) keeps receiving it — it now simply also receives the
+`bemap.Error` objects that `_fireError` produces.
 </div>
 
 
@@ -1683,7 +1726,10 @@
 
 
 <div class="description">
-    Create or update the MapLibre cluster source for a ClusterLayer.Strategy: GeoJSON cluster source determines which points are clustered.Original DOM markers are shown/hidden based on cluster state.Cluster bubbles are DOM elements with Leaflet CSS classes.
+    Create or update the MapLibre cluster source for a ClusterLayer.
+Strategy: GeoJSON cluster source determines which points are clustered.
+Original DOM markers are shown/hidden based on cluster state.
+Cluster bubbles are DOM elements with Leaflet CSS classes.
 </div>
 
 
@@ -1859,7 +1905,9 @@
 
 
 <div class="description">
-    Run a callback when the map style is ready.If the style is already loaded, executes immediately; otherwise waits for the 'load' eventwith a safety timeout fallback.
+    Run a callback when the map style is ready.
+If the style is already loaded, executes immediately; otherwise waits for the 'load' event
+with a safety timeout fallback.
 </div>
 
 
@@ -1947,7 +1995,17 @@
 
 
 <div class="description">
-    BeNomad BeMap JavaScript API - MapLibre v5 - 3D BuildingsUsage:  map.add3DBuildings({    sourceId: 'openmaptiles',    sourceLayer: 'building',    heightProperty: 'render_height',    color: '#ddd',    opacity: 0.8,    minZoom: 14  });
+    BeNomad BeMap JavaScript API - MapLibre v5 - 3D Buildings
+
+Usage:
+  map.add3DBuildings({
+    sourceId: 'openmaptiles',
+    sourceLayer: 'building',
+    heightProperty: 'render_height',
+    color: '#ddd',
+    opacity: 0.8,
+    minZoom: 14
+  });
 </div>
 
 
@@ -2227,7 +2285,29 @@
 
 
 <div class="description">
-    BeNomad BeMap JavaScript API - MapLibre v5 - ClusteringEnhances ClusterLayer support for MapLibre with native GeoJSON clustering.Usage:  var points = [    new bemap.Coordinate(2.35, 48.85),    new bemap.Coordinate(7.26, 43.71),    // ... hundreds/thousands of points  ];  var clusterLayer = new bemap.ClusterLayer({    name: 'stations',    distance: 50,  // cluster radius in pixels    style: new bemap.clusterStyle({      color: new bemap.Color(0, 150, 255, 1),      borderColor: new bemap.Color(255, 255, 255, 1),      textColor: new bemap.Color(255, 255, 255, 1),      icon: new bemap.Icon({ src: 'marker.svg' })    })  });  map.addLayer(clusterLayer);  map.addClusterPoints(clusterLayer, points, { properties: [...] });
+    BeNomad BeMap JavaScript API - MapLibre v5 - Clustering
+
+Enhances ClusterLayer support for MapLibre with native GeoJSON clustering.
+
+Usage:
+  var points = [
+    new bemap.Coordinate(2.35, 48.85),
+    new bemap.Coordinate(7.26, 43.71),
+    // ... hundreds/thousands of points
+  ];
+
+  var clusterLayer = new bemap.ClusterLayer({
+    name: 'stations',
+    distance: 50,  // cluster radius in pixels
+    style: new bemap.clusterStyle({
+      color: new bemap.Color(0, 150, 255, 1),
+      borderColor: new bemap.Color(255, 255, 255, 1),
+      textColor: new bemap.Color(255, 255, 255, 1),
+      icon: new bemap.Icon({ src: 'marker.svg' })
+    })
+  });
+  map.addLayer(clusterLayer);
+  map.addClusterPoints(clusterLayer, points, { properties: [...] });
 </div>
 
 
@@ -2853,7 +2933,20 @@
 
 
 <div class="description">
-    BeNomad BeMap JavaScript API - MapLibre v5 - HeatmapUsage:  var heatmap = new bemap.HeatmapLayer({    name: 'earthquakes',    points: [      { lon: 2.35, lat: 48.85, weight: 5 },      { lon: 7.26, lat: 43.71, weight: 3 }    ],    radius: 25,    intensity: 1.5,    colors: ['rgba(0,0,255,0)', 'royalblue', 'cyan', 'lime', 'yellow', 'red']  });  map.addHeatmap(heatmap);
+    BeNomad BeMap JavaScript API - MapLibre v5 - Heatmap
+
+Usage:
+  var heatmap = new bemap.HeatmapLayer({
+    name: 'earthquakes',
+    points: [
+      { lon: 2.35, lat: 48.85, weight: 5 },
+      { lon: 7.26, lat: 43.71, weight: 3 }
+    ],
+    radius: 25,
+    intensity: 1.5,
+    colors: ['rgba(0,0,255,0)', 'royalblue', 'cyan', 'lime', 'yellow', 'red']
+  });
+  map.addHeatmap(heatmap);
 </div>
 
 
@@ -3874,7 +3967,28 @@
 
 
 <div class="description">
-    BeNomad BeMap JavaScript API - MapLibre v5 - AnimationUsage:  // First add a GeoJSON source for the animated point  map.addGeoJsonSource('moving-point', {    type: 'Feature',    geometry: { type: 'Point', coordinates: [0, 0] }  });  // Then animate along a route  var controller = map.animateAlongRoute({    sourceId: 'moving-point',    coordinates: [[2.35, 48.85], [7.26, 43.71], [5.37, 43.29]],    speed: 0.005,    loop: true,    onUpdate: function(pos) { console.log(pos.lon, pos.lat); },    onComplete: function() { console.log('Done!'); }  });  // Control the animation  controller.stop();  controller.resume();
+    BeNomad BeMap JavaScript API - MapLibre v5 - Animation
+
+Usage:
+  // First add a GeoJSON source for the animated point
+  map.addGeoJsonSource('moving-point', {
+    type: 'Feature',
+    geometry: { type: 'Point', coordinates: [0, 0] }
+  });
+
+  // Then animate along a route
+  var controller = map.animateAlongRoute({
+    sourceId: 'moving-point',
+    coordinates: [[2.35, 48.85], [7.26, 43.71], [5.37, 43.29]],
+    speed: 0.005,
+    loop: true,
+    onUpdate: function(pos) { console.log(pos.lon, pos.lat); },
+    onComplete: function() { console.log('Done!'); }
+  });
+
+  // Control the animation
+  controller.stop();
+  controller.resume();
 </div>
 
 
@@ -4493,7 +4607,8 @@
 
 
 <div class="description">
-    Animate pulsing circle effect. MapLibre only.Creates a pulsing circle at a coordinate using paint property animation.
+    Animate pulsing circle effect. MapLibre only.
+Creates a pulsing circle at a coordinate using paint property animation.
 </div>
 
 
@@ -4770,7 +4885,8 @@
 
 
 <div class="description">
-    No-op, kept so `.backgroundLayers(list).switchBackgroundLayer(name)` staysvalid cross-engine. MapLibre needs no pre-declared layers.
+    No-op, kept so `.backgroundLayers(list).switchBackgroundLayer(name)` stays
+valid cross-engine. MapLibre needs no pre-declared layers.
 </div>
 
 
@@ -5351,7 +5467,11 @@
 
 
 <div class="description">
-    Tear down every registered effect. Invokes each teardown inregistration order, swallowing errors per-teardown so one failuredoesn't block the rest. Each teardown is expected to call`_unregisterEffect` itself via the matching `remove*`/`stop*` path;the registry is cleared at the end regardless.
+    Tear down every registered effect. Invokes each teardown in
+registration order, swallowing errors per-teardown so one failure
+doesn't block the rest. Each teardown is expected to call
+`_unregisterEffect` itself via the matching `remove*`/`stop*` path;
+the registry is cleared at the end regardless.
 </div>
 
 
@@ -5629,7 +5749,16 @@
 
 
 <div class="description">
-    Remove all the popups THIS map owns.Used to be `document.querySelectorAll('.maplibregl-popup')` + `Element.remove()`,which had three faults (BEMAP-1898 audit):  • document-wide — it deleted popups belonging to other bemap maps on the    page, and any `maplibregl.Popup` the host application had created itself;  • it removed the DOM node instead of calling the popup's own `remove()`, so    MapLibre never detached its map listeners — each open/clear cycle leaked a    move + click + remove handler set;  • the bemap.Popup models were left reporting `isVisible() === true`.
+    Remove all the popups THIS map owns.
+
+Used to be `document.querySelectorAll('.maplibregl-popup')` + `Element.remove()`,
+which had three faults (BEMAP-1898 audit):
+  • document-wide — it deleted popups belonging to other bemap maps on the
+    page, and any `maplibregl.Popup` the host application had created itself;
+  • it removed the DOM node instead of calling the popup's own `remove()`, so
+    MapLibre never detached its map listeners — each open/clear cycle leaked a
+    move + click + remove handler set;
+  • the bemap.Popup models were left reporting `isVisible() === true`.
 </div>
 
 
@@ -5744,7 +5873,8 @@
 
 
 <div class="description">
-    Add default layers. If no custom style was provided, adds WMS backgroundfrom the BeMap server (same as OlMap). Always adds overlay layers.
+    Add default layers. If no custom style was provided, adds WMS background
+from the BeMap server (same as OlMap). Always adds overlay layers.
 </div>
 
 
@@ -7276,7 +7406,8 @@
 
 
 <div class="description">
-    BeNomad BeMap JavaScript API - MapLibre v5 - Draw InteractionManual implementation using GeoJSON sources + mouse events.
+    BeNomad BeMap JavaScript API - MapLibre v5 - Draw Interaction
+Manual implementation using GeoJSON sources + mouse events.
 </div>
 
 
@@ -7533,7 +7664,10 @@
 
 
 <div class="description">
-    Fetch the Worker's map config — `GET /api/maps` — resolving with`{ default, aliases, tilesets }` so an app can build a map-picker. Requires`ctx.tilesHost`; the session token is attached automatically by the TilesAuthfetch interceptor (it waits for login to complete first).
+    Fetch the Worker's map config — `GET /api/maps` — resolving with
+`{ default, aliases, tilesets }` so an app can build a map-picker. Requires
+`ctx.tilesHost`; the session token is attached automatically by the TilesAuth
+fetch interceptor (it waits for login to complete first).
 </div>
 
 
@@ -7642,7 +7776,8 @@
 
 
 <div class="description">
-    Fetch the Worker's allow-listed styles — `GET /api/styles` — resolving with`{ styles: [...] }`. See <a href="bemap.MapLibreMap.html#fetchAvailableMaps">bemap.MapLibreMap#fetchAvailableMaps</a>.
+    Fetch the Worker's allow-listed styles — `GET /api/styles` — resolving with
+`{ styles: [...] }`. See <a href="bemap.MapLibreMap.html#fetchAvailableMaps">bemap.MapLibreMap#fetchAvailableMaps</a>.
 </div>
 
 
@@ -7751,7 +7886,8 @@
 
 
 <div class="description">
-    Fetch the filename the `default` alias currently resolves to —`GET /api/default` — resolving with `{ default: '<file>'|null }`.
+    Fetch the filename the `default` alias currently resolves to —
+`GET /api/default` — resolving with `{ default: '<file>'|null }`.
 </div>
 
 
@@ -7860,7 +7996,9 @@
 
 
 <div class="description">
-    Fetch the name of the Worker's default MapLibre style — `GET /api/default-style`— resolving with `{ default: '<style-name>'|null }`. This is the style appliedwhen the developer pins none; see <a href="bemap.MapLibreMap.html#fetchAvailableStyles">bemap.MapLibreMap#fetchAvailableStyles</a>.
+    Fetch the name of the Worker's default MapLibre style — `GET /api/default-style`
+— resolving with `{ default: '<style-name>'|null }`. This is the style applied
+when the developer pins none; see <a href="bemap.MapLibreMap.html#fetchAvailableStyles">bemap.MapLibreMap#fetchAvailableStyles</a>.
 </div>
 
 
@@ -8180,7 +8318,8 @@
 
 
 <div class="description">
-    Names of every currently-active effect. Snapshot — does not auto-update; subscribe via `onEffectChange` for live notification.
+    Names of every currently-active effect. Snapshot — does not auto-
+update; subscribe via `onEffectChange` for live notification.
 </div>
 
 
@@ -9117,7 +9256,8 @@
 
 
 <div class="description">
-    Get the current MapLibre style spec (the one resolved and applied by thelibrary — same shape `getStyle()` would return).
+    Get the current MapLibre style spec (the one resolved and applied by the
+library — same shape `getStyle()` would return).
 </div>
 
 
@@ -9310,7 +9450,9 @@
 
 
 <div class="description">
-    Return the resolved BeNomad-Tiles configuration for this map — the effectivevalues after opts + Context + page-level defaults are merged. Useful fordebugging ("what is actually in effect?"). All fields are read-only snapshots.
+    Return the resolved BeNomad-Tiles configuration for this map — the effective
+values after opts + Context + page-level defaults are merged. Useful for
+debugging ("what is actually in effect?"). All fields are read-only snapshots.
 </div>
 
 
@@ -9951,7 +10093,17 @@
 
 
 <div class="description">
-    Load BeMap PMTiles vector tiles. Auto-authenticates using bemap.Context credentials.Usage:  map.loadBeMapTiles();  // uses defaults + context credentials  map.loadBeMapTiles({ url: 'https://mptiles-api.benomad.net', tilesFile: 'Europe.pmtiles', style: 'style_liberty.json' });  map.loadBeMapTiles({ token: 'existing-jwt' });  // skip login**NOT SUPPORTED behind a `proxy`** (EVMOVE-307): this legacy path sends`Authorization: Basic` from the browser by design, which is exactly what`ctx.proxy` exists to prevent, and it errors without credentials. Use`ctx.tilesHost` (+ `ctx.proxy`) instead — no house app calls this helper.
+    Load BeMap PMTiles vector tiles. Auto-authenticates using bemap.Context credentials.
+
+Usage:
+  map.loadBeMapTiles();  // uses defaults + context credentials
+  map.loadBeMapTiles({ url: 'https://mptiles-api.benomad.net', tilesFile: 'Europe.pmtiles', style: 'style_liberty.json' });
+  map.loadBeMapTiles({ token: 'existing-jwt' });  // skip login
+
+**NOT SUPPORTED behind a `proxy`** (EVMOVE-307): this legacy path sends
+`Authorization: Basic` from the browser by design, which is exactly what
+`ctx.proxy` exists to prevent, and it errors without credentials. Use
+`ctx.tilesHost` (+ `ctx.proxy`) instead — no house app calls this helper.
 </div>
 
 
@@ -10242,7 +10394,9 @@
     
 
     
-        <dt class="important tag-deprecated">Deprecated:</dt><dd><ul class="dummy"><li>Since 2.0.0 — prefer `ctx.tilesHost` on the Context, which            routes through `bemap.TilesAuth` + the fetch interceptor            instead of a one-shot login + setStyle.</li></ul></dd>
+        <dt class="important tag-deprecated">Deprecated:</dt><dd><ul class="dummy"><li>Since 2.0.0 — prefer `ctx.tilesHost` on the Context, which
+            routes through `bemap.TilesAuth` + the fetch interceptor
+            instead of a one-shot login + setStyle.</li></ul></dd>
     
 
     
@@ -10322,7 +10476,9 @@
 
 
 <div class="description">
-    Load PMTiles vector tiles with optional style and authentication.Registers the pmtiles:// protocol, sets up token injection, loads style,and applies it to the map. Requires pmtiles.js library.
+    Load PMTiles vector tiles with optional style and authentication.
+Registers the pmtiles:// protocol, sets up token injection, loads style,
+and applies it to the map. Requires pmtiles.js library.
 </div>
 
 
@@ -11321,7 +11477,9 @@
 
 
 <div class="description">
-    Subscribe to active-effect changes. Fires `{name, active}` wheneveran effect is registered (`active: true`) or torn down (`active:false`). The dashboard's active-effects bar consumes this.
+    Subscribe to active-effect changes. Fires `{name, active}` whenever
+an effect is registered (`active: true`) or torn down (`active:
+false`). The dashboard's active-effects bar consumes this.
 </div>
 
 
@@ -14747,7 +14905,9 @@
     
 
     
-        <dt class="important tag-deprecated">Deprecated:</dt><dd><ul class="dummy"><li>Since 2.0 — use setBearing(deg) for a cross-engine API.            rotation() stays callable but emits a one-time warn so            customer code can migrate without surprises.</li></ul></dd>
+        <dt class="important tag-deprecated">Deprecated:</dt><dd><ul class="dummy"><li>Since 2.0 — use setBearing(deg) for a cross-engine API.
+            rotation() stays callable but emits a one-time warn so
+            customer code can migrate without surprises.</li></ul></dd>
     
 
     
@@ -15415,7 +15575,8 @@
 
 
 <div class="description">
-    Toggle keyboard navigation (arrow-pan + `=`/`-` zoom + `Shift+arrow`rotate/tilt — MapLibre's `KeyboardHandler` is one bundle) at runtime.
+    Toggle keyboard navigation (arrow-pan + `=`/`-` zoom + `Shift+arrow`
+rotate/tilt — MapLibre's `KeyboardHandler` is one bundle) at runtime.
 </div>
 
 
@@ -16226,7 +16387,10 @@
 
 
 <div class="description">
-    Replace `bemap.Map.prototype.setStyle` for MapLibre — accepts either aURL or an inline style object, fetches + resolves placeholders via`bemap.TilesStyle`, calls native `setStyle`, and **replays the overlaycatalogue** so user markers / polylines / polygons survive the swap.
+    Replace `bemap.Map.prototype.setStyle` for MapLibre — accepts either a
+URL or an inline style object, fetches + resolves placeholders via
+`bemap.TilesStyle`, calls native `setStyle`, and **replays the overlay
+catalogue** so user markers / polylines / polygons survive the swap.
 </div>
 
 
@@ -16486,7 +16650,10 @@
 
 
 <div class="description">
-    Live-toggle the resilience gate (concurrency cap + timeout + retry) WITHOUT areload — the slice source reads it per request. Fires `onTileGateChange` andany `'tilegatechange'` listeners. This is the SDK-supported way to build adiagnostic on/off button (the demo/bemaputnik call this).
+    Live-toggle the resilience gate (concurrency cap + timeout + retry) WITHOUT a
+reload — the slice source reads it per request. Fires `onTileGateChange` and
+any `'tilegatechange'` listeners. This is the SDK-supported way to build a
+diagnostic on/off button (the demo/bemaputnik call this).
 </div>
 
 
@@ -16648,7 +16815,9 @@
 
 
 <div class="description">
-    Set the tile fetch mode (`'200'` | `'range'`) for archives wired AFTER thiscall. Archives already registered keep their source; call before loading astyle, or reload the style, for a live A/B. Returns this.
+    Set the tile fetch mode (`'200'` | `'range'`) for archives wired AFTER this
+call. Archives already registered keep their source; call before loading a
+style, or reload the style, for a live A/B. Returns this.
 </div>
 
 
@@ -16997,7 +17166,9 @@
 
 
 <div class="description">
-    Show or hide the engine's native zoom (+/-) buttons at runtime.Uniform across Leaflet, OpenLayers and MapLibre — toggles a class onthe map container so the engine-specific selectors all hit at once.
+    Show or hide the engine's native zoom (+/-) buttons at runtime.
+Uniform across Leaflet, OpenLayers and MapLibre — toggles a class on
+the map container so the engine-specific selectors all hit at once.
 </div>
 
 
@@ -17372,7 +17543,18 @@
 
 
 <div class="description">
-    Point the basemap at another geoserver's tiles, in place.Leaflet and OpenLayers toggle pre-created raster layers; MapLibre re-resolvesthe archive and re-applies the current style, so the map instance and itsoverlays survive. Was a stub, so a geoserver selector had no effect on anyMapLibre map (BEMAP-1905).`setStyle` does the work — re-registers the slice source, re-resolves theplaceholders, replays the overlays. The name is passed EXPLICITLY so itoutranks `ctx.tilesFile`, and `_tilesFileExplicit` is cleared so a providerwith no archive is treated as "no vector map" rather than a misconfiguration.Selecting a provider that HAS one restores the basemap.
+    Point the basemap at another geoserver's tiles, in place.
+
+Leaflet and OpenLayers toggle pre-created raster layers; MapLibre re-resolves
+the archive and re-applies the current style, so the map instance and its
+overlays survive. Was a stub, so a geoserver selector had no effect on any
+MapLibre map (BEMAP-1905).
+
+`setStyle` does the work — re-registers the slice source, re-resolves the
+placeholders, replays the overlays. The name is passed EXPLICITLY so it
+outranks `ctx.tilesFile`, and `_tilesFileExplicit` is cleared so a provider
+with no archive is treated as "no vector map" rather than a misconfiguration.
+Selecting a provider that HAS one restores the basemap.
 </div>
 
 
@@ -17913,7 +18095,14 @@
 
 
 <div class="description">
-    Re-stack a layer relative to the others. MapLibre keeps layers in anordered array on the native style; later entries paint on top of earlierones. To raise a bemap Layer, walk its tracked sub-layers (`geoJsonIds`)and `moveLayer` each to the top. To lower, move them before the firstnon-base layer. HTML markers (DOM elements, no style-array entry) get amatching CSS `z-index` so DOM stacking follows the same intent.Threshold: zIndex ≥ 50 counts as "on top", everything else "behind".
+    Re-stack a layer relative to the others. MapLibre keeps layers in an
+ordered array on the native style; later entries paint on top of earlier
+ones. To raise a bemap Layer, walk its tracked sub-layers (`geoJsonIds`)
+and `moveLayer` each to the top. To lower, move them before the first
+non-base layer. HTML markers (DOM elements, no style-array entry) get a
+matching CSS `z-index` so DOM stacking follows the same intent.
+
+Threshold: zIndex ≥ 50 counts as "on top", everything else "behind".
 </div>
 
 
@@ -18295,7 +18484,7 @@
 <br class="clear">
 
 <footer>
-    Documentation generated by <a href="https://github.com/jsdoc/jsdoc">JSDoc 3.6.3</a> on Thu Oct 15 2026 11:33:03 GMT+0200 (heure d’été d’Europe centrale)
+    Documentation generated by <a href="https://github.com/jsdoc/jsdoc">JSDoc 3.6.3</a> on Fri Oct 16 2026 16:05:47 GMT+0200 (Central European Summer Time)
 </footer>
 
 <script> prettyPrint(); </script>

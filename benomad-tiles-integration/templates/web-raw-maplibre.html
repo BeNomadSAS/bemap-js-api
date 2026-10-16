@@ -42,8 +42,10 @@
     }
 
     async function resolveStyle(token) {
-      // Fetch the server style and substitute the two placeholders.
-      var raw = await (await fetch(TILES + '/api/default-style?token=' + token)).json();
+      // /api/default-style only names the style ({ "default": "styles/….json" }): fetch that
+      // style, then substitute the two placeholders.
+      var pointer = await (await fetch(TILES + '/api/default-style?token=' + token)).json();
+      var raw = await (await fetch(TILES + '/' + pointer.default + '?token=' + token)).json();
       var srcPh = (raw.metadata && raw.metadata.source_placeholder) || 'TILES_SOURCE';
       raw.sources = raw.sources || {};
       raw.sources['tiles'] = Object.assign({}, raw.sources[srcPh], {

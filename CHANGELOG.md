@@ -14,7 +14,21 @@ No breaking API change — one method that was a stub now works, two defects are
 
 This release also exists so the corrected `benomad-tiles-integration/` skill is reachable from a pinned tag: `v2.0.3` on the public repo is permanently attached to the distribution that still carried the wrong text, so a consumer pinning it would never see the fix.
 
-> **The `geoserver=undefined`, `llms.txt`, `toRoutingProfile`, `switchBackgroundLayer` and `tilesFallbackToDefault` entries below landed after the initial 2.0.4 publish**, so the `v2.0.4` tag does not contain them — only `main` does. A consumer pinning `@v2.0.4` gets the marker fix and the corrected skill, but none of the later fixes.
+> **The trace route (BEMAP-1971), `geoserver=undefined`, `llms.txt`, `toRoutingProfile`, `switchBackgroundLayer` and `tilesFallbackToDefault` entries below landed after the initial 2.0.4 publish**, so the `v2.0.4` tag does not contain them — only `main` does. A consumer pinning `@v2.0.4` gets the marker fix and the corrected skill, but none of the later fixes.
+
+### Fixed — trace route, the raw MapLibre template and place labels, measured against BeMap dev (BEMAP-1971)
+
+Each checked on `bemap-dev` (4.2.0-SNAPSHOT) on 2026-10-15:
+
+- `TraceRoute.computeRnc` parsed BeMap's RNC answer as a route, so it gave an empty `RoutingResponse`. It now gives the answer as it is: the commands `setVehicleProfileCommand`, `setRouteCriteriaCommand` and `startCircuitNavCommand`. Its documentation says what BeMap needs for it: the vehicle's features, and `WAYPOINTS` for the waypoints.
+- `TraceRouteRequest` sent `routingCriterias`, documented as supported. BeMap ignores them on a trace route (the same trace with `SHORTEST` and `FASTEST`), so they are no longer sent.
+- `bemap.TraceRouteOptions.EVT_OBJECTID_BASE64` is gone: the trace route service refuses it (`400 INVALID_ARGUMENT`). The list now matches BeMap's REST enum, all 48 values; routing keeps the option.
+- `traceRouteQuality.score` looked for an `inputCoordinate` BeMap never sends, and fell back to the mean `confidenceValue`, about 0.23 for a drive matched within metres of its road. It now reads `distanceFromRequest`, the metres from each GPS point to its match.
+- The switch index went out as `switchIndex`, which BeMap ignores; its field is `swidx` (deprecated). Trace route, routing, autocomplete, near POI and reverse geocoding send `swidx`.
+- `benomad-tiles-integration/templates/web-raw-maplibre.html` used the answer of `/api/default-style`, `{ "default": "styles/….json" }`, as the style, and drew a blank map. It fetches the style named.
+- `TilesStyle.buildBilingualExpr` put English before the local name: a French map read "2nd Arrondissement" for Paris's arrondissements, whose data has `name_en` but no `name_fr`. The name on top is now the reader's language, else the local name, else English (English for a local name in another script only).
+
+Eight specs cover them, all but the template (an HTML file no spec loads); each fails on the code before its fix.
 
 ### Fixed — a Leaflet map stayed grey when the Context had no `geoserver` (BEMAP-1940)
 

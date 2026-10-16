@@ -251,7 +251,10 @@
 
 
 <div class="description">
-    Whether the zoom (+/-) control is currently visible. Initialised fromthe resolved `zoomControl` option (default OFF — opt-in) and flipped atruntime by `setZoomControl()`. Kept in sync so `getZoomControl()` isaccurate before any runtime toggle.
+    Whether the zoom (+/-) control is currently visible. Initialised from
+the resolved `zoomControl` option (default OFF — opt-in) and flipped at
+runtime by `setZoomControl()`. Kept in sync so `getZoomControl()` is
+accurate before any runtime toggle.
 </div>
 
 
@@ -645,7 +648,8 @@
 
 
 <div class="description">
-    Fire an error onto the map's error channel(s). Used by the warn-and-no-opfallback and by the new auth/tile/cache error paths.
+    Fire an error onto the map's error channel(s). Used by the warn-and-no-op
+fallback and by the new auth/tile/cache error paths.
 </div>
 
 
@@ -790,7 +794,19 @@
 
 
 <div class="description">
-    Report that the ACTIVE engine does not implement `methodName`, then no-op.The base class is a hand-maintained stub list, and it was only half populated(BEMAP-1898 audit). The same defect — an engine not implementing an overlaymethod — therefore failed two different ways: silently (`return this` for thenames that were listed) or with `TypeError: … is not a function` (for the onesthat were not). Neither told the developer anything useful, and the silent halfis how several Leaflet gaps shipped unnoticed.Every previously-absent name now lands here: one console.warn per method permap, plus a `bemap.Error` on the map's error channel, then a harmless no-op.A TypeError becomes a visible warning; a silent nothing becomes a visiblewarning. Nothing that already worked changes.
+    Report that the ACTIVE engine does not implement `methodName`, then no-op.
+
+The base class is a hand-maintained stub list, and it was only half populated
+(BEMAP-1898 audit). The same defect — an engine not implementing an overlay
+method — therefore failed two different ways: silently (`return this` for the
+names that were listed) or with `TypeError: … is not a function` (for the ones
+that were not). Neither told the developer anything useful, and the silent half
+is how several Leaflet gaps shipped unnoticed.
+
+Every previously-absent name now lands here: one console.warn per method per
+map, plus a `bemap.Error` on the map's error channel, then a harmless no-op.
+A TypeError becomes a visible warning; a silent nothing becomes a visible
+warning. Nothing that already worked changes.
 </div>
 
 
@@ -957,7 +973,11 @@
 
 
 <div class="description">
-    Emit a one-time `info`-level error on the map's error channel whena `setLight` / `setSky` / etc. is called on a non-globe projectionwhere the effect won't be visible. NOT auto-enabling globe — toosurprising for a public API. The customer's error subscriber seesthe hint; dev console gets a one-time `console.info`.
+    Emit a one-time `info`-level error on the map's error channel when
+a `setLight` / `setSky` / etc. is called on a non-globe projection
+where the effect won't be visible. NOT auto-enabling globe — too
+surprising for a public API. The customer's error subscriber sees
+the hint; dev console gets a one-time `console.info`.
 </div>
 
 
@@ -1053,7 +1073,20 @@
 
 
 <div class="description">
-    Wire `on('error' | 'error:auth' | 'error:network' | 'error:maplibre-only')`through to the error channel, and report whether it did.The class doc for `_onError` has always claimed "the library version of `on()`calls this when the event name starts with 'error'" — but the base `on()` is anabstract `return new bemap.Listener()`, and all three engines override it androute straight to `_onFeature` / the native map. So the DOCUMENTED way toobserve auth, tile and network failures silently subscribed to nothing onevery engine (BEMAP-1898 audit).Deliberately ADDITIVE: each engine calls this first and then continues withwhatever it did before, so a consumer relying on an engine's native `'error'`event (MapLibre fires one) keeps receiving it — it now simply also receives the`bemap.Error` objects that `_fireError` produces.
+    Wire `on('error' | 'error:auth' | 'error:network' | 'error:maplibre-only')`
+through to the error channel, and report whether it did.
+
+The class doc for `_onError` has always claimed "the library version of `on()`
+calls this when the event name starts with 'error'" — but the base `on()` is an
+abstract `return new bemap.Listener()`, and all three engines override it and
+route straight to `_onFeature` / the native map. So the DOCUMENTED way to
+observe auth, tile and network failures silently subscribed to nothing on
+every engine (BEMAP-1898 audit).
+
+Deliberately ADDITIVE: each engine calls this first and then continues with
+whatever it did before, so a consumer relying on an engine's native `'error'`
+event (MapLibre fires one) keeps receiving it — it now simply also receives the
+`bemap.Error` objects that `_fireError` produces.
 </div>
 
 
@@ -3979,7 +4012,11 @@
 
 
 <div class="description">
-    Tear down every registered effect. Invokes each teardown inregistration order, swallowing errors per-teardown so one failuredoesn't block the rest. Each teardown is expected to call`_unregisterEffect` itself via the matching `remove*`/`stop*` path;the registry is cleared at the end regardless.
+    Tear down every registered effect. Invokes each teardown in
+registration order, swallowing errors per-teardown so one failure
+doesn't block the rest. Each teardown is expected to call
+`_unregisterEffect` itself via the matching `remove*`/`stop*` path;
+the registry is cleared at the end regardless.
 </div>
 
 
@@ -6631,7 +6668,8 @@
 
 
 <div class="description">
-    Names of every currently-active effect. Snapshot — does not auto-update; subscribe via `onEffectChange` for live notification.
+    Names of every currently-active effect. Snapshot — does not auto-
+update; subscribe via `onEffectChange` for live notification.
 </div>
 
 
@@ -8833,7 +8871,9 @@
 
 
 <div class="description">
-    Subscribe to active-effect changes. Fires `{name, active}` wheneveran effect is registered (`active: true`) or torn down (`active:false`). The dashboard's active-effects bar consumes this.
+    Subscribe to active-effect changes. Fires `{name, active}` whenever
+an effect is registered (`active: true`) or torn down (`active:
+false`). The dashboard's active-effects bar consumes this.
 </div>
 
 
@@ -14197,7 +14237,9 @@
 
 
 <div class="description">
-    Show or hide the engine's native zoom (+/-) buttons at runtime.Uniform across Leaflet, OpenLayers and MapLibre — toggles a class onthe map container so the engine-specific selectors all hit at once.
+    Show or hide the engine's native zoom (+/-) buttons at runtime.
+Uniform across Leaflet, OpenLayers and MapLibre — toggles a class on
+the map container so the engine-specific selectors all hit at once.
 </div>
 
 
@@ -15505,7 +15547,10 @@
 
 
 <div class="description">
-    Whether the zoom (+/-) control is currently visible. Initialised fromthe resolved `zoomControl` option (default OFF — opt-in) and flipped atruntime by `setZoomControl()`. Kept in sync so `getZoomControl()` isaccurate before any runtime toggle.
+    Whether the zoom (+/-) control is currently visible. Initialised from
+the resolved `zoomControl` option (default OFF — opt-in) and flipped at
+runtime by `setZoomControl()`. Kept in sync so `getZoomControl()` is
+accurate before any runtime toggle.
 </div>
 
 
@@ -15899,7 +15944,8 @@
 
 
 <div class="description">
-    Fire an error onto the map's error channel(s). Used by the warn-and-no-opfallback and by the new auth/tile/cache error paths.
+    Fire an error onto the map's error channel(s). Used by the warn-and-no-op
+fallback and by the new auth/tile/cache error paths.
 </div>
 
 
@@ -16044,7 +16090,19 @@
 
 
 <div class="description">
-    Report that the ACTIVE engine does not implement `methodName`, then no-op.The base class is a hand-maintained stub list, and it was only half populated(BEMAP-1898 audit). The same defect — an engine not implementing an overlaymethod — therefore failed two different ways: silently (`return this` for thenames that were listed) or with `TypeError: … is not a function` (for the onesthat were not). Neither told the developer anything useful, and the silent halfis how several Leaflet gaps shipped unnoticed.Every previously-absent name now lands here: one console.warn per method permap, plus a `bemap.Error` on the map's error channel, then a harmless no-op.A TypeError becomes a visible warning; a silent nothing becomes a visiblewarning. Nothing that already worked changes.
+    Report that the ACTIVE engine does not implement `methodName`, then no-op.
+
+The base class is a hand-maintained stub list, and it was only half populated
+(BEMAP-1898 audit). The same defect — an engine not implementing an overlay
+method — therefore failed two different ways: silently (`return this` for the
+names that were listed) or with `TypeError: … is not a function` (for the ones
+that were not). Neither told the developer anything useful, and the silent half
+is how several Leaflet gaps shipped unnoticed.
+
+Every previously-absent name now lands here: one console.warn per method per
+map, plus a `bemap.Error` on the map's error channel, then a harmless no-op.
+A TypeError becomes a visible warning; a silent nothing becomes a visible
+warning. Nothing that already worked changes.
 </div>
 
 
@@ -16211,7 +16269,11 @@
 
 
 <div class="description">
-    Emit a one-time `info`-level error on the map's error channel whena `setLight` / `setSky` / etc. is called on a non-globe projectionwhere the effect won't be visible. NOT auto-enabling globe — toosurprising for a public API. The customer's error subscriber seesthe hint; dev console gets a one-time `console.info`.
+    Emit a one-time `info`-level error on the map's error channel when
+a `setLight` / `setSky` / etc. is called on a non-globe projection
+where the effect won't be visible. NOT auto-enabling globe — too
+surprising for a public API. The customer's error subscriber sees
+the hint; dev console gets a one-time `console.info`.
 </div>
 
 
@@ -16307,7 +16369,20 @@
 
 
 <div class="description">
-    Wire `on('error' | 'error:auth' | 'error:network' | 'error:maplibre-only')`through to the error channel, and report whether it did.The class doc for `_onError` has always claimed "the library version of `on()`calls this when the event name starts with 'error'" — but the base `on()` is anabstract `return new bemap.Listener()`, and all three engines override it androute straight to `_onFeature` / the native map. So the DOCUMENTED way toobserve auth, tile and network failures silently subscribed to nothing onevery engine (BEMAP-1898 audit).Deliberately ADDITIVE: each engine calls this first and then continues withwhatever it did before, so a consumer relying on an engine's native `'error'`event (MapLibre fires one) keeps receiving it — it now simply also receives the`bemap.Error` objects that `_fireError` produces.
+    Wire `on('error' | 'error:auth' | 'error:network' | 'error:maplibre-only')`
+through to the error channel, and report whether it did.
+
+The class doc for `_onError` has always claimed "the library version of `on()`
+calls this when the event name starts with 'error'" — but the base `on()` is an
+abstract `return new bemap.Listener()`, and all three engines override it and
+route straight to `_onFeature` / the native map. So the DOCUMENTED way to
+observe auth, tile and network failures silently subscribed to nothing on
+every engine (BEMAP-1898 audit).
+
+Deliberately ADDITIVE: each engine calls this first and then continues with
+whatever it did before, so a consumer relying on an engine's native `'error'`
+event (MapLibre fires one) keeps receiving it — it now simply also receives the
+`bemap.Error` objects that `_fireError` produces.
 </div>
 
 
@@ -19233,7 +19308,11 @@
 
 
 <div class="description">
-    Tear down every registered effect. Invokes each teardown inregistration order, swallowing errors per-teardown so one failuredoesn't block the rest. Each teardown is expected to call`_unregisterEffect` itself via the matching `remove*`/`stop*` path;the registry is cleared at the end regardless.
+    Tear down every registered effect. Invokes each teardown in
+registration order, swallowing errors per-teardown so one failure
+doesn't block the rest. Each teardown is expected to call
+`_unregisterEffect` itself via the matching `remove*`/`stop*` path;
+the registry is cleared at the end regardless.
 </div>
 
 
@@ -21885,7 +21964,8 @@
 
 
 <div class="description">
-    Names of every currently-active effect. Snapshot — does not auto-update; subscribe via `onEffectChange` for live notification.
+    Names of every currently-active effect. Snapshot — does not auto-
+update; subscribe via `onEffectChange` for live notification.
 </div>
 
 
@@ -24087,7 +24167,9 @@
 
 
 <div class="description">
-    Subscribe to active-effect changes. Fires `{name, active}` wheneveran effect is registered (`active: true`) or torn down (`active:false`). The dashboard's active-effects bar consumes this.
+    Subscribe to active-effect changes. Fires `{name, active}` whenever
+an effect is registered (`active: true`) or torn down (`active:
+false`). The dashboard's active-effects bar consumes this.
 </div>
 
 
@@ -29451,7 +29533,9 @@
 
 
 <div class="description">
-    Show or hide the engine's native zoom (+/-) buttons at runtime.Uniform across Leaflet, OpenLayers and MapLibre — toggles a class onthe map container so the engine-specific selectors all hit at once.
+    Show or hide the engine's native zoom (+/-) buttons at runtime.
+Uniform across Leaflet, OpenLayers and MapLibre — toggles a class on
+the map container so the engine-specific selectors all hit at once.
 </div>
 
 
@@ -30538,7 +30622,7 @@
 <br class="clear">
 
 <footer>
-    Documentation generated by <a href="https://github.com/jsdoc/jsdoc">JSDoc 3.6.3</a> on Thu Oct 15 2026 11:33:03 GMT+0200 (heure d’été d’Europe centrale)
+    Documentation generated by <a href="https://github.com/jsdoc/jsdoc">JSDoc 3.6.3</a> on Fri Oct 16 2026 16:05:47 GMT+0200 (Central European Summer Time)
 </footer>
 
 <script> prettyPrint(); </script>

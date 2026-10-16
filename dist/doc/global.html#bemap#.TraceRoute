@@ -50,7 +50,21 @@
 
 
 <div class="description">
-    BeNomad BeMap JavaScript API - TraceRoute (v1.5)Promise-based service that map-matches a GPS trace onto the road network.Two endpoints are exposed:  - `compute(request)`     → POST /routing/1.0/traceroute       (standard)  - `computeRnc(request)`  → POST /routing/1.0/traceroute/rnc   (RNC variant — preserves raw road-network capture)Both return the same shape as `bemap.RoutingV2.calculate()`:a `bemap.RoutingResponse` with one route describing the matched path.In-flight requests are tracked by `requestId` and aborted via `cancel(id)`.
+    BeNomad BeMap JavaScript API - TraceRoute (v1.5)
+
+Promise-based service that map-matches a GPS trace onto the road network.
+Two endpoints are exposed:
+
+  - `compute(request)`     → POST /routing/1.0/traceroute       (standard)
+  - `computeRnc(request)`  → POST /routing/1.0/traceroute/rnc   (the same matching, as RNC commands)
+
+`compute` returns the same shape as `bemap.RoutingV2.calculate()`: a
+`bemap.RoutingResponse` with one route describing the matched path.
+`computeRnc` returns BeMap's answer as it is (its `RncRoutingResponse`): the three commands a
+navigation device runs, `setVehicleProfileCommand`, `setRouteCriteriaCommand` and
+`startCircuitNavCommand`, not a route.
+
+In-flight requests are tracked by `requestId` and aborted via `cancel(id)`.
 </div>
 
 
@@ -189,7 +203,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-services-v2_traceroute_bemap-traceroute.js.html">bemap-services-v2/traceroute/bemap-traceroute.js</a>, <a href="bemap-services-v2_traceroute_bemap-traceroute.js.html#line22">line 22</a>
+        <a href="bemap-services-v2_traceroute_bemap-traceroute.js.html">bemap-services-v2/traceroute/bemap-traceroute.js</a>, <a href="bemap-services-v2_traceroute_bemap-traceroute.js.html#line25">line 25</a>
     </li></ul></dd>
     
 
@@ -357,7 +371,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-services-v2_traceroute_bemap-traceroute.js.html">bemap-services-v2/traceroute/bemap-traceroute.js</a>, <a href="bemap-services-v2_traceroute_bemap-traceroute.js.html#line102">line 102</a>
+        <a href="bemap-services-v2_traceroute_bemap-traceroute.js.html">bemap-services-v2/traceroute/bemap-traceroute.js</a>, <a href="bemap-services-v2_traceroute_bemap-traceroute.js.html#line112">line 112</a>
     </li></ul></dd>
     
 
@@ -419,7 +433,8 @@
 
 
 <div class="description">
-    Map-match the GPS trace through the standard endpoint`POST service/routing/1.0/traceroute`.
+    Map-match the GPS trace through the standard endpoint
+`POST service/routing/1.0/traceroute`.
 </div>
 
 
@@ -555,7 +570,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-services-v2_traceroute_bemap-traceroute.js.html">bemap-services-v2/traceroute/bemap-traceroute.js</a>, <a href="bemap-services-v2_traceroute_bemap-traceroute.js.html#line78">line 78</a>
+        <a href="bemap-services-v2_traceroute_bemap-traceroute.js.html">bemap-services-v2/traceroute/bemap-traceroute.js</a>, <a href="bemap-services-v2_traceroute_bemap-traceroute.js.html#line82">line 82</a>
     </li></ul></dd>
     
 
@@ -609,7 +624,7 @@
     
 
     
-    <h4 class="name" id="computeRnc"><span class="type-signature"></span>computeRnc<span class="signature">(request, options<span class="signature-attributes">opt</span>)</span><span class="type-signature"> &rarr; {Promise.&lt;<a href="bemap.RoutingResponse.html">bemap.RoutingResponse</a>>}</span></h4>
+    <h4 class="name" id="computeRnc"><span class="type-signature"></span>computeRnc<span class="signature">(request, options<span class="signature-attributes">opt</span>)</span><span class="type-signature"> &rarr; {Promise.&lt;Object>}</span></h4>
     
 
     
@@ -617,7 +632,14 @@
 
 
 <div class="description">
-    Map-match through the RNC (raw network capture) variant`POST service/routing/1.0/traceroute/rnc`.
+    Map-match the GPS trace and get the result as RNC commands, through
+`POST service/routing/1.0/traceroute/rnc`: BeMap's answer as it is, the three commands
+`setVehicleProfileCommand`, `setRouteCriteriaCommand` and `startCircuitNavCommand`
+(each `{ id, method, params }`), not a route.
+
+The request needs the vehicle's features (`routingVehicleProfile.routingVehicleFeature`:
+height, width, length, weight), else BeMap refuses it ("missing mandatory vehicle features"),
+and the `WAYPOINTS` option, else `startCircuitNavCommand` holds no waypoint.
 </div>
 
 
@@ -753,7 +775,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap-services-v2_traceroute_bemap-traceroute.js.html">bemap-services-v2/traceroute/bemap-traceroute.js</a>, <a href="bemap-services-v2_traceroute_bemap-traceroute.js.html#line91">line 91</a>
+        <a href="bemap-services-v2_traceroute_bemap-traceroute.js.html">bemap-services-v2/traceroute/bemap-traceroute.js</a>, <a href="bemap-services-v2_traceroute_bemap-traceroute.js.html#line101">line 101</a>
     </li></ul></dd>
     
 
@@ -781,6 +803,10 @@
 <h5>Returns:</h5>
 
         
+<div class="param-desc">
+    the RNC commands, as BeMap answers them.
+</div>
+
 
 
 <dl>
@@ -789,7 +815,7 @@
     </dt>
     <dd>
         
-<span class="param-type">Promise.&lt;<a href="bemap.RoutingResponse.html">bemap.RoutingResponse</a>></span>
+<span class="param-type">Promise.&lt;Object></span>
 
 
     </dd>
@@ -823,7 +849,7 @@
 <br class="clear">
 
 <footer>
-    Documentation generated by <a href="https://github.com/jsdoc/jsdoc">JSDoc 3.6.3</a> on Thu Oct 15 2026 11:33:03 GMT+0200 (heure d’été d’Europe centrale)
+    Documentation generated by <a href="https://github.com/jsdoc/jsdoc">JSDoc 3.6.3</a> on Fri Oct 16 2026 16:05:47 GMT+0200 (Central European Summer Time)
 </footer>
 
 <script> prettyPrint(); </script>

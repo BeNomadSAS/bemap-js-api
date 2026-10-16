@@ -50,7 +50,21 @@
 
 
 <div class="description">
-    BeNomad BeMap JavaScript API — BrowserCache (v2.0)Page-side companion to `dist/bemap-sw-tiles.js`. Wraps the ServiceWorker registration, the INIT handshake, and the enable/disable/statsmessage channel.The instance is owned by `bemap.MapLibreMap` and exposed through thesemap methods:  - `map.enableBrowserCache()`     → `cache.enable()`  - `map.disableBrowserCache()`    → `cache.disable()`  - `map.getBrowserCacheStats()`   → `cache.getStats()`  - `map.clearBrowserCache()`      → `cache.clear()`Persists the on/off toggle in `localStorage` under the key`bemap_browser_cache` so customer apps can wire it to a consent banner.
+    BeNomad BeMap JavaScript API — BrowserCache (v2.0)
+
+Page-side companion to `dist/bemap-sw-tiles.js`. Wraps the Service
+Worker registration, the INIT handshake, and the enable/disable/stats
+message channel.
+
+The instance is owned by `bemap.MapLibreMap` and exposed through these
+map methods:
+  - `map.enableBrowserCache()`     → `cache.enable()`
+  - `map.disableBrowserCache()`    → `cache.disable()`
+  - `map.getBrowserCacheStats()`   → `cache.getStats()`
+  - `map.clearBrowserCache()`      → `cache.clear()`
+
+Persists the on/off toggle in `localStorage` under the key
+`bemap_browser_cache` so customer apps can wire it to a consent banner.
 </div>
 
 
@@ -402,7 +416,9 @@
 
 
 <div class="description">
-    Locate the directory the `bemap-js-api.js` (or `.min.js`) bundle was loadedfrom, so we can derive sensible default SW paths when the consumer hasn'tpinned one. Returns a path ending in `/`, or `null` if not detectable.
+    Locate the directory the `bemap-js-api.js` (or `.min.js`) bundle was loaded
+from, so we can derive sensible default SW paths when the consumer hasn't
+pinned one. Returns a path ending in `/`, or `null` if not detectable.
 </div>
 
 
@@ -490,7 +506,9 @@
 
 
 <div class="description">
-    Locate the bemap-js-api bundle's script tag. Returns `{ src, dir }` where`src` is the absolute URL we matched and `dir` is its directory (endingin `/`). Used both for SW path discovery and for diagnostic warnings.
+    Locate the bemap-js-api bundle's script tag. Returns `{ src, dir }` where
+`src` is the absolute URL we matched and `dir` is its directory (ending
+in `/`). Used both for SW path discovery and for diagnostic warnings.
 </div>
 
 
@@ -578,7 +596,11 @@
 
 
 <div class="description">
-    Unregister any previously-installed bemap tile-cache Service Worker on thisorigin and delete its Cache Storage. Called automatically when browserCacheis OFF (the default) so a stale / mis-scoped worker can't keep controllingthe page and serving cached range data (which can corrupt PMTiles renderingand stop the map loading). Safe no-op when none exist.
+    Unregister any previously-installed bemap tile-cache Service Worker on this
+origin and delete its Cache Storage. Called automatically when browserCache
+is OFF (the default) so a stale / mis-scoped worker can't keep controlling
+the page and serving cached range data (which can corrupt PMTiles rendering
+and stop the map loading). Safe no-op when none exist.
 </div>
 
 
@@ -669,7 +691,15 @@
 
 
 <div class="description">
-    Build the ordered list of paths to try when registering the SW. When thecaller explicitly passed `opts.serviceWorkerPath` we honour that exactly(single entry, no fallback). Otherwise we try, in order:  1. `/bemap-sw-tiles.js`               — canonical site-root install  2. `<bemap-js-api.js dir>../bemap-sw-tiles.js`  — common: SW lives one     level up from the dist/ folder the bundle ships in (e.g. evmove root)  3. `<bemap-js-api.js dir>bemap-sw-tiles.js`     — SW sits next to the     bundle inside dist/. Scope is narrower but still works for apps     whose pages live under that directory.
+    Build the ordered list of paths to try when registering the SW. When the
+caller explicitly passed `opts.serviceWorkerPath` we honour that exactly
+(single entry, no fallback). Otherwise we try, in order:
+  1. `/bemap-sw-tiles.js`               — canonical site-root install
+  2. `<bemap-js-api.js dir>../bemap-sw-tiles.js`  — common: SW lives one
+     level up from the dist/ folder the bundle ships in (e.g. evmove root)
+  3. `<bemap-js-api.js dir>bemap-sw-tiles.js`     — SW sits next to the
+     bundle inside dist/. Scope is narrower but still works for apps
+     whose pages live under that directory.
 </div>
 
 
@@ -863,7 +893,8 @@
 
 
 <div class="description">
-    Tear down. Removes the message listener; does NOT unregister the SW(other tabs may still be using it).
+    Tear down. Removes the message listener; does NOT unregister the SW
+(other tabs may still be using it).
 </div>
 
 
@@ -1119,7 +1150,9 @@
 
 
 <div class="description">
-    The full list of registration attempts from the last `register()` call —each entry is `"<path> → <error message>"`. Exposed so the wrapper cansurface a useful warning when nothing worked.
+    The full list of registration attempts from the last `register()` call —
+each entry is `"<path> → <error message>"`. Exposed so the wrapper can
+surface a useful warning when nothing worked.
 </div>
 
 
@@ -1225,7 +1258,9 @@
 
 
 <div class="description">
-    Returns the latest known stats. The SW broadcasts updates regularly via`'cache:stats'` (see the map's `on()`); this method returns the locallycached snapshot synchronously.
+    Returns the latest known stats. The SW broadcasts updates regularly via
+`'cache:stats'` (see the map's `on()`); this method returns the locally
+cached snapshot synchronously.
 </div>
 
 
@@ -1635,7 +1670,7 @@
 <br class="clear">
 
 <footer>
-    Documentation generated by <a href="https://github.com/jsdoc/jsdoc">JSDoc 3.6.3</a> on Thu Oct 15 2026 11:33:02 GMT+0200 (heure d’été d’Europe centrale)
+    Documentation generated by <a href="https://github.com/jsdoc/jsdoc">JSDoc 3.6.3</a> on Fri Oct 16 2026 16:05:47 GMT+0200 (Central European Summer Time)
 </footer>
 
 <script> prettyPrint(); </script>

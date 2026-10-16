@@ -22590,8 +22590,17 @@ bemap.TilesStyle.resolvePlaceholders = function (rawStyle, ctx, tilesFile) {
  * collapses every label to the local name (no translation). Mirrors the
  * BeNomad Tiles demo's `buildBilingualTextField`.
  *
+ * The name on top: the one in the browser's language, else the local name,
+ * else English. The data leaves out a translation that equals the local
+ * name (Paris's arrondissements have `name_en` but no `name_fr`): English
+ * before the local name put "2nd Arrondissement" on a French map. English
+ * stands in for a local name written in another script only (东京 → Tokyo),
+ * through a computed key: a `case` inside the `coalesce` would turn a missing
+ * value into an empty label, at which `coalesce` stops.
+ *
  * Examples:
  *   browser FR + Paris → "Paris"            (local == translated → one line)
+ *   browser FR + Paris 2e Arrondissement (no name_fr) → "Paris 2e Arrondissement"
  *   browser EN + Tokyo → "Tokyo" / "東京"    (two stacked lines)
  *
  * @public
@@ -22603,7 +22612,9 @@ bemap.TilesStyle.buildBilingualExpr = function () {
     lang = navigator.language.split('-')[0].toLowerCase() || 'en';
   }
   var langField = 'name_' + lang;
-  var translated = [ 'coalesce', [ 'get', langField ], [ 'get', 'name_en' ], [ 'get', 'name' ] ];
+  // The local name, or English when the local name is in another script (its first letter past Latin).
+  var localKey = [ 'case', [ 'all', [ 'has', 'name_en' ], [ '>=', [ 'slice', [ 'to-string', [ 'get', 'name' ] ], 0, 1 ], 'ɐ' ] ], 'name_en', 'name' ];
+  var translated = [ 'coalesce', [ 'get', langField ], [ 'get', localKey ], [ 'get', 'name_en' ] ];
   return [
     'format',
     translated,
@@ -28563,7 +28574,7 @@ bemap.RoutingRequest.prototype.toJson = function() {
     if (this.matrixStartCount !== null) body.matrixStartCount = this.matrixStartCount;
     if (this.customData && this.customData.length) body.customData = this.customData.slice();
     if (this.geoserver) body.geoserver = this.geoserver;
-    if (this.switchIndex !== null) body.switchIndex = this.switchIndex;
+    if (this.switchIndex !== null) body.swidx = this.switchIndex; // BeMap reads `swidx` (deprecated there)
 
     return body;
 };
@@ -29706,7 +29717,7 @@ bemap.AutocompleteGeocodingRequest.prototype.toJson = function() {
     if (this.enableChains !== null) body.enChains = this.enableChains;
     if (this.enableReferences !== null) body.enReferences = this.enableReferences;
     if (this.geoserver) body.geoserver = this.geoserver;
-    if (this.switchIndex !== null) body.switchIndex = this.switchIndex;
+    if (this.switchIndex !== null) body.swidx = this.switchIndex; // BeMap reads `swidx` (deprecated there)
     return body;
 };
 
@@ -30404,7 +30415,7 @@ bemap.NearPoiRequest.prototype.toJson = function() {
     if (this.enablePolyline !== null) body.enablePolyline = this.enablePolyline;
     if (this.enableEncodedPolyline !== null) body.enableEncodedPolyline = this.enableEncodedPolyline;
     if (this.geoserver) body.geoserver = this.geoserver;
-    if (this.switchIndex !== null) body.switchIndex = this.switchIndex;
+    if (this.switchIndex !== null) body.swidx = this.switchIndex; // BeMap reads `swidx` (deprecated there)
     return body;
 };
 
@@ -30820,7 +30831,7 @@ bemap.ReverseGeocodingRequest.prototype.toJson = function() {
     if (this.language) body.language = this.language;
     if (this.options && this.options.length) body.options = this.options.slice();
     if (this.geoserver) body.geoserver = this.geoserver;
-    if (this.switchIndex !== null) body.switchIndex = this.switchIndex;
+    if (this.switchIndex !== null) body.swidx = this.switchIndex; // BeMap reads `swidx` (deprecated there)
     return body;
 };
 
@@ -30913,8 +30924,9 @@ bemap.TraceRouteDestination.prototype.toJson = function() {
  * accepted by `POST service/routing/1.0/traceroute`. Any value not listed
  * below will be rejected by the server with a 400 error.
  *
- * Cross-checked against the BeMap server enum `TraceRouteOption.java` (in
- * the BeMap backend).
+ * Cross-checked against the BeMap REST enum `TraceRouteOpt.java` (the 48
+ * values the service reads), not the engine's `TraceRouteOption.java`, which
+ * also has `EVT_OBJECTID_BASE64`: the service refuses that one with a 400.
  *
  * NB: there is **no `QUALITY_SCORE` server option** — the JS API used to ship
  * it but it would 400. `bemap.traceRouteQuality.score()` continues to work as
@@ -30964,7 +30976,6 @@ bemap.TraceRouteOptions = {
     EVT_PROHIBITED_DRIVING: 'EVT_PROHIBITED_DRIVING',
     EVT_ELEVATION: 'EVT_ELEVATION',
     EVT_ELEVATION2: 'EVT_ELEVATION2',
-    EVT_OBJECTID_BASE64: 'EVT_OBJECTID_BASE64',
     EVT_SEGMENT_INFO: 'EVT_SEGMENT_INFO',
     EVT_GEOELEMENT_TYPE: 'EVT_GEOELEMENT_TYPE',
     EVT_POLYLINE: 'EVT_POLYLINE',
@@ -31007,15 +31018,16 @@ bemap.traceRouteQuality = bemap.traceRouteQuality || {};
  * Read the qualityScore the Worker returned, or compute a coarse estimate.
  *
  * The estimate is a value in [0,1] derived from the average distance
- * between each input trace point and its snapped waypoint:
+ * between each input trace point and its snapped waypoint, as BeMap gives it
+ * (`distanceFromRequest` on each used destination):
  *
  *   < 5 m    → 1.0
  *   5–25 m   → linear ramp 1.0 → 0.5
  *   25–100 m → linear ramp 0.5 → 0.2
  *   > 100 m  → 0.0
  *
- * Returns null when the route has no waypoints with both an input and a
- * matched coordinate (typical for a fresh response without WAYPOINTS option).
+ * Falls back to the mean `confidenceValue` when no distance is known, and
+ * returns null when there is nothing to grade.
  *
  * @public
  * @param {bemap.RoutingRoute} route
@@ -31041,11 +31053,11 @@ bemap.traceRouteQuality.score = function(routeOrResponse) {
     }
     if (!waypoints || !waypoints.length) return null;
 
-    // We need both input and matched coordinates to compute deviation. The
-    // RoutingResponse.usedDestinations object only carries matchedCoordinate
-    // (snap-back to the road) — for the estimator we'd need the caller to
-    // also pass the originalRequest. When inputCoordinate is missing we
-    // confidence-cascade via the `confidenceValue` server field instead.
+    // The deviation of each point: BeMap's `distanceFromRequest` (metres from the GPS point to
+    // where it was matched, on every used destination), else the distance between an input and a
+    // matched coordinate when the caller has both. BeMap sends no `inputCoordinate`; its
+    // `confidenceValue` is only a last resort: it averages about 0.23 for a drive matched within
+    // metres of its road.
     var confidenceSum = 0;
     var confidenceN = 0;
     var samples = 0;
@@ -31055,6 +31067,12 @@ bemap.traceRouteQuality.score = function(routeOrResponse) {
         if (typeof w.getConfidenceValue === 'function' && w.getConfidenceValue() !== null) {
             confidenceSum += w.getConfidenceValue();
             confidenceN++;
+        }
+        var distance = (typeof w.getDistanceFromRequest === 'function') ? w.getDistanceFromRequest() : w.distanceFromRequest;
+        if (typeof distance === 'number' && distance >= 0) {
+            totalM += distance;
+            samples++;
+            continue;
         }
         var input = (typeof w.getInputCoordinate === 'function') ? w.getInputCoordinate() : w.inputCoordinate;
         var matched = (typeof w.getMatchedCoordinate === 'function') ? w.getMatchedCoordinate() : w.matchedCoordinate;
@@ -31127,7 +31145,9 @@ bemap.traceRouteQuality._haversineM = function(a, b) {
  *   Trace samples in chronological order. Mixed-input types are auto-promoted.
  * @param {bemap.RoutingVehicleProfile} [options.routingVehicleProfile]
  *   Required by the server. Defaults to a generic CAR profile when omitted.
- * @param {Array.<String>} [options.routingCriterias]   Subset of `bemap.RoutingCriteria.*` (e.g. AVOID_TOLLS). Supported server-side for traceroute.
+ * @param {Array.<String>} [options.routingCriterias]   Not sent: BeMap does not apply routing criteria to a trace
+ *   route (`TraceRouteRequest` leaves them out; the same trace with SHORTEST or FASTEST is identical). Kept so that
+ *   existing code still runs.
  * @param {Array.<String>} [options.options]            Subset of `bemap.TraceRouteOptions.*`.
  * @param {Date|Number|String} [options.departureTime]  Epoch ms / Date / ISO local datetime.
  * @param {Boolean} [options.adjustEta]                 Adjust ETA from GPS timestamps.
@@ -31139,7 +31159,7 @@ bemap.traceRouteQuality._haversineM = function(a, b) {
  * @param {Array.<Object>} [options.preferredRoads]
  * @param {Array.<Object>} [options.routingRoadBlocks]
  * @param {String} [options.geoserver]
- * @param {Number} [options.switchIndex]
+ * @param {Number} [options.switchIndex]                Sent as BeMap's `swidx` (deprecated there).
  * @param {String} [options.requestId]
  */
 bemap.TraceRouteRequest = function(options) {
@@ -31226,7 +31246,7 @@ bemap.TraceRouteRequest.prototype.toJson = function() {
 
     // Optional
     if (this.options && this.options.length) body.options = this.options.slice();
-    if (this.routingCriterias && this.routingCriterias.length) body.routingCriterias = this.routingCriterias.slice();
+    // routingCriterias are not sent: BeMap does not apply them to a trace route.
     var dep = bemap.TraceRouteRequest._asEpochOrIso(this.departureTime);
     if (dep !== null) body.departureTime = dep;
     if (this.adjustEta !== null) body.adjustEta = this.adjustEta;
@@ -31238,7 +31258,8 @@ bemap.TraceRouteRequest.prototype.toJson = function() {
     if (this.preferredRoads && this.preferredRoads.length) body.preferredRoads = this.preferredRoads.slice();
     if (this.routingRoadBlocks && this.routingRoadBlocks.length) body.routingRoadBlocks = this.routingRoadBlocks.slice();
     if (this.geoserver) body.geoserver = this.geoserver;
-    if (this.switchIndex !== null) body.switchIndex = this.switchIndex;
+    // BeMap's field is `swidx`: a `switchIndex` would be ignored in silence.
+    if (this.switchIndex !== null) body.swidx = this.switchIndex;
 
     return body;
 };
@@ -31250,10 +31271,13 @@ bemap.TraceRouteRequest.prototype.toJson = function() {
  * Two endpoints are exposed:
  *
  *   - `compute(request)`     → POST /routing/1.0/traceroute       (standard)
- *   - `computeRnc(request)`  → POST /routing/1.0/traceroute/rnc   (RNC variant — preserves raw road-network capture)
+ *   - `computeRnc(request)`  → POST /routing/1.0/traceroute/rnc   (the same matching, as RNC commands)
  *
- * Both return the same shape as `bemap.RoutingV2.calculate()`:
- * a `bemap.RoutingResponse` with one route describing the matched path.
+ * `compute` returns the same shape as `bemap.RoutingV2.calculate()`: a
+ * `bemap.RoutingResponse` with one route describing the matched path.
+ * `computeRnc` returns BeMap's answer as it is (its `RncRoutingResponse`): the three commands a
+ * navigation device runs, `setVehicleProfileCommand`, `setRouteCriteriaCommand` and
+ * `startCircuitNavCommand`, not a route.
  *
  * In-flight requests are tracked by `requestId` and aborted via `cancel(id)`.
  *
@@ -31271,7 +31295,7 @@ bemap.TraceRoute = function(context, options) {
 };
 bemap.inherits(bemap.TraceRoute, bemap.ServiceV2);
 
-bemap.TraceRoute.prototype._exec = function(path, request, options) {
+bemap.TraceRoute.prototype._exec = function(path, request, options, read) {
     if (!(request instanceof bemap.TraceRouteRequest)) {
         return Promise.reject(new bemap.Error({
             code: bemap.Error.ROUTING_FAILED,
@@ -31302,6 +31326,7 @@ bemap.TraceRoute.prototype._exec = function(path, request, options) {
     return this._post(url, body, { signal: signal, headers: opts.headers })
         .then(function(json) {
             if (request.requestId) delete self._pending[request.requestId];
+            if (read) return read(json);
             var resp = bemap.RoutingResponse.fromJson(json);
             if (!resp.requestId && request.requestId) resp.requestId = request.requestId;
             return resp;
@@ -31325,16 +31350,22 @@ bemap.TraceRoute.prototype.compute = function(request, options) {
 };
 
 /**
- * Map-match through the RNC (raw network capture) variant
- * `POST service/routing/1.0/traceroute/rnc`.
+ * Map-match the GPS trace and get the result as RNC commands, through
+ * `POST service/routing/1.0/traceroute/rnc`: BeMap's answer as it is, the three commands
+ * `setVehicleProfileCommand`, `setRouteCriteriaCommand` and `startCircuitNavCommand`
+ * (each `{ id, method, params }`), not a route.
+ *
+ * The request needs the vehicle's features (`routingVehicleProfile.routingVehicleFeature`:
+ * height, width, length, weight), else BeMap refuses it ("missing mandatory vehicle features"),
+ * and the `WAYPOINTS` option, else `startCircuitNavCommand` holds no waypoint.
  *
  * @public
  * @param {bemap.TraceRouteRequest} request
  * @param {Object} [options]
- * @return {Promise<bemap.RoutingResponse>}
+ * @return {Promise<Object>} the RNC commands, as BeMap answers them.
  */
 bemap.TraceRoute.prototype.computeRnc = function(request, options) {
-    return this._exec('service/routing/1.0/traceroute/rnc', request, options);
+    return this._exec('service/routing/1.0/traceroute/rnc', request, options, function(json) { return json; });
 };
 
 /**

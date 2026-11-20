@@ -1840,12 +1840,14 @@ bemap.Layer = function(options) {
    */
   this.base = opts.base ? opts.base : false;
 
+  // `transparent` or, as written in a WMS URL, `TRANSPARENT` (BEMAP-2083).
+  // Kept above the doc block so JSDoc still documents `this.transparent`.
+  var transparent = opts.transparent !== undefined ? opts.transparent : opts.TRANSPARENT;
+
   /**
    * @type {Boolean}
    * @protected
    */
-  // `transparent` or, as written in a WMS URL, `TRANSPARENT` (BEMAP-2083).
-  var transparent = opts.transparent !== undefined ? opts.transparent : opts.TRANSPARENT;
   this.transparent = transparent ? transparent : false;
 
   /**

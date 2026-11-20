@@ -8,6 +8,14 @@ In-progress work on the `major_update_leaflet_ol_and_vector` branch; everything 
 
 ---
 
+## [2.0.6] — WMS transparency on Leaflet
+
+No breaking API change, one fix. Upgrading is a drop-in bundle swap.
+
+- Fixed (BEMAP-2083): `transparent: true` was ignored on `bemap.LeafletMap` WMS layers (the URL carried `transparent=false&TRANSPARENT=true` and BeMap read the first); one `transparent` param is now sent, and a layer also accepts the WMS spelling `TRANSPARENT: true` on every engine.
+
+---
+
 ## [2.0.5] — the map stays usable when BeNomad Tiles is down
 
 No breaking API change. One new behaviour, on by default for MapLibre maps with `tilesHost` (`tilesFallbackToWms: false` keeps the 2.0.4 behaviour), and one fix. Upgrading is a drop-in bundle swap.

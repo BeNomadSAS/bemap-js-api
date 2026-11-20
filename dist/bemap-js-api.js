@@ -5,7 +5,7 @@
 
 var bemap = bemap || {};
 
-bemap.version = '2.0.5';
+bemap.version = '2.0.6';
 bemap.olVersion = '10.8.0';
 bemap.maplibreVersion = '5.24.0';
 
@@ -1844,7 +1844,9 @@ bemap.Layer = function(options) {
    * @type {Boolean}
    * @protected
    */
-  this.transparent = opts.transparent ? opts.transparent : false;
+  // `transparent` or, as written in a WMS URL, `TRANSPARENT` (BEMAP-2083).
+  var transparent = opts.transparent !== undefined ? opts.transparent : opts.TRANSPARENT;
+  this.transparent = transparent ? transparent : false;
 
   /**
    * minimal zoom level
@@ -5507,7 +5509,9 @@ bemap.LeafletMap.prototype.addLayer = function (layer, options) {
         'layers': layer.layers ? layer.layers : 'default',
         'styles': layer.styles ? layer.styles : '',
         'tiled': true,
-        'TRANSPARENT': layer.transparent === true ? true : false,
+        // Lowercase: L.tileLayer.wms already sends `transparent=false`; an
+        // uppercase key added a second param and BeMap read the first (BEMAP-2083).
+        transparent: layer.transparent === true ? true : false,
         format: layer.format ? layer.format : 'image/png'
       };
       // L.tileLayer.wms writes every option into the tile URL, `undefined`
@@ -5544,7 +5548,7 @@ bemap.LeafletMap.prototype.addLayer = function (layer, options) {
         'layers': layer.layers ? layer.layers : 'default',
         'styles': layer.styles ? layer.styles : '',
         'tiled': true,
-        'TRANSPARENT': layer.transparent === true ? true : false,
+        transparent: layer.transparent === true ? true : false,   // lowercase, see BemapLayer above
         format: layer.format ? layer.format : 'image/png'
       };
       // Same as BemapLayer above: never send `geoserver=undefined` (BEMAP-1940).

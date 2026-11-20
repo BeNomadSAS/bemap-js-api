@@ -22,7 +22,8 @@ copy-pasted integrations (class names that don't exist in the bundle; server
 clients blocked by the gateway). UI strings shown to end users go in the
 customer's language; this guide is bilingual-friendly.
 
-**Verified against `dist/bemap-js-api.js` v2.0.4 and live beta on 2026-08-26.**
+**Verified against `dist/bemap-js-api.js` v2.0.4 and live beta on 2026-08-26;
+the 2.0.5 WMS fallback (rule 9) verified on live beta on 2026-11-20.**
 When this disagrees with `llms.txt`, THIS wins.
 
 ## The 3 integration paths — pick one
@@ -115,6 +116,13 @@ rather than on a string. Anything else unimplemented on an engine lands on
    *login* go through the proxy, whose tile-auth wire is forced to `header`.
    Full contract in [`docs/integration-proxy.md`](../docs/integration-proxy.md).
    Inline login/password is acceptable only for demos and evaluations.
+9. **Do not build your own "tiles down" fallback (2.0.5+).** A `bemap.MapLibreMap`
+   with `tilesHost` already switches to the BeMap WMS background when BeNomad
+   Tiles is unreachable (timeout, network error, 5xx — never 401/403/429) and
+   comes back by itself. Listen to `map.on('tiles:fallback', fn)` (`{ wms }`) and
+   `map.on('tiles:restored', fn)` to show a banner; turn it off with
+   `tilesFallbackToWms: false`. The WMS needs `login`/`password` or `proxy` on the
+   Context. The raw MapLibre template has no `bemap.Context`, so it gets no fallback.
 
 ## Environments & auth (quick reference — full contract in `references/api-contract.md`)
 

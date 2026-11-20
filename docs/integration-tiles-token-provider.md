@@ -293,6 +293,110 @@ module-level variable (single instance) or Redis (multi-instance).
 
 ---
 
+## BeNomad Tiles unavailable
+
+What if BeNomad Tiles cannot be reached (Cloudflare incident, network cut
+between your users and `mptiles-api.benomad.net`)? A `bemap.MapLibreMap`
+with `tilesHost` does not stay blank. It shows the BeMap WMS background and
+comes back to the vector tiles by itself.
+
+**What happens**
+
+The map switches to the WMS when:
+
+- the tiles login takes longer than `tilesFallbackDelayMs` (default 5000 ms);
+- the login, or the archive header, fails with a network error or an HTTP 5xx
+  (Cloudflare 520 to 526 included);
+- 5 tile requests in a row fail like this (one failed tile alone does not switch);
+- no archive answers within the delay, even when a stored token skips the
+  login.
+
+The WMS is drawn under your overlays, in the same map. Markers, routes,
+position and zoom are kept. It never switches on 401, 403 or 429: the host
+answered, so this is not an outage. It does not switch either when the
+browser is offline.
+
+**Coming back**
+
+The library tries the login again after 10 s, then 20 s, 40 s… up to 5 min
+between two tries. When the browser fires its `online` event, it tries at
+once. Each try also reads the first byte of the map archive, so the map
+only comes back when the tiles really answer. On success the WMS is removed
+and the vector tiles come back, without a page reload.
+
+A map opened in a hidden browser tab waits until the tab is visible before
+it decides: browsers pause map loading in hidden tabs.
+
+**Browser console**
+
+Each step writes one line, so you can see what happens without any code:
+
+```
+[bemap] BeNomad Tiles unreachable — showing the BeMap WMS background. Next try in 10 s.
+[bemap] BeNomad Tiles still unreachable — next try in 20 s.
+[bemap] BeNomad Tiles back — vector tiles restored after 42 s.
+```
+
+The first line is a warning, the others are info. With
+`tilesFallbackToWms: false` nothing is written.
+
+**Events**
+
+```js
+var banner = document.getElementById('degraded-banner');
+
+map.on('tiles:fallback', function (e) {
+  // fired once per outage; e.wms is false when no WMS could be shown
+  banner.textContent = e.wms
+    ? 'Map in degraded mode (background image).'
+    : 'Map tiles unavailable.';
+  banner.hidden = false;
+});
+
+map.on('tiles:restored', function () {
+  banner.hidden = true;
+});
+```
+
+**Options** (on `bemap.Context`)
+
+| Option | Default | Meaning |
+| --- | --- | --- |
+| `tilesFallbackToWms` | `true` | `false` keeps the previous behaviour: no switch, no event |
+| `tilesFallbackDelayMs` | `5000` | How long the tiles login may take before the switch, in ms |
+
+**Which auth modes get the WMS**
+
+| Context | WMS background | Events |
+| --- | --- | --- |
+| `login` + `password` | Yes | `tiles:fallback` `{ wms: true }` |
+| `proxy` | Yes, through your proxy (`<proxy>/bgis/wms`, see [integration-proxy.md](integration-proxy.md)) | `tiles:fallback` `{ wms: true }` |
+| Neither `login`/`password` nor `proxy` (the case of this guide) | **No** | `tiles:fallback` `{ wms: false }` + one console warning |
+
+The BeMap WMS cannot be authenticated with a tiles token, only with your
+BeMap credentials. In the last mode the map keeps its state and you only get
+the event (use it to show a message). To get the WMS there too, also set a
+`proxy` on the Context: the proxy adds the credentials on the server.
+
+**Known limits**
+
+- Each failed login try may also fire `error:auth` or `error:network` on the
+  map.
+- If Cloudflare hangs (no answer at all), the way back can be slower: a try
+  waits for the browser's own login timeout.
+- With `recoverableCache: false`, the vector tiles may need a page reload to
+  come back.
+- An explicit `opts.style` URL on `tilesHost` that hangs while the map is
+  built leaves no style to draw the WMS in.
+- If the browser is offline when the page loads, reload the page after the
+  connection is back (as before).
+- If your own `proxy` also runs on Cloudflare, a full Cloudflare incident
+  stops the WMS through it too: the fallback then only helps when BeNomad
+  Tiles alone is down.
+- Leaflet and OpenLayers maps already use the WMS: they are not affected.
+
+---
+
 ## Troubleshooting
 
 | Symptom | Likely cause |

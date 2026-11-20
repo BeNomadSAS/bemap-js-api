@@ -210,6 +210,30 @@ var ctx = new bemap.Context({
 
 Full guide, including how to protect the proxy: [`docs/integration-proxy.md`](../../docs/integration-proxy.md).
 
+## WMS fallback when BeNomad Tiles is down (2.0.5)
+
+Verified on live beta on 2026-11-20 (domain blocked, 522, hang, offline).
+
+- A `bemap.MapLibreMap` with `tilesHost` switches to the BeMap WMS background,
+  in the same map and under the overlays, when: the tiles login or the archive
+  header gets no answer within `tilesFallbackDelayMs` (default 5000), fails with a
+  network error or a 5xx (Cloudflare 520–526 included), or 5 tile loads in a row
+  fail that way. **Never** on 401 / 403 / 429, never while the browser is offline,
+  and a hidden tab waits until it is visible.
+- It retries the login + one archive byte after 10 s, 20 s, 40 s… (max 5 min,
+  at once on the browser `online` event) and restores the vector tiles without a
+  reload.
+- Events: `tiles:fallback` (`{ wms: boolean }`, once per outage) and
+  `tiles:restored`. One console line per step.
+- Context options: `tilesFallbackToWms` (default `true`; `false` = 2.0.4
+  behaviour) and `tilesFallbackDelayMs`. Not related to `tilesFallbackToDefault`
+  (which picks the server default vector map for an unknown geoserver).
+- The WMS needs `login`/`password` or `proxy`; with neither, only the event fires
+  (`wms: false`). A proxy that itself runs on Cloudflare gives no WMS in a full
+  Cloudflare outage.
+
+Full guide: [`docs/integration-tiles-token-provider.md`](../../docs/integration-tiles-token-provider.md) ("BeNomad Tiles unavailable").
+
 ## Entitlements
 
 Services are gated per account. Tiles need **`ROLE_MAPPING`** *and*

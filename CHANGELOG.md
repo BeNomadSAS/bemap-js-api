@@ -8,6 +8,16 @@ In-progress work on the `major_update_leaflet_ol_and_vector` branch; everything 
 
 ---
 
+## [2.0.5] — the map stays usable when BeNomad Tiles is down
+
+No breaking API change. One new behaviour, on by default for MapLibre maps with `tilesHost` (`tilesFallbackToWms: false` keeps the 2.0.4 behaviour), and one fix. Upgrading is a drop-in bundle swap.
+
+- Added (PMT-66): a MapLibre map with `tilesHost` switches by itself to the BeMap WMS background when BeNomad Tiles is unreachable, and back to the vector tiles when they answer again; events `tiles:fallback` / `tiles:restored`, one console line per step, options `tilesFallbackToWms` (default true) and `tilesFallbackDelayMs`.
+- Fixed (EVMOVE-474): the login and password are URL-encoded in service and WMS URLs; a password holding `&`, `<`, `|`, `{`, `+` or `%` broke the URL and BeMap answered 400.
+- Changed (BEMAP-2082): the library is delivered only on GitHub (no more zip on the BeMap portal); the build never copies local credential files (`examples/context.local.js`, `examples/credentials.env`).
+
+---
+
 ## [2.0.4] — the default marker, the geoserver switch, and the tiles skill catches up
 
 No breaking API change — one method that was a stub now works, two defects are repaired, and one additive Context option changes what a provider without a vector map renders. Upgrading is a drop-in bundle swap.
@@ -49,6 +59,10 @@ Every class and method it names was then checked against the bundle. Three state
 - **A provider with no vector map does not fall back to the default map** any more: since the `tilesFallbackToDefault` change below, the basemap stays empty unless `tilesFallbackToDefault: true`. The file still described the old behaviour.
 
 It also gains `EvVehicles.toRoutingProfile()` and a link to the BeMap REST API documentation. The `benomad-tiles-integration/` skill no longer warns that `llms.txt` advertises `*V2` service classes — it now warns against them — and it says that `Geocoder.geocode()` takes a `GeocodingRequest` and returns a Promise, besides its old callback form.
+
+### Fixed — `EvVehicles.toRoutingProfile()` sends the catalogue weight as is (BEMAP-1985)
+
+The vehicle catalogue holds `maxWeight` and `maxWeightPerAxle` in tenths of a ton, the unit `routingVehicleFeature` expects (`440` = 44 t). The `* 10` added for BEMAP-1921 assumed whole tons and would have sent a 44 t truck as 440 t; it is removed. The catalogue data is converted to tenths of a ton in EV-Database (EVDB-287): release together with it.
 
 ### Fixed — `EvVehicles.toRoutingProfile()` dropped every vehicle restriction (BEMAP-1921)
 

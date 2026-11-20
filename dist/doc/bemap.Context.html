@@ -240,7 +240,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line552">line 552</a>
+        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line581">line 581</a>
     </li></ul></dd>
     
 
@@ -471,7 +471,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line465">line 465</a>
+        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line494">line 494</a>
     </li></ul></dd>
     
 
@@ -990,7 +990,82 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line489">line 489</a>
+        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line518">line 518</a>
+    </li></ul></dd>
+    
+
+    
+
+    
+
+    
+</dl>
+
+
+
+
+
+
+        
+            
+<h4 class="name" id="tilesFallbackDelayMs"><span class="type-signature"></span>tilesFallbackDelayMs<span class="type-signature"> :number</span></h4>
+
+
+
+
+<div class="description">
+    How long (ms) the BeNomad Tiles login (or the first tiles archive answer)may take before `tilesFallbackToWms`switches the map to the WMS background. Default `5000`.
+</div>
+
+
+
+    <h5>Type:</h5>
+    <ul>
+        <li>
+            
+<span class="param-type">number</span>
+
+
+        </li>
+    </ul>
+
+
+
+
+
+<dl class="details">
+
+    
+
+    
+    <dt class="tag-since">Since:</dt>
+    <dd class="tag-since"><ul class="dummy"><li>2.0.5</li></ul></dd>
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+    <dt class="tag-source">Source:</dt>
+    <dd class="tag-source"><ul class="dummy"><li>
+        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line468">line 468</a>
     </li></ul></dd>
     
 
@@ -1066,6 +1141,81 @@
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
         <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line439">line 439</a>
+    </li></ul></dd>
+    
+
+    
+
+    
+
+    
+</dl>
+
+
+
+
+
+
+        
+            
+<h4 class="name" id="tilesFallbackToWms"><span class="type-signature"></span>tilesFallbackToWms<span class="type-signature"> :boolean</span></h4>
+
+
+
+
+<div class="description">
+    What a `bemap.MapLibreMap` does when BeNomad Tiles (`tilesHost`) cannot bereached: the tiles login times out (`tilesFallbackDelayMs`), fails with anetwork error or an HTTP 5xx, 5 tile loads in a row fail that way, or notiles archive answers within `tilesFallbackDelayMs` (e.g. stored token, no login).`true` (the default) shows the BeMap WMS background in the same map(overlays, center and zoom kept) and fires `tiles:fallback` (`{ wms: true }`);a login is then retried (10 s, 20 s, 40 s… up to 5 min) and the vector tilescome back with `tiles:restored`. Never on 401 / 403 / 429. Without`login`/`password` and without `proxy` (session mode) the WMS cannot beauthenticated: `tiles:fallback` fires with `{ wms: false }` and the mapstays as it is. `false` keeps the earlier behaviour (no switch, no event).Leaflet and OpenLayers ignore it.
+</div>
+
+
+
+    <h5>Type:</h5>
+    <ul>
+        <li>
+            
+<span class="param-type">boolean</span>
+
+
+        </li>
+    </ul>
+
+
+
+
+
+<dl class="details">
+
+    
+
+    
+    <dt class="tag-since">Since:</dt>
+    <dd class="tag-since"><ul class="dummy"><li>2.0.5</li></ul></dd>
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+    <dt class="tag-source">Source:</dt>
+    <dd class="tag-source"><ul class="dummy"><li>
+        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line458">line 458</a>
     </li></ul></dd>
     
 
@@ -1443,7 +1593,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line452">line 452</a>
+        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line481">line 481</a>
     </li></ul></dd>
     
 
@@ -1518,7 +1668,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line474">line 474</a>
+        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line503">line 503</a>
     </li></ul></dd>
     
 
@@ -1695,7 +1845,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line804">line 804</a>
+        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line833">line 833</a>
     </li></ul></dd>
     
 
@@ -1930,7 +2080,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line647">line 647</a>
+        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line676">line 676</a>
     </li></ul></dd>
     
 
@@ -2143,7 +2293,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line575">line 575</a>
+        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line604">line 604</a>
     </li></ul></dd>
     
 
@@ -2324,7 +2474,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line626">line 626</a>
+        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line655">line 655</a>
     </li></ul></dd>
     
 
@@ -2430,7 +2580,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line1271">line 1271</a>
+        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line1300">line 1300</a>
     </li></ul></dd>
     
 
@@ -2540,7 +2690,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line1163">line 1163</a>
+        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line1192">line 1192</a>
     </li></ul></dd>
     
 
@@ -2653,7 +2803,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line1257">line 1257</a>
+        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line1286">line 1286</a>
     </li></ul></dd>
     
 
@@ -2765,7 +2915,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line1150">line 1150</a>
+        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line1179">line 1179</a>
     </li></ul></dd>
     
 
@@ -2874,7 +3024,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line1340">line 1340</a>
+        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line1371">line 1371</a>
     </li></ul></dd>
     
 
@@ -2987,7 +3137,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line1194">line 1194</a>
+        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line1223">line 1223</a>
     </li></ul></dd>
     
 
@@ -3099,7 +3249,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line1294">line 1294</a>
+        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line1325">line 1325</a>
     </li></ul></dd>
     
 
@@ -3208,7 +3358,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line1312">line 1312</a>
+        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line1343">line 1343</a>
     </li></ul></dd>
     
 
@@ -3317,7 +3467,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line920">line 920</a>
+        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line949">line 949</a>
     </li></ul></dd>
     
 
@@ -3426,7 +3576,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line931">line 931</a>
+        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line960">line 960</a>
     </li></ul></dd>
     
 
@@ -3538,7 +3688,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line1023">line 1023</a>
+        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line1052">line 1052</a>
     </li></ul></dd>
     
 
@@ -3650,7 +3800,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line1057">line 1057</a>
+        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line1086">line 1086</a>
     </li></ul></dd>
     
 
@@ -3823,7 +3973,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line1070">line 1070</a>
+        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line1099">line 1099</a>
     </li></ul></dd>
     
 
@@ -3935,7 +4085,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line959">line 959</a>
+        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line988">line 988</a>
     </li></ul></dd>
     
 
@@ -4047,7 +4197,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line986">line 986</a>
+        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line1015">line 1015</a>
     </li></ul></dd>
     
 
@@ -4159,7 +4309,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line998">line 998</a>
+        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line1027">line 1027</a>
     </li></ul></dd>
     
 
@@ -4271,7 +4421,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line975">line 975</a>
+        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line1004">line 1004</a>
     </li></ul></dd>
     
 
@@ -4383,7 +4533,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line1010">line 1010</a>
+        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line1039">line 1039</a>
     </li></ul></dd>
     
 
@@ -4544,7 +4694,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line1041">line 1041</a>
+        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line1070">line 1070</a>
     </li></ul></dd>
     
 
@@ -4717,7 +4867,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line1119">line 1119</a>
+        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line1148">line 1148</a>
     </li></ul></dd>
     
 
@@ -4829,7 +4979,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line907">line 907</a>
+        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line936">line 936</a>
     </li></ul></dd>
     
 
@@ -4935,7 +5085,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line1332">line 1332</a>
+        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line1363">line 1363</a>
     </li></ul></dd>
     
 
@@ -5094,7 +5244,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line1348">line 1348</a>
+        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line1379">line 1379</a>
     </li></ul></dd>
     
 
@@ -5246,7 +5396,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line1105">line 1105</a>
+        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line1134">line 1134</a>
     </li></ul></dd>
     
 
@@ -5352,7 +5502,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line1324">line 1324</a>
+        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line1355">line 1355</a>
     </li></ul></dd>
     
 
@@ -5495,7 +5645,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line1230">line 1230</a>
+        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line1259">line 1259</a>
     </li></ul></dd>
     
 
@@ -5700,7 +5850,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line1135">line 1135</a>
+        <a href="bemap.js.html">bemap.js</a>, <a href="bemap.js.html#line1164">line 1164</a>
     </li></ul></dd>
     
 
@@ -5770,7 +5920,7 @@
 <br class="clear">
 
 <footer>
-    Documentation generated by <a href="https://github.com/jsdoc/jsdoc">JSDoc 3.6.3</a> on Fri Oct 16 2026 16:05:47 GMT+0200 (Central European Summer Time)
+    Documentation generated by <a href="https://github.com/jsdoc/jsdoc">JSDoc 3.6.3</a> on Fri Nov 20 2026 15:49:19 GMT+0100 (Central European Standard Time)
 </footer>
 
 <script> prettyPrint(); </script>

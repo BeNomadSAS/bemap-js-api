@@ -132,6 +132,16 @@
   ("Archive versioning & stale-cache self-heal"). Nothing to configure.
 - Auth introspection (MapLibre + tilesHost): `.getToken()`,
   `.isTokenValid()`, `.refreshToken()`
+- BeNomad Tiles outage (MapLibre + tilesHost): when the tiles cannot be
+  reached (login timeout, network error, HTTP 5xx, 5 tile errors in a row;
+  never on 401/403/429), the map shows the BeMap WMS under your overlays,
+  then goes back to the vector tiles by itself. Events:
+  `map.on('tiles:fallback', cb)` (`{ wms: boolean }`, once per outage) and
+  `map.on('tiles:restored', cb)`. Context options: `tilesFallbackToWms`
+  (default `true`) and `tilesFallbackDelayMs` (default `5000`). The WMS needs
+  `login`/`password` or `proxy`; without either only the event fires
+  (`wms: false`). See [`docs/integration-tiles-token-provider.md`](https://benomadsas.github.io/bemap-js-api/docs/integration-tiles-token-provider.md)
+  ("BeNomad Tiles unavailable").
 - Escape hatch: `.native` — the underlying engine instance
   (`L.Map`, `ol.Map`, `maplibregl.Map`). Use sparingly; prefer the
   cross-engine API.

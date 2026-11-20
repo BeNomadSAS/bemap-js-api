@@ -105,6 +105,11 @@ is the explicit switch.
   default 4 s) heals any tile whose retries were all exhausted. Try every
   knob in
   [`examples/example-maplibre-tiles-perf.html`](#nav-example-maplibre-tiles-perf.html).
+- **WMS fallback when BeNomad Tiles is down** — if the tiles cannot be reached,
+  the map shows the BeMap WMS under your overlays and comes back to the vector
+  tiles by itself (`tiles:fallback` / `tiles:restored` events,
+  `tilesFallbackToWms`, `tilesFallbackDelayMs`). See
+  [BeNomad Tiles unavailable](#page-../docs/integration-tiles-token-provider.md).
 - **MapLibre-only methods** — call them directly on the map:
   `setProjection('globe')`, `setPitch(60)`, `setBearing(45)`,
   `easeTo({...})`, `setStyle({...})`, `setPaintProperty(...)`,

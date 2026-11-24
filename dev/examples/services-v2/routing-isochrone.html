@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Isochrone v2 — BeMap JS API</title>
+    <link rel="stylesheet" type="text/css" href="../../dist/ol.css">
+    <link rel="stylesheet" type="text/css" href="../../dist/leaflet.css">
+    <link rel="stylesheet" type="text/css" href="../../dist/maplibre-gl.css">
+    <link rel="stylesheet" type="text/css" href="../../dist/bemap-js-api.css">
+    <link rel="stylesheet" type="text/css" href="_shell.css">
+
+    <script src="../../dist/ol.js"></script>
+    <script src="../../dist/leaflet.js"></script>
+    <script src="../../dist/maplibre-gl.js"></script>
+    <script src="../../dist/pmtiles.js"></script>
+    <script src="../../dist/bemap-js-api.js"></script>
+    <script src="../context.js"></script>
+    <script src="../bemap-provider.js"></script>
+    <script src="_snippet.js"></script>
+</head>
+<body>
+    <div id="map1"></div>
+
+    <div class="panel-v2">
+        <h4>Isochrone <span class="v2-badge">v2</span></h4>
+        <p style="margin:0 0 8px 0;color:#555;font-size:11px;">
+            Click the map →
+            <code>RoutingV2.isochrone(coord, { budget, unit })</code>
+            returns the reachable-area polygon for the budget.
+        </p>
+
+        <div class="field-row">
+            <div style="flex:1;">
+                <label>Budget</label>
+                <input id="iso-budget" type="number" value="900" min="60" max="7200">
+            </div>
+            <div style="flex:1;">
+                <label>Unit</label>
+                <select id="iso-unit">
+                    <option value="second">seconds</option>
+                    <option value="meter">metres</option>
+                </select>
+            </div>
+        </div>
+        <div>
+            <label>Vehicle</label>
+            <select id="iso-veh">
+                <option value="">(passenger)</option>
+                <option value="TRUCK">TRUCK</option>
+                <option value="BICYCLE">BICYCLE</option>
+                <option value="PEDESTRIAN">PEDESTRIAN</option>
+            </select>
+        </div>
+
+        <div id="iso-status" class="status">Click anywhere on the map to compute.</div>
+    </div>
+
+    <script src="routing-isochrone.js"></script>
+</body>
+</html>

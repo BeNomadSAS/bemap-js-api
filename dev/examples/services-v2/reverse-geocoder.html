@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Reverse Geocoder v2 — BeMap JS API</title>
+    <link rel="stylesheet" type="text/css" href="../../dist/ol.css">
+    <link rel="stylesheet" type="text/css" href="../../dist/leaflet.css">
+    <link rel="stylesheet" type="text/css" href="../../dist/maplibre-gl.css">
+    <link rel="stylesheet" type="text/css" href="../../dist/bemap-js-api.css">
+    <link rel="stylesheet" type="text/css" href="_shell.css">
+
+    <script src="../../dist/ol.js"></script>
+    <script src="../../dist/leaflet.js"></script>
+    <script src="../../dist/maplibre-gl.js"></script>
+    <script src="../../dist/pmtiles.js"></script>
+    <script src="../../dist/bemap-js-api.js"></script>
+    <script src="../context.js"></script>
+    <script src="../bemap-provider.js"></script>
+    <script src="_snippet.js"></script>
+</head>
+<body>
+    <div id="map1"></div>
+
+    <div class="panel-v2">
+        <h4>Reverse Geocoder <span class="v2-badge">v2</span></h4>
+        <p style="margin:0 0 8px 0;color:#555;font-size:11px;">
+            Click anywhere on the map → <code>bemap.ReverseGeocoder.revGeo(...)</code>
+            resolves the structured address.
+        </p>
+
+        <div class="field-row">
+            <div style="flex:1;">
+                <label>Radius (m)</label>
+                <input id="r-radius" type="number" value="100" min="5" max="5000">
+            </div>
+            <div style="flex:1;">
+                <label>Transport</label>
+                <select id="r-mode">
+                    <option value="">(default)</option>
+                    <option value="CAR">CAR</option>
+                    <option value="PEDESTRIAN">PEDESTRIAN</option>
+                    <option value="BICYCLE">BICYCLE</option>
+                    <option value="TRUCK">TRUCK</option>
+                </select>
+            </div>
+        </div>
+        <div class="field-row">
+            <div style="flex:1;">
+                <label>Language</label>
+                <input id="r-lang" type="text" value="fr">
+            </div>
+            <div style="flex:1;">
+                <label>Max results</label>
+                <input id="r-max" type="number" value="1" min="1" max="10">
+            </div>
+        </div>
+
+        <div id="r-status" class="status">Click anywhere on the map to start.</div>
+        <ul id="r-results" class="result-list"></ul>
+    </div>
+
+    <script src="reverse-geocoder.js"></script>
+</body>
+</html>

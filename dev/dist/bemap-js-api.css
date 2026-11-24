@@ -1,0 +1,328 @@
+.ol-popup {
+    margin: 0;
+    position: absolute;
+    background-color: white;
+    color: #222;
+    -webkit-filter: drop-shadow(0 1px 4px rgba(0, 0, 0, 0.2));
+    filter: drop-shadow(0 1px 4px rgba(0, 0, 0, 0.2));
+    padding: 15px;
+    border-radius: 10px;
+    border: 1px solid #cccccc;
+    bottom: 12px;
+    left: -50px;
+    min-width: 280px;
+}
+
+/* MapLibre popup — explicit text color override so it doesn't inherit
+   light text from the host page (e.g. dark-mode framework body color). */
+.maplibregl-popup-content {
+    color: #222;
+    background: #fff;
+}
+.maplibregl-popup-content a {
+    color: #0066cc;
+}
+
+.ol-popup:after, .ol-popup:before {
+    top: 100%;
+    border: solid transparent;
+    content: " ";
+    height: 0;
+    width: 0;
+    position: absolute;
+    pointer-events: none;
+}
+
+.ol-popup:after {
+    border-top-color: white;
+    border-width: 10px;
+    left: 48px;
+    margin-left: -10px;
+}
+
+.ol-popup:before {
+    border-top-color: #cccccc;
+    border-width: 11px;
+    left: 48px;
+    margin-left: -11px;
+}
+
+.ol-popup-closer {
+    text-decoration: none;
+    position: absolute;
+    top: 2px;
+    right: 8px;
+}
+
+.ol-popup-closer:after {
+    color: blue;
+    content: "✖";
+}
+
+.ol-popup-closer:hover:after {
+    color: red;
+    cursor: pointer;
+}
+
+/* Drawing mode cursor */
+.bemap-drawing-active {
+    cursor: crosshair !important;
+}
+.bemap-drawing-active .ol-viewport,
+.bemap-drawing-active .leaflet-container,
+.bemap-drawing-active .maplibregl-canvas {
+    cursor: crosshair !important;
+}
+
+/* Vertex editing handles (used by editPolygon on all backends) */
+.bemap-vertex-handle {
+    background: #fff;
+    border: 2px solid #0066cc;
+    border-radius: 2px;
+    box-shadow: 0 0 2px rgba(0,0,0,.4);
+    cursor: grab;
+    width: 12px;
+    height: 12px;
+}
+.bemap-vertex-handle:active {
+    cursor: grabbing;
+}
+
+/* ============================================================
+ * Attribution widget (v1.5.0) — bemap.AttributionWidget
+ * ============================================================ */
+
+.bemap-attribution-icon {
+    position: absolute;
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.95);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    z-index: 1000;
+    opacity: 1;
+    transition: opacity 0.15s ease-in-out, background 0.15s ease-in-out, box-shadow 0.15s ease-in-out;
+    -webkit-user-select: none;
+       -moz-user-select: none;
+        -ms-user-select: none;
+            user-select: none;
+}
+
+.bemap-attribution-icon:hover {
+    background: rgba(255, 255, 255, 0.98);
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
+    opacity: 1;
+}
+
+.bemap-attribution-icon:focus {
+    outline: 2px solid #0066cc;
+    outline-offset: 2px;
+    opacity: 1;
+}
+
+/* SVG inside the icon scales with the icon size */
+.bemap-attribution-icon svg {
+    width: 14px;
+    height: 14px;
+}
+
+/* Bottom positions honour --bemap-attribution-bottom-offset (default 0px) so a
+   host app with a bottom overlay can lift the widget via CSS alone, e.g.
+   #map { --bemap-attribution-bottom-offset: 70px; } */
+.bemap-attribution-bottom-right { bottom: calc(var(--bemap-attribution-bottom-offset, 0px) + 8px); right: 8px; }
+.bemap-attribution-bottom-left  { bottom: calc(var(--bemap-attribution-bottom-offset, 0px) + 8px); left: 8px; }
+.bemap-attribution-top-right    { top: 8px; right: 8px; }
+.bemap-attribution-top-left     { top: 8px; left: 8px; }
+
+.bemap-attribution-popover {
+    position: absolute;
+    background: rgba(255, 255, 255, 0.98);
+    border: 1px solid #cccccc;
+    border-radius: 6px;
+    padding: 10px 14px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+    max-width: 320px;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    font-size: 11px;
+    line-height: 1.5;
+    color: #333;
+    z-index: 1001;
+}
+
+.bemap-attribution-popover-bottom-right { bottom: calc(var(--bemap-attribution-bottom-offset, 0px) + 44px); right: 8px; }
+.bemap-attribution-popover-bottom-left  { bottom: calc(var(--bemap-attribution-bottom-offset, 0px) + 44px); left: 8px; }
+.bemap-attribution-popover-top-right    { top: 44px; right: 8px; }
+.bemap-attribution-popover-top-left     { top: 44px; left: 8px; }
+
+.bemap-attribution-line {
+    padding: 3px 0;
+}
+
+.bemap-attribution-line + .bemap-attribution-line {
+    border-top: 1px solid #f0f0f0;
+}
+
+.bemap-attribution-line a {
+    color: #0066cc;
+    text-decoration: none;
+}
+
+.bemap-attribution-line a:hover {
+    text-decoration: underline;
+}
+
+.bemap-attribution-line a:focus {
+    outline: 1px dotted #0066cc;
+    outline-offset: 1px;
+}
+
+.bemap-attribution-kbd-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px solid #eee;
+}
+
+.bemap-attribution-kbd-label {
+    font-size: 11px;
+    color: #555;
+}
+
+.bemap-attribution-kbd-toggle {
+    position: relative;
+    width: 32px;
+    height: 18px;
+    border: 0;
+    padding: 0;
+    background: transparent;
+    cursor: pointer;
+    flex-shrink: 0;
+}
+
+.bemap-attribution-kbd-track {
+    position: absolute;
+    inset: 0;
+    background: #ccc;
+    border-radius: 9px;
+    transition: background .15s;
+}
+
+.bemap-attribution-kbd-toggle.on .bemap-attribution-kbd-track {
+    background: #0066cc;
+}
+
+.bemap-attribution-kbd-thumb {
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 14px;
+    height: 14px;
+    background: #fff;
+    border-radius: 50%;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+    transition: left .15s;
+}
+
+.bemap-attribution-kbd-toggle.on .bemap-attribution-kbd-thumb {
+    left: 16px;
+}
+
+.bemap-attribution-kbd-toggle:focus {
+    outline: 2px solid #0066cc;
+    outline-offset: 2px;
+}
+
+.bemap-attribution-footer {
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px solid #e0e0e0;
+    font-weight: 600;
+}
+
+.bemap-attribution-footer a {
+    color: #0066cc;
+    text-decoration: none;
+}
+
+.bemap-attribution-footer a:hover {
+    text-decoration: underline;
+}
+
+/* ============================================================
+ * Autocomplete dropdown (v1.5.0) — bemap.Autocomplete.attachToInput
+ * ============================================================ */
+
+.bemap-autocomplete-list {
+    position: absolute;
+    z-index: 1002;
+    background: #fff;
+    border: 1px solid #cccccc;
+    border-top: none;
+    border-radius: 0 0 6px 6px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.18);
+    max-height: 280px;
+    overflow-y: auto;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    font-size: 13px;
+    color: #222;
+    min-width: 200px;
+}
+
+.bemap-autocomplete-item {
+    padding: 6px 10px;
+    cursor: pointer;
+}
+
+.bemap-autocomplete-item:hover,
+.bemap-autocomplete-active {
+    background: #f1f5f9;
+}
+
+/* ---- OpenLayers zoom-control positioning (since 1.5.0) ----
+   The default ol.control.Zoom sits at top-left. When a different
+   `zoomControl: '<position>'` option is passed to bemap.OlMap, the
+   constructor adds one of these classes alongside the standard
+   .ol-zoom class. The four positions match the cross-engine API
+   exposed by bemap.Map.ZoomPosition. */
+.ol-zoom.bemap-zoom-pos-top-left {
+    top: 0.5em;
+    left: 0.5em;
+    right: auto;
+    bottom: auto;
+}
+.ol-zoom.bemap-zoom-pos-top-right {
+    top: 0.5em;
+    right: 0.5em;
+    left: auto;
+    bottom: auto;
+}
+.ol-zoom.bemap-zoom-pos-bottom-left {
+    bottom: 0.5em;
+    left: 0.5em;
+    top: auto;
+    right: auto;
+}
+.ol-zoom.bemap-zoom-pos-bottom-right {
+    bottom: 0.5em;
+    right: 0.5em;
+    top: auto;
+    left: auto;
+}
+
+/* Runtime show/hide of the native zoom (+/-) buttons across all 3 engines.
+   Triggered by `bemap.Map.prototype.setZoomControl(false)` which toggles
+   the `bemap-zoomctrl-hidden` class on the map container. Same class
+   matches Leaflet's `.leaflet-control-zoom`, OL's `.ol-zoom`, and
+   MapLibre's `.maplibregl-ctrl-zoom` / `.maplibregl-ctrl-group`. */
+.bemap-zoomctrl-hidden .leaflet-control-zoom,
+.bemap-zoomctrl-hidden .ol-zoom,
+.bemap-zoomctrl-hidden .maplibregl-ctrl-zoom,
+.bemap-zoomctrl-hidden .maplibregl-ctrl-group {
+    display: none !important;
+}

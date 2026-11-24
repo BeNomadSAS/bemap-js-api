@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>BeNomad BeMap JavaScript API</title>
+    <link rel="stylesheet" href="../lib/bootstrap/dist/css/bootstrap.min.css" type="text/css">
+    <link rel="stylesheet" href="../dist/ol.css" type="text/css">
+    <script language="JavaScript" src="../dist/ol.js"></script>
+    <script language="JavaScript" src="../dist/leaflet.js"></script>
+  <script language="JavaScript" src="../dist/leaflet.markercluster.js"></script>
+  <script language="JavaScript" src="../dist/maplibre-gl.js"></script>
+  <script src="../dist/pmtiles.js"></script>
+  <link rel="stylesheet" href="../dist/maplibre-gl.css" type="text/css">
+  <link rel="stylesheet" href="../dist/leaflet.css" type="text/css">
+  <script language="JavaScript" src="../dist/bemap-js-api.js"></script>
+    <link rel="stylesheet" type="text/css" href="../dist/bemap-js-api.css" media="screen">
+	<script language="JavaScript" src="context.js"></script>
+  <script language="JavaScript" src="bemap-provider.js"></script>
+    <script language="JavaScript" src="example-routing.js"></script>
+	<style>
+#map1 {
+	height : 450px;
+}
+	</style>
+</head>
+
+<body onload="onLoaded();">
+    <div style="padding:10px;background:#f5f5f5;border-bottom:1px solid #ddd;">
+        <h3 style="margin-top:0;">Basic Routing</h3>
+        <p style="margin:5px 0;color:#555;">Calculates a route from <strong>BeNomad HQ</strong> (Villeneuve-Loubet) to <strong>Antibes</strong> using hardcoded destinations.</p>
+        <button class="btn btn-primary btn-sm" onclick="sample.run();">Run demo</button>
+        <span style="margin-left:10px;color:#888;font-size:0.85em;">Click the button to compute and display the route on the map below.</span>
+    </div>
+    <div id="map1" style="height:calc(100vh - 100px);"></div>
+</body>
+
+</html>

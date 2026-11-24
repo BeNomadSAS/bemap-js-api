@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Charging Stations v2 — BeMap JS API</title>
+    <link rel="stylesheet" type="text/css" href="../../dist/ol.css">
+    <link rel="stylesheet" type="text/css" href="../../dist/leaflet.css">
+    <link rel="stylesheet" type="text/css" href="../../dist/maplibre-gl.css">
+    <link rel="stylesheet" type="text/css" href="../../dist/bemap-js-api.css">
+    <link rel="stylesheet" type="text/css" href="_shell.css">
+
+    <script src="../../dist/ol.js"></script>
+    <script src="../../dist/leaflet.js"></script>
+    <script src="../../dist/maplibre-gl.js"></script>
+    <script src="../../dist/pmtiles.js"></script>
+    <script src="../../dist/bemap-js-api.js"></script>
+    <script src="../context.js"></script>
+    <script src="../bemap-provider.js"></script>
+    <script src="_snippet.js"></script>
+</head>
+<body>
+    <div id="map1"></div>
+
+    <div class="panel-v2">
+        <h4>Charging Stations <span class="v2-badge">v2</span></h4>
+        <p style="margin:0 0 8px 0;color:#555;font-size:11px;">
+            Click anywhere on the map →
+            <code>bemap.ChargingStations.search(req)</code>
+            returns the charging-station pools around the clicked coordinate.
+        </p>
+
+        <div class="field-row">
+            <div style="flex:1;">
+                <label>Radius (m)</label>
+                <input id="cs-radius" type="number" value="2000" min="100" max="50000">
+            </div>
+            <div style="flex:1;">
+                <label>Max pools</label>
+                <input id="cs-max" type="number" value="25" min="1" max="200">
+            </div>
+        </div>
+        <div class="field-row">
+            <div style="flex:1;">
+                <label>Mode</label>
+                <select id="cs-mode">
+                    <option value="LOCAL_OR_REMOTE" selected>LOCAL_OR_REMOTE</option>
+                    <option value="LOCAL">LOCAL</option>
+                    <option value="REMOTE">REMOTE</option>
+                    <option value="LOCAL_AND_REMOTE">LOCAL_AND_REMOTE</option>
+                </select>
+            </div>
+            <div style="flex:1;">
+                <label>Depth</label>
+                <select id="cs-depth">
+                    <option value="PATH_POOL_MAP" selected>PATH_POOL_MAP</option>
+                    <option value="PATH_POOL">PATH_POOL</option>
+                    <option value="PATH_STATION">PATH_STATION</option>
+                    <option value="PATH_POINT">PATH_POINT</option>
+                </select>
+            </div>
+        </div>
+
+        <div id="cs-status" class="status">Click anywhere on the map to search.</div>
+        <ul id="cs-results" class="result-list"></ul>
+    </div>
+
+    <script src="charging-stations.js"></script>
+</body>
+</html>

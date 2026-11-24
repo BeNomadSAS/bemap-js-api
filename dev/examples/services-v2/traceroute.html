@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>TraceRoute v2 — BeMap JS API</title>
+    <link rel="stylesheet" type="text/css" href="../../dist/ol.css">
+    <link rel="stylesheet" type="text/css" href="../../dist/leaflet.css">
+    <link rel="stylesheet" type="text/css" href="../../dist/maplibre-gl.css">
+    <link rel="stylesheet" type="text/css" href="../../dist/bemap-js-api.css">
+    <link rel="stylesheet" type="text/css" href="_shell.css">
+
+    <script src="../../dist/ol.js"></script>
+    <script src="../../dist/leaflet.js"></script>
+    <script src="../../dist/maplibre-gl.js"></script>
+    <script src="../../dist/pmtiles.js"></script>
+    <script src="../../dist/bemap-js-api.js"></script>
+    <script src="../context.js"></script>
+    <script src="../bemap-provider.js"></script>
+    <script src="_snippet.js"></script>
+</head>
+<body>
+    <div id="map1"></div>
+
+    <div class="panel-v2">
+        <h4>TraceRoute <span class="v2-badge">v2</span></h4>
+        <p style="margin:0 0 8px 0;color:#555;font-size:11px;">
+            Map-matches a recorded GPS trace.
+            <code>bemap.TraceRoute.compute(...)</code> snaps the raw
+            points onto the road network.
+        </p>
+
+        <div>
+            <label>Trace</label>
+            <select id="tr-sample">
+                <option value="paris-short">Sample trace · Paris (15 points)</option>
+            </select>
+        </div>
+
+        <div style="margin-top:10px;display:flex;gap:6px;">
+            <button id="tr-go">Compute</button>
+            <button id="tr-clear" class="secondary">Reset</button>
+        </div>
+
+        <div id="tr-status" class="status">Click Compute to run the map-match.</div>
+        <div id="tr-summary" style="margin-top:8px;font-size:12px;color:#2c3e50;"></div>
+    </div>
+
+    <script src="traceroute.js"></script>
+</body>
+</html>

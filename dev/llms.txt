@@ -1,0 +1,245 @@
+# BeMap JS API
+
+> BeNomad's JavaScript SDK for maps, geocoding, routing and electric mobility in web applications. One API over three map engines — MapLibre GL v6, Leaflet 1.9 and OpenLayers v10 — with BeNomad Tiles (vector PMTiles), WMS, and the BeMap REST services behind promise-based classes. Written for AI coding assistants: read the rules below before generating code.
+
+- License: commercial — [LICENSE.md](https://benomadsas.github.io/bemap-js-api/LICENSE.md)
+- Distribution: a pre-built bundle in `dist/` (`bemap-js-api.min.js`, ~470 KB); no Node runtime needed on the consumer side.
+- Versions: v1.x = WMS only · v2.x = WMS + BeNomad Tiles (vector PMTiles), MapLibre GL and a Service Worker tile cache.
+
+## Documentation
+
+- [JSDoc API reference](https://benomadsas.github.io/bemap-js-api/dist/doc/index.html): every public class, with signatures and parameter types
+- [Examples gallery](https://benomadsas.github.io/bemap-js-api/examples/index.html): a runnable demo for every public method, per engine and per service
+- [Installation](https://benomadsas.github.io/bemap-js-api/INSTALL.md)
+- [Changelog](https://benomadsas.github.io/bemap-js-api/CHANGELOG.md)
+- [Services guide](https://benomadsas.github.io/bemap-js-api/docs/services-v2/SERVICES.md): request objects and response shapes of every service class
+- [BeNomad Tiles integration skill](https://benomadsas.github.io/bemap-js-api/benomad-tiles-integration/SKILL.md): web SDK, raw MapLibre + PMTiles, mobile and fleet, backend token proxy — read it first for any "embed a BeNomad map / authenticate tiles / debug 401·403·CORS·gzip" task
+- [BeMap REST API documentation](https://benomad.com/dev/doc/bemap-api/): the services this library calls, field by field
+
+## Rules for AI assistants
+
+1. **Never invent API methods.** If a method is not on `bemap.Map`, `bemap.LeafletMap`, `bemap.OlMap`, `bemap.MapLibreMap`, `bemap.Marker`, `bemap.Polyline`, `bemap.Polygon`, `bemap.Circle`, `bemap.Context`, `bemap.Coordinate`, `bemap.Color`, `bemap.LineStyle` and the classes listed below, it does not exist — clarify or refuse rather than fabricate. The full list is the [JSDoc reference](https://benomadsas.github.io/bemap-js-api/dist/doc/index.html).
+2. **The map class is the switch** between WMS and BeNomad Tiles:
+   - `bemap.LeafletMap(ctx, target)` → WMS, always.
+   - `bemap.OlMap(ctx, target)` (alias `bemap.Ol3Map`) → WMS, always.
+   - `bemap.MapLibreMap(ctx, target)` → BeNomad Tiles when `ctx.tilesHost` is set; a minimal background otherwise.
+3. **`bemap.BemapLayer({ name: 'background' })` adapts to the engine.** On Leaflet and OpenLayers it produces a WMS layer; on MapLibre with `tilesHost` set, the BeNomad PMTiles source. Same call, different engine — do NOT instantiate engine-specific layer classes.
+4. **The Service Worker `dist/bemap-sw-tiles.js` must sit at the site root.** The library registers it from `/bemap-sw-tiles.js` by itself; do not put it under `dist/` in a deployment.
+5. **v1 code keeps working on v2 unchanged.** Upgrade by swapping the bundle; see [the migration guide](https://benomadsas.github.io/bemap-js-api/docs/migration-wms-to-tiles.md).
+
+## Minimal working example (BeNomad Tiles path)
+
+```html
+<!doctype html>
+<html><head>
+  <link rel="stylesheet" href="/dist/maplibre-gl.css">
+  <link rel="stylesheet" href="/dist/bemap-js-api.css">
+  <script src="/dist/maplibre-gl.js"></script>      <!-- loads /dist/maplibre-gl-worker.mjs: copy it too -->
+  <script src="/dist/pmtiles.js"></script>
+  <script src="/dist/bemap-js-api.js"></script>
+</head>
+<body>
+  <div id="map" style="position:absolute;inset:0;background:#d4ecf5"></div>
+  <script>
+    var ctx = new bemap.Context({
+      host: 'bemap.benomad.com', secure: true,
+      login: 'your-login', password: 'your-password',
+      // Environments — prod (default) shown; preprod & beta exist for testing:
+      //   preprod: bemap-preprod.benomad.com + mptiles-api-preprod.benomad.net
+      //   beta:    bemap-beta.benomad.com    + mptiles-api-beta.benomad.net
+      tilesHost: 'mptiles-api.benomad.net'
+    });
+    var map = new bemap.MapLibreMap(ctx, 'map');
+    map.move(2.35, 48.85, 12);
+
+    // Add a marker. SAME API on all three engines.
+    map.addMarker(new bemap.Marker(
+      new bemap.Coordinate(2.35, 48.85),
+      { icon: new bemap.Icon({ src: '/marker.svg', anchorX: 0.5, anchorY: 1,
+                               anchorXUnits: 'fraction', anchorYUnits: 'fraction' }) }
+    ));
+  </script>
+</body></html>
+```
+
+## Public API surface (the things AI assistants may call)
+
+### Classes
+
+- `bemap.Context({ host, secure, login, password, authInPost, geoserver?, tilesHost?, tilesFile?, tilesStyle?, tilesFallbackToDefault?, glyphsUrl?, proxy?, bemapEnv? })`
+  - `tilesHost` must be paired with `host` per env (beta/preprod/prod). MapLibre map = which PMTiles map: `tilesFile → geoserver → 'default'` (server-resolved). A geoserver-INHERITED name absent from the Worker's `/api/maps` catalog (a WMS-only provider such as `herehlp`, `addok`, `photon`, `nominatim`, `tomtom`) leaves the vector basemap EMPTY (v2.0.4) — it does not show another provider's map; `tilesFallbackToDefault: true` loads the server-default map instead. `geoserver` still applies to WMS layers and services. An explicit `tilesFile` pin never falls back (its 403 surfaces as a config signal). `glyphsUrl` overrides the font host (default: no bundled fonts — the tiny fallback is font-free; server styles fetch glyphs from the Worker).
+  - Archive versioning (v2.0.1): `.getTilesVersion(name?)` / `.setTilesVersion(name, token)` — per-map version tokens, auto-discovered from the Worker's `/api/maps` after login; `getTilesFileUrl()` then appends `?v=<token>` so a rebuilt archive busts the browser cache. Never set on raw external archive URLs.
+  - `proxy` + `bemapEnv` (v2.0.2) — credential-less mode: `new bemap.Context({ proxy: 'https://<their-proxy>', tilesHost: '…' })` with NO `login`/`password`. `proxy` is written like `host`: the scheme is OPTIONAL (a bare `'<their-proxy>'` or `'<their-proxy>/prefix'` inherits its protocol from `secure`); an explicit `http(s)://` always wins; it throws only when no usable host is left (non-http(s) scheme, a half-written one like `'https:/host'`, whitespace, root-relative path — a same-origin `'/api/bemap'` proxy is not supported). Set `proxy` BEFORE constructing a map: `setProxy()` re-targets services/WMS/login and an existing map's proxy hook, but a map built on a proxy-less Context never installs that hook, and **no URL already inside a live map/layer is rewritten** (rebuild the source/layer; a one-shot console notice says so). Protecting the proxy: cross-origin ⇒ per-ENDPOINT allow-list + rate limiting — `Origin` for fetch/XHR endpoints, `Referer` for `<img>` WMS (which sends no `Origin`), and neither is authentication; the SDK sends NO cookies cross-origin (`fetch` is `same-origin`, XHR sets no `withCredentials`), so a session cookie only works for a same-ORIGIN proxy. The consumer's own server injects the credentials. With `proxy` set the SDK sends no `Authorization` and no `appid`/`appcode` ANYWHERE (even if credentials are also configured); services + WMS + the tiles login go through the proxy, while tile bytes and `/api/*` stay direct to `tilesHost`. `bemapEnv` → `X-BeMap-Env` header (sent only when non-empty). Helpers: `.getProxyHeaders()` (object) / `.getProxyHeadersList()` (`[{key,value}]` for `bemap.ajax`). Full contract: [`docs/integration-proxy.md`](https://benomadsas.github.io/bemap-js-api/docs/integration-proxy.md). **Never invent a proxy URL in generated code — use a placeholder like `https://your-proxy.example.com` and tell the user to supply theirs.**
+- `bemap.LeafletMap(ctx, target, options?)` — Leaflet engine
+- `bemap.OlMap(ctx, target, options?)` (alias `bemap.Ol3Map`) — OpenLayers v10 engine
+- `bemap.MapLibreMap(ctx, target, options?)` — MapLibre v6 engine (BeNomad Tiles)
+- `bemap.BemapLayer({ name, styles? })` — engine-adaptive background layer
+- `bemap.VectorLayer`, `bemap.ClusterLayer`, `bemap.RasterLayer`, `bemap.WmsLayer`
+- `bemap.Marker(coordinate, options?)`, `bemap.Popup(coordinate, html|element)`
+- `bemap.Polyline(coordinates, options?)`, `bemap.Polygon(coordinates, options?)`
+- `bemap.Circle(coordinate, radiusMetres, options?)`
+- `bemap.Coordinate(lon, lat)`, `bemap.BoundingBox(sw, ne)`
+- `bemap.Color(r, g, b, a?)`, `bemap.Icon({ src, anchor*, ...})`
+- `bemap.LineStyle`, `bemap.PolygonStyle`, `bemap.CircleStyle`,
+  `bemap.TextStyle`, `bemap.ClusterStyle`
+- `bemap.MapEvent` (has `.getCoordinate()`, `.bemapObject`)
+- `bemap.Listener`
+- `bemap.Error(code, status?, message?, context?)` — codes:
+  `UNAUTHORIZED`, `FORBIDDEN`, `RATE_LIMITED`, `OFFLINE`,
+  `STYLE_LOAD_FAILED`, `TILE_LOAD_FAILED`, `CACHE_HOST_CONFLICT`,
+  `NETWORK`
+
+### Map methods (work on every engine unless noted)
+
+- Camera: `.move(lon,lat,zoom)`, `.flyTo(lon,lat,zoom)`,
+  `.easeTo({...})`, `.jumpTo({...})`, `.moveToBoundingBox(bbox)`,
+  `.moveToLayerData(layerName)`, `.zoom(level)`,
+  `.getZoom()`, `.getCenter()`, `.getBoundingBox()`,
+  `.rotation(deg)`, `.getRotation()`, `.refresh()`
+- Camera (MapLibre + OL): `.setBearing(deg)`, `.getBearing()`,
+  `.setPitch(deg)`, `.getPitch()`
+- Camera (MapLibre only): `.setProjection('globe'|'mercator')`,
+  `.spinGlobe({speed})`, `.stopSpinGlobe()`
+- Layers: `.addLayer(layer)`, `.removeLayer(layer)`,
+  `.clearLayer(layer)`, `.getLayerByName(name)`, `.refreshLayer(name)`,
+  `.visibleLayer(name, bool)`, `.switchBackgroundLayer(name)`,
+  `.defaultLayers(options?)`, `.zIndexLayer(layer, n)` (OL+LF only)
+- Layers (MapLibre only): `.addRasterLayer(...)`,
+  `.setStyle(nameOrJson)` (re-registers all overlays via the catalogue),
+  `.setTerrain(opts)`, `.removeTerrain()`, `.add3DBuildings(opts)`,
+  `.remove3DBuildings()`, `.setSky(opts)`, `.setLight(opts)`
+- Markers: `.addMarker(marker)`, `.removeMarker(marker)`,
+  `.onMarker(...)`, `.draggableMarker(marker, bool)`
+- Polylines/polygons/circles: `.addPolyline(p)`, `.removePolyline(p)`,
+  `.addPolygon(p)`, `.removePolygon(p)`, `.addCircle(c)`,
+  `.addPopup(p)`, `.removePopup(p)`,
+  `.draggablePolyline(p, bool)`
+- Events: `.on(eventType, fn)` returns a `bemap.Listener`; pass it to
+  `.removeListener(listener)` to unbind. There is no `.off()` on a map.
+- Drag: `.setDragPan(bool)`, `.isDragPan()`
+- Clustering: `.addClusterPoints(...)`
+- Heatmap (MapLibre only): `.addHeatmap(data, opts)`,
+  `.removeHeatmap(id)`
+- Sources (MapLibre only): `.addGeoJsonSource(...)`, `.addImage(...)`,
+  `.queryRenderedFeatures(...)`
+- Animations (MapLibre only): `.animateAlongRoute(...)`,
+  `.animateLine(...)`, `.animateCameraOrbit(...)`, `.animatePulse(...)`
+- Cache (MapLibre + tilesHost): `.enableBrowserCache()`,
+  `.disableBrowserCache()`, `.getBrowserCacheStats()`,
+  `.clearBrowserCache()`, `map.on('cache:stats', cb)`.
+  Rebuilt-archive staleness is self-healed automatically (v2.0.1): per-map
+  `?v=` version tokens + an ETag guard — see [`docs/browser-cache.md`](https://benomadsas.github.io/bemap-js-api/docs/browser-cache.md)
+  ("Archive versioning & stale-cache self-heal"). Nothing to configure.
+- Auth introspection (MapLibre + tilesHost): `.getToken()`,
+  `.isTokenValid()`, `.refreshToken()`
+- BeNomad Tiles outage (MapLibre + tilesHost): when the tiles cannot be
+  reached (login timeout, network error, HTTP 5xx, 5 tile errors in a row;
+  never on 401/403/429), the map shows the BeMap WMS under your overlays,
+  then goes back to the vector tiles by itself. Events:
+  `map.on('tiles:fallback', cb)` (`{ wms: boolean }`, once per outage) and
+  `map.on('tiles:restored', cb)`. Context options: `tilesFallbackToWms`
+  (default `true`) and `tilesFallbackDelayMs` (default `5000`). The WMS needs
+  `login`/`password` or `proxy`; without either only the event fires
+  (`wms: false`). See [`docs/integration-tiles-token-provider.md`](https://benomadsas.github.io/bemap-js-api/docs/integration-tiles-token-provider.md)
+  ("BeNomad Tiles unavailable").
+- Escape hatch: `.native` — the underlying engine instance
+  (`L.Map`, `ol.Map`, `maplibregl.Map`). Use sparingly; prefer the
+  cross-engine API.
+
+### Event types (`bemap.Map.EventType`)
+
+`CLICK`, `MOVEEND`, `ZOOMEND`, `POINTERUP`, `POINTERDOWN`,
+`POINTERDRAG`, `POINTERMOVE`, `SINGLECLICK`, `POSTRENDER`,
+`PROPERTYCHANGE`, `CHANGE`, `CHANGE:SIZE`, `CHANGE:VIEW`.
+The library translates these to the engine's native names internally.
+
+### Default layer names (`bemap.Map.DEFAULT_LAYER`)
+
+`BACKGROUND`, `MARKER`, `ROUTE`, `POLYLINE`. `defaultLayers()` creates
+all four. Idempotent — safe to call twice.
+
+### Services
+
+> **Naming trap — read this before writing service code.** Only routing has
+> a `V2`-suffixed class: **`bemap.RoutingV2`**. **Every other service uses its
+> plain class name** — there is **no** `GeocoderV2`, `ReverseGeocoderV2`,
+> `AutocompleteV2`, `GeoAutocompleteV2`, `IsochroneV2`, `TraceRouteV2`,
+> `NearPoiV2`, `ChargingStationsV2`, `EvSmartRoutingV2`, `EvVehiclesV2`,
+> `ChargingTimeV2`, or `EvReachableAreaV2`. Writing `new bemap.GeocoderV2(ctx)`
+> throws `bemap.GeocoderV2 is not a constructor`. The list below is exhaustive
+> for the shipped bundle — do not add a `V2` suffix to anything but Routing.
+
+The modern services take a **typed request object** and return a **Promise**.
+The v1 services (kept for retrocompat) use `{ success, failed }` callbacks.
+All are constructed as `new bemap.<Class>(ctx)`.
+
+**Search & geocoding**
+
+- `bemap.Geocoder(ctx)` — `.geocode(new bemap.GeocodingRequest({ place, language?, proximity?, boundingBox?, addressDetails? }))` → `Promise`; `.reverseGeocode(coordinate, radius?)` → `Promise`. (Legacy `{ searchInfo, success, failed }` callback form still works.)
+- `bemap.ReverseGeocoder(ctx)` — `.revGeo(new bemap.ReverseGeocodingRequest({ coordinate, radius?, language? }))` → `Promise`
+- `bemap.Autocomplete(ctx)` — `.autocomplete(new bemap.AutocompleteGeocodingRequest({ place, language?, coordinate? }))` → `Promise`; `.attachToInput(inputEl, opts)` wires a debounced typeahead widget.
+- `bemap.GeoAutocomplete(ctx)` — `.autocomplete(new bemap.AutocompleteGeocodingRequest({ … }))` → `Promise`
+- `bemap.NearPoiSearch(ctx)` — `.nearPoi(coordinate | new bemap.NearPoiRequest({ … }), filters?)` → `Promise`
+
+**Routing**
+
+- `bemap.RoutingV2(ctx)` — `.calculate(new bemap.RoutingRequest({ destinations, routingVehicleProfile?, routingCriterias?, … }))` → `Promise`; convenience wrappers `.matrix(origins, destinations, opts?)` and `.isochrone(origin, { budget }, opts?)`.
+- `bemap.TraceRoute(ctx)` — `.compute(new bemap.TraceRouteRequest({ … }))` → `Promise` (map-matching from a GPS trace).
+- `bemap.Routing(ctx)` — v1 routing, `.compute({ success, failed })` callbacks; retrocompat.
+- `bemap.Isochrone(ctx)` — v1 isochrone, `.compute({ success, failed })` callbacks; retrocompat. Prefer `RoutingV2.isochrone(...)` for new code.
+
+**EV**
+
+- `bemap.ChargingStations(ctx)` — `.search(new bemap.ChargingStationSearchRequest({ … }))` → `Promise`; `.getConnectorTypes()` → `Promise`
+- `bemap.EvVehicles(ctx)` — `.brands()`, `.list(filters?)`, `.get(vehicleKey)` → `Promise`; `.toRoutingProfile(vehicleKey)` → `Promise<bemap.RoutingVehicleProfile>` with the vehicle's dimensions and weights under `routingVehicleFeature` (weights converted from tons to tenths of a ton), ready for `RoutingRequest.routingVehicleProfile`.
+- `bemap.EvSmartRouting(ctx)` — `.calculate(new bemap.EvSmartRoutingRequest({ … }))` → `Promise`; `.getBrands()`, `.getVehicles(filters?)`
+- `bemap.ChargingTime(ctx)` — `.estimate(new bemap.ChargingTimeRequest({ … }))` → `Promise`
+- `bemap.EvReachableArea(ctx)` — `.compute(new bemap.EvReachableAreaRequest({ … }))` → `Promise`
+- `bemap.EvseRouting(ctx)` — v1 EVSE routing, `.compute({ success, failed })` callbacks; retrocompat.
+
+> Exact request-object fields + response shapes: [`docs/services-v2/SERVICES.md`](https://benomadsas.github.io/bemap-js-api/docs/services-v2/SERVICES.md)
+> and the [JSDoc reference](https://benomadsas.github.io/bemap-js-api/dist/doc/index.html). Per-service runnable demos live in
+> the [examples gallery](https://benomadsas.github.io/bemap-js-api/examples/index.html).
+
+## Anti-patterns AI assistants should refuse / rewrite
+
+- **`new L.Map(...)` or `new maplibregl.Map(...)` directly** — defeats the
+  whole point. Use `bemap.LeafletMap` / `bemap.MapLibreMap` and the
+  retrocompat layer is preserved.
+- **`map.native.flyTo(...)` reaching into the engine** — `.flyTo` exists
+  on the bemap wrapper now. Use the wrapper.
+- **Patching `window.fetch` to inject tokens** — v2 uses MapLibre's
+  `transformRequest`. Never recommend the fetch patch.
+- **Hardcoding `mptiles-api.benomad.net` in customer code** — that's the
+  default. Customer code should rely on `ctx.tilesHost` (let
+  RuntimeConfig handle it) or pass their own host explicitly.
+- **Manual `serviceWorker.register('/bemap-sw-tiles.js')`** — the library
+  auto-registers it. Don't duplicate.
+- **`map.setStyle(json)` without re-adding overlays** — on raw MapLibre
+  this wipes user-added layers. `bemap.MapLibreMap.setStyle()`
+  auto-replays from an internal overlay catalogue. Always use the
+  wrapper.
+- **Confusing `bemap.Color(r,g,b)` and `bemap.Color(r,g,b,a)`** — alpha
+  is OPTIONAL (defaults to 1), but if you pass it must be 0–1 (not 0–255).
+- **Shipping `login`/`password` in a PRODUCTION client config** — they are
+  readable in DevTools. Recommend [`docs/integration-proxy.md`](https://benomadsas.github.io/bemap-js-api/docs/integration-proxy.md) (the `proxy`
+  option, covers services + maps) or [`docs/integration-tiles-token-provider.md`](https://benomadsas.github.io/bemap-js-api/docs/integration-tiles-token-provider.md)
+  (tiles only). Inline credentials are acceptable only for demos/evaluation.
+
+## Examples and guides
+
+- [Examples gallery](https://benomadsas.github.io/bemap-js-api/examples/index.html) — the interactive dashboard: every public method with a runnable demo.
+- [`docs/browser-cache.md`](https://benomadsas.github.io/bemap-js-api/docs/browser-cache.md) — the Service Worker tile cache: setup, verification and the diagnostic console logs.
+- [`docs/migration-wms-to-tiles.md`](https://benomadsas.github.io/bemap-js-api/docs/migration-wms-to-tiles.md) — upgrade a v1 application to v2 (one Context flag and a class swap).
+- [`docs/integration-tiles-token-provider.md`](https://benomadsas.github.io/bemap-js-api/docs/integration-tiles-token-provider.md) — keep BeNomad credentials server-side; mint short-lived tile tokens from your backend.
+- [`docs/integration-proxy.md`](https://benomadsas.github.io/bemap-js-api/docs/integration-proxy.md) — the `proxy` option: services, WMS and the tiles login through your own server, with no credentials in the browser.
+- [`docs/integration-zxy-tiles-mobile.md`](https://benomadsas.github.io/bemap-js-api/docs/integration-zxy-tiles-mobile.md) — server, mobile and fleet: the z/x/y vector-tile endpoint and the `Content-Encoding: gzip` rule (decompress exactly once).
+- [`docs/style-customisation.md`](https://benomadsas.github.io/bemap-js-api/docs/style-customisation.md) — custom MapLibre styles, registry resolution, bilingual labels.
+- [`docs/attributions-widget.md`](https://benomadsas.github.io/bemap-js-api/docs/attributions-widget.md) — the BeNomad attribution widget.
+- [Services guide](https://benomadsas.github.io/bemap-js-api/docs/services-v2/SERVICES.md) — geocoding, routing, POI and EV services.
+
+## Versioning
+
+- Latest: **v2.0.6** — see the [changelog](https://benomadsas.github.io/bemap-js-api/CHANGELOG.md).
+- BeNomad Tiles (`MapLibreMap`, the Service Worker cache, token authentication) requires v2.
+- v1 applications keep working on v2 unchanged.

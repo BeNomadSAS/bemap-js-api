@@ -1,0 +1,313 @@
+# Changelog
+
+All notable changes to the BeMap JavaScript API are documented in this file.
+
+## [Unreleased] — v1.5 modernisation track
+
+In-progress work on the `major_update_leaflet_ol_and_vector` branch; everything below ships under that single major update.
+
+- Changed (BEMAP-2084): third-party libraries updated after the SBOM scan (pmtiles 4.5.0, jquery 4.1.0, jquery-ui 1.14.2, bootstrap 5.3.9, select2 4.2.0, openlayers 10.11.0, codemirror 5.65.21); showdown replaced by marked in `examples/index.html`; unused mermaid and jQuery-Timepicker-Addon copies removed; demo pages moved to Bootstrap 5 markup; MapLibre: routes and shapes no longer lost when the map keeps animating after a style switch; maplibre-gl 6.19.0 (classic build made from the official ESM release — apps also copy maplibre-gl-worker.mjs next to maplibre-gl.js), pmtiles rebuilt with fflate 0.8.3; MapLibre clusters are put back after a style change (they were lost on setStyle and on a tiles restore); demo dashboard: version select between the stable site and the prerelease in `dev/` (`npx grunt github --site=dev`).
+
+---
+
+## [2.0.6] — WMS transparency on Leaflet
+
+No breaking API change, one fix. Upgrading is a drop-in bundle swap.
+
+- Fixed (BEMAP-2083): `transparent: true` was ignored on `bemap.LeafletMap` WMS layers (the URL carried `transparent=false&TRANSPARENT=true` and BeMap read the first); one `transparent` param is now sent, and a layer also accepts the WMS spelling `TRANSPARENT: true` on every engine.
+
+---
+
+## [2.0.5] — the map stays usable when BeNomad Tiles is down
+
+No breaking API change. One new behaviour, on by default for MapLibre maps with `tilesHost` (`tilesFallbackToWms: false` keeps the 2.0.4 behaviour), and one fix. Upgrading is a drop-in bundle swap.
+
+- Added (PMT-66): a MapLibre map with `tilesHost` switches by itself to the BeMap WMS background when BeNomad Tiles is unreachable, and back to the vector tiles when they answer again; events `tiles:fallback` / `tiles:restored`, one console line per step, options `tilesFallbackToWms` (default true) and `tilesFallbackDelayMs`.
+- Fixed (EVMOVE-474): the login and password are URL-encoded in service and WMS URLs; a password holding `&`, `<`, `|`, `{`, `+` or `%` broke the URL and BeMap answered 400.
+- Changed (BEMAP-2082): the library is delivered only on GitHub (no more zip on the BeMap portal); the build never copies local credential files (`examples/context.local.js`, `examples/credentials.env`).
+
+---
+
+## [2.0.4] — the default marker, the geoserver switch, and the tiles skill catches up
+
+No breaking API change — one method that was a stub now works, two defects are repaired, and one additive Context option changes what a provider without a vector map renders. Upgrading is a drop-in bundle swap.
+
+This release also exists so the corrected `benomad-tiles-integration/` skill is reachable from a pinned tag: `v2.0.3` on the public repo is permanently attached to the distribution that still carried the wrong text, so a consumer pinning it would never see the fix.
+
+> **The trace route (BEMAP-1971), `geoserver=undefined`, `llms.txt`, `toRoutingProfile`, `switchBackgroundLayer` and `tilesFallbackToDefault` entries below landed after the initial 2.0.4 publish**, so the `v2.0.4` tag does not contain them — only `main` does. A consumer pinning `@v2.0.4` gets the marker fix and the corrected skill, but none of the later fixes.
+
+### Fixed — trace route, the raw MapLibre template and place labels, measured against BeMap dev (BEMAP-1971)
+
+Each checked on `bemap-dev` (4.2.0-SNAPSHOT) on 2026-10-15:
+
+- `TraceRoute.computeRnc` parsed BeMap's RNC answer as a route, so it gave an empty `RoutingResponse`. It now gives the answer as it is: the commands `setVehicleProfileCommand`, `setRouteCriteriaCommand` and `startCircuitNavCommand`. Its documentation says what BeMap needs for it: the vehicle's features, and `WAYPOINTS` for the waypoints.
+- `TraceRouteRequest` sent `routingCriterias`, documented as supported. BeMap ignores them on a trace route (the same trace with `SHORTEST` and `FASTEST`), so they are no longer sent.
+- `bemap.TraceRouteOptions.EVT_OBJECTID_BASE64` is gone: the trace route service refuses it (`400 INVALID_ARGUMENT`). The list now matches BeMap's REST enum, all 48 values; routing keeps the option.
+- `traceRouteQuality.score` looked for an `inputCoordinate` BeMap never sends, and fell back to the mean `confidenceValue`, about 0.23 for a drive matched within metres of its road. It now reads `distanceFromRequest`, the metres from each GPS point to its match.
+- The switch index went out as `switchIndex`, which BeMap ignores; its field is `swidx` (deprecated). Trace route, routing, autocomplete, near POI and reverse geocoding send `swidx`.
+- `benomad-tiles-integration/templates/web-raw-maplibre.html` used the answer of `/api/default-style`, `{ "default": "styles/….json" }`, as the style, and drew a blank map. It fetches the style named.
+- `TilesStyle.buildBilingualExpr` put English before the local name: a French map read "2nd Arrondissement" for Paris's arrondissements, whose data has `name_en` but no `name_fr`. The name on top is now the reader's language, else the local name, else English (English for a local name in another script only).
+
+Eight specs cover them, all but the template (an HTML file no spec loads); each fails on the code before its fix.
+
+### Fixed — a Leaflet map stayed grey when the Context had no `geoserver` (BEMAP-1940)
+
+With no `geoserver` on the `bemap.Context` — exactly the README's quick start — every Leaflet tile asked for `…/bgis/wms?…&geoserver=undefined`. BeMap answers that with a `ServiceExceptionReport` ("GeoServer not found for 'undefined'") instead of an image, so the map stayed grey. `L.tileLayer.wms` writes every option into the URL, `undefined` included; OpenLayers leaves it out, which is why the same Context worked on `OlMap`.
+
+The parameter is now omitted when there is no geoserver, and the server uses the account's default. That applies to Leaflet's `BemapLayer` and `WmsLayer`, to the MapLibre WMS background used without `tilesHost` (which built the same URL by concatenation), and to the request body of the v1 `bemap.Geocoder` and `bemap.Routing`. A geoserver set on the Context, on the layer or on the call is sent exactly as before.
+
+Twelve specs cover it, reading the real Leaflet tile URL; the five that check the parameter is absent fail on the code before the fix.
+
+### Fixed — `llms.txt` was written for the wrong reader, and named methods that do not exist (BEMAP-1939)
+
+`llms.txt` is the file a customer's AI assistant reads. It mixed in guidance for whoever works on the library's source — the build pipeline, where to look in `src/`, the test contracts in `src-test/` — which sent the assistant to files a customer does not have, and it named internal applications. It now keeps only what serves a customer, and opens with an index of absolute links (the llmstxt.org convention), so a tool reading the file on its own can follow every one of them.
+
+Every class and method it names was then checked against the bundle. Three statements would have become broken code in a customer's application:
+
+- **`.getDragPan()` does not exist** on any map. Removed; `.setDragPan(bool)` and `.isDragPan()` remain.
+- **`.off(eventType, fn)` does not exist** on a map either. `.on()` returns a `bemap.Listener`; pass it to `.removeListener(listener)` to unbind.
+- **A provider with no vector map does not fall back to the default map** any more: since the `tilesFallbackToDefault` change below, the basemap stays empty unless `tilesFallbackToDefault: true`. The file still described the old behaviour.
+
+It also gains `EvVehicles.toRoutingProfile()` and a link to the BeMap REST API documentation. The `benomad-tiles-integration/` skill no longer warns that `llms.txt` advertises `*V2` service classes — it now warns against them — and it says that `Geocoder.geocode()` takes a `GeocodingRequest` and returns a Promise, besides its old callback form.
+
+### Fixed — `EvVehicles.toRoutingProfile()` sends the catalogue weight as is (BEMAP-1985)
+
+The vehicle catalogue holds `maxWeight` and `maxWeightPerAxle` in tenths of a ton, the unit `routingVehicleFeature` expects (`440` = 44 t). The `* 10` added for BEMAP-1921 assumed whole tons and would have sent a 44 t truck as 440 t; it is removed. The catalogue data is converted to tenths of a ton in EV-Database (EVDB-287): release together with it.
+
+### Fixed — `EvVehicles.toRoutingProfile()` dropped every vehicle restriction (BEMAP-1921)
+
+`toRoutingProfile()` set `height`, `width`, `length`, `weight` and `axleWeight` at the top level of the profile. `bemap.RoutingVehicleProfile` only carries `transportMode`, `maxSpeeds` and its sub-objects, so the constructor never copied them and `toJson()` never sent them: everything but the transport mode was dropped before the request left the browser, and nothing failed. Following the SDK reference and `examples/services-v2/ev-vehicles.js`, a 44 t truck was routed with no physical and no legal restriction.
+
+They now go under `routingVehicleFeature`, where the routing engine reads them. Height, width and length are in centimetres on both sides and pass through unchanged. The two weights do not: the vehicle catalogue holds `maxWeight` and `maxWeightPerAxle` in whole metric tons, while `routingVehicleFeature.weight` and `.axleWeight` are in tenths of a ton (`35` = 3.5 t). Both are multiplied by 10, so a 44 t truck leaves as `440` — sending `44` would have routed it as a 4.4 t van.
+
+The spec that covered this only checked that a `RoutingVehicleProfile` came back, which is how the bug went unseen. Four specs now pin the request body itself: the restrictions sit under `routingVehicleFeature`, nothing but `transportMode` stays at the top level, both weights are in tenths, and a vehicle with no dimension or weight sends no `routingVehicleFeature` at all.
+
+### Changed — a geoserver with no vector map no longer loads the default map (BEMAP-1906)
+
+Pick a provider that BeMap offers for routing, geocoding and WMS but that the tiles Worker serves no PMTiles archive for — `herehlp`, `addok`, `photon`, `nominatim`, `tomtom` — and the basemap quietly became the Worker's **default** map. The user selected one provider and was shown another provider's data, with nothing on screen saying so. That is worse than showing nothing, which is what it does now: an empty vector basemap.
+
+The catalog check itself is unchanged (it is what 2.0.4 added: `/api/maps` is consulted, and a name merely inherited from `ctx.geoserver` is validated against it). Only the verdict changed. When the archive is absent, the style is replaced with a source-free one — so no PMTiles URL is registered and no slice is requested — and the pending init style is cancelled, or the server default would paint straight over the empty map. The console still says which provider had no vector map, and that `geoserver` continues to apply to WMS layers and services.
+
+**`ctx.tilesFallbackToDefault: true` restores the old behaviour** for an application that would rather always have a basemap. An explicit `tilesFile` pin is unaffected either way and keeps surfacing its own 403/404 — a misspelled or unauthorised tileset is a configuration error, not a provider without tiles.
+
+`switchBackgroundLayer` is two-way: the map that blanked keeps its last real style spec, so selecting a provider that *does* have an archive brings the basemap straight back. Without that the selector would be one-way — blank until a page reload — which is why the fix is not simply "stop falling back".
+
+### Fixed — `switchBackgroundLayer` did nothing on MapLibre, and half-applied elsewhere (BEMAP-1905)
+
+Changing the geoserver had no effect on any BeNomad Tiles map, and only intermittent effect on Leaflet / OpenLayers. Two independent causes.
+
+**MapLibre never implemented it.** `bemap.MapLibreMap.prototype.switchBackgroundLayer` was a stub returning `this`. Leaflet and OpenLayers pre-create one raster layer per geoserver and toggle visibility, which MapLibre cannot do — it reads a single PMTiles archive whose name is resolved once, in the constructor. So the fix re-resolves the archive and re-applies the **current** style against it: the caller keeps its map instance, its overlays, and anything the user has typed on the page. No rebuild, no page reload.
+
+`setStyle` already did the heavy lifting — it re-registers the slice source under the new archive url with its `?v=` token, re-resolves the style placeholders and replays the overlay catalogue. The name is passed as the explicit argument to `resolveTilesFile`, so it outranks `ctx.tilesFile`; `_tilesFileExplicit` is then cleared, which keeps the Worker-catalog fallback — selecting a provider that has no archive lands on the server-resolved default map rather than a guaranteed 403. `backgroundLayers` stays a no-op so the cross-engine chain `.backgroundLayers(list).switchBackgroundLayer(name)` remains valid.
+
+**The shared Leaflet / OpenLayers implementation crashed on an unnamed layer.** `bemap.Map.prototype.switchBackgroundLayer` read `layer.name.indexOf(...)` with no null check, and because the loop calls `setVisible()` as it walks, one unnamed overlay left the switch **half-applied** — the layers before it toggled, the rest never did. The symptom was the wrong basemap on roughly every other attempt, which reads as flakiness rather than a crash.
+
+11 specs cover both: the archive is re-pointed, the *current* style is re-applied rather than resetting to the fallback, `map.native` is unchanged, the same geoserver is a no-op, the explicit pin is cleared, a missing name is ignored, a map without tiles config does nothing, the chain stays valid — and for the base implementation, an unnamed layer neither throws nor stops the layers past it from being applied.
+
+### Fixed — the default `bemap.Icon()` never rendered on an HTTPS page (BEMAP-1908)
+
+`new bemap.Icon()` with no `src` defaulted to `http://openlayers.org/en/v3.18.2/examples/data/icon.png` — a third-party host, over plain HTTP, from the example data of a long-abandoned OpenLayers release. On an HTTPS page Chrome upgrades that request to HTTPS; **the upgraded request fails too**, because the asset is not served there. The marker silently never appeared and the SDK raised nothing.
+
+Switching the scheme to `https://` would not have fixed it. The default is now `bemap.Icon.DEFAULT_SRC`, an inline **SVG `data:` URI** — a 25×41 pin whose tip sits at the bottom centre, matching the existing `anchorX: 0.5` / `anchorY: 1` defaults. 323 bytes, no file to ship or host.
+
+A `data:` URI rather than a BeNomad-hosted URL, deliberately: it issues no network request, so it renders offline and on a customer's closed network, and it sends nothing to a third party from the customer's application.
+
+**The blast radius was wider than "integrators who omit `src`".** `bemap.clusterStyle` builds its own default (`opts.icon ? opts.icon : new bemap.Icon()`), so **every clustered map without an explicit icon** hit the dead URL. Two more paths reached it indirectly: `bemap-routing.js` and `bemap-geocoder.js` both use `src: icone.src ? icone.src : console.error(...)`, and `console.error()` returns `undefined`, so those fell through to the default as well. All three are repaired by this change.
+
+Eight specs pin the properties that made this a defect rather than the literal string, so redesigning the pin later does not require touching them: not `openlayers.org`, never `http:`, self-contained `data:` URI, decodes to well-formed SVG, percent-encoded so it survives a CSS `url()`, **actually loads in a real browser**, is what `clusterStyle` falls back to, and an explicit `src` still wins. Suite: 2523 → **2531 specs**.
+
+### Fixed — the integration skill contradicted the bundle (BEMAP-1909)
+
+The skill declared itself verified against **v2.0.0** while the bundle shipped 2.0.3. It is what AI coding assistants read to wire BeNomad Tiles into a customer app, so the stale text was actively handing customers the wrong architecture. Every claim below was re-tested against live beta on 2026-08-26 rather than re-read.
+
+- **The default tile read path was wrong.** The skill presented `pmtiles://` + HTTP `Range` as the normal route. Since 2.0.1 the default is `tilesSliceMode: '200'` — `?r=A-B`, no `Range` header, plain 200, natively browser-cacheable — and the tile Service Worker auto-disables in that mode. Integrators were installing a Service Worker they do not need, on an architecture that is no longer the default.
+- **`ctx.proxy` was absent entirely.** 2.0.2 shipped it as the supported answer to "no credentials in the browser"; the skill still pointed only at its own hand-rolled token-proxy template, so the guidance led to `login`/`password` readable in DevTools.
+- **"BeNomad Tiles = MapLibre engine only" was wrong.** Three engines ship — `MapLibreMap`, `LeafletMap`, `OlMap` (not `OpenLayersMap`). It is the PMTiles *basemap* that is MapLibre-only, and there is a typed `bemap.Error.MAPLIBRE_ONLY` to branch on.
+- **"Never patch `window.fetch`"** — the SDK patches it itself in three places (`TilesAuth`, `RangeFetchPolicy`). Reworded to never add a *second* patch.
+- **"Use the v1 class names"** — misleading: eleven un-suffixed classes extend `ServiceV2` and *are* the modern Promise API. The `V2` suffix is not the modernity marker.
+- **The service table was missing eleven exports**, including `TraceRoute`, `NearPoiSearch`, `Autocomplete`, `EvSmartRouting`, `ChargingTime`, `EvReachableArea` and `AttributionWidget`.
+- `/api/maps` also returns `versions` and `aliasVersions`, the 2.0.1 cache-busting tokens.
+- Tiles require **`ROLE_MAPPING` and `ROLE_MAPPING_MPTILES`**, not `ROLE_MAPPING` alone. Token lifetime is exactly 3600 s, not "~1 h".
+- **The User-Agent rule was inverted.** It is a blocklist, not a required header: `Python-urllib/3.11` gets **403**, an *empty* UA gets **200**. The rule now asks for a plausible UA and explains why.
+- 403 responses carry actionable JSON bodies (`{"error":"Range header required for PMTiles files"}`, `{"error":"Range too large (…). Max: 10485760 bytes"}`); recorded verbatim.
+- **The `204`-on-empty-tile claim is marked unconfirmed.** Three ocean tiles (z10/z12/z14) all returned **200** with a 38–65-octet MVT. Integrators are told to check payload size instead until this is settled.
+
+### Added
+
+- The `dev` environment row (`mptiles-api-dev.benomad.net`, local origins only).
+- `map.getTilesConfig()` as the documented entry point for debugging anything tile-shaped.
+- A troubleshooting row for the stale-archive blank map fixed in 2.0.1 (`versions` / `?v=` token).
+- A caching note on `templates/web-raw-maplibre.html` explaining why that template legitimately stays on 206, and what it costs.
+- A `?r=` slice step in the copy-paste auth probe.
+
+### Changed
+
+- **The style filename is no longer named anywhere.** `/api/default-style` is documented as authoritative. Hard-coding `charte_2026.json` is what made the page go stale in the first place — beta now serves a different filename — so the docs describe how to ask instead of what the answer was.
+
+---
+
+## [2.0.3] — OpenLayers 10 compatibility
+
+Bug-fix release. **No API additions, removals or renames** — every entry below repairs behaviour that was already documented, so upgrading is a drop-in bundle swap.
+
+If you are on **OpenLayers 10.x** this release is not optional: two features were entirely broken (the first two entries). `bemap.version` is `2.0.3`; nothing else in the public surface moved.
+
+### Fixed — OpenLayers 10 compatibility + cross-engine defects (BEMAP-1898)
+
+Consumers moving to **OpenLayers 10.8.0** hit two hard crashes, both from SDK code written against OL 4/5/6 that the older versions silently tolerated. Auditing outward from them found nine more defects across all three engines. Every fix below was reproduced first, then pinned by specs; the suite went from 2445 to **2523 specs**, and an automated real-browser pass (`tools/interface-check/`) exercises them against a live dashboard.
+
+- **`bemap.Circle.setRadius()` crashed on OL 10, and had never resized anything.** `addCircle` builds the native as `ol.geom.Polygon.circular(...)` — a Polygon, coordinates nested two deep — but both circle setters pushed a flat `[x,y]` pair into `Polygon#setCoordinates`. OL 10 descends two levels, lands on `undefined` and reads `.length`: `TypeError: Cannot read properties of undefined (reading 'length')`. `setRadiusCircle` also never read `circle.getRadius()`, and `setCoordinateCircle` re-read `getCenter()` — which syncs the model back FROM the old geometry — so **`setCenter()` was a no-op even before the crash**. Both now rebuild the circular polygon exactly as `addCircle` does.
+- **WMS click-to-query was entirely dead on OL 10.** `onGetFeatureInfo` called `source.getGetFeatureInfoUrl(...)`; OL 10 dropped the doubled "Get" on both `TileWMS` and `ImageWMS`, so every `SINGLECLICK` inside the listener threw. Resolved by feature detection, so a consumer pinned to an older OpenLayers keeps working, and a non-WMS layer now reports a clean `INVALID_ARGUMENT` instead of a raw `TypeError`.
+- **Constructing a `bemap.LeafletMap` rewrote the shared `bemap.Map.EventType` enum** (`POINTERUP`/`POINTERDOWN`/`POINTERMOVE`) in place. On any page holding more than one map the last engine constructed redefined the constants for the others. Translation now happens per `on()` call via `bemap.LeafletMap.EVENT_ALIAS`; the enum is immutable. This also unblocked loading Leaflet in the test harness at all — it had **zero** coverage, which is why the Leaflet defects below shipped unnoticed.
+- **Leaflet popups** — four defects: `visible:false` opened anyway; a popup with no coordinate threw; `setVisiblePopup` did not exist, so `show()`/`hide()`/`setVisible()` hit a base no-op and **there was no way to close a popup**; `clearPopup()` returned `undefined` on an empty map (breaking `map.clearPopup().addPopup(p)`), and `removePopup` never spliced its tracking array, leaking an `L.Popup` plus a detached DOM subtree per cycle. `clearPopup()` now also resets the **models** (`visible`, `map`, `native`), not just the native layers.
+- **Leaflet `updatePolygonCoordinates` ran backwards.** `Polygon.getCoordinates()` calls it and then returns `this.coords`, so the contract is a read (native → model), as OL implements. Leaflet pushed model → native, so a vertex edit or drag was silently overwritten by the stale model, and during a drag the shape trailed the cursor by one move and landed a delta short. Direction corrected and the compensating manual delta loop in `draggablePolygon` removed, so movement is counted exactly once.
+- **`bemap.MapLibreMap.clearPopup()` swept the whole document** (`querySelectorAll('.maplibregl-popup')` + `Element.remove()`), deleting popups belonging to other maps and to the host application, leaking a handler set per cycle, and leaving models reporting `isVisible() === true`. Now tracks its own popups and routes through `removePopup()`.
+- **`bemap.Color` clamped only the upper bound**, so a negative channel produced `#-5ff0a` — six characters, so a length check passes, but invalid CSS. Every engine then silently fell back to its own default colour.
+- **`bemap.MultiMarker.getTextStyle`/`setTextStyle` were attached to `bemap.Marker.prototype`**, so `multimarker.setTextStyle(...)` threw. (The duplicate bodies were identical, so `Marker` itself was unaffected.)
+- **OL drag events reported the END coordinate as `startCoordinate`** — the same expression as `coordinate` — so every consumer computing a drag delta got zero. Affects every draggable marker, polyline, polygon and circle.
+- **`map.on('error', fn)` subscribed to nothing on all three engines.** The class docs state `on()` routes `'error'` to the error channel, but the base is an abstract `return new bemap.Listener()` and every engine overrode it straight to `_onFeature`. Fixed **additively** — each engine now also subscribes the error channel and keeps its previous behaviour, so anyone relying on MapLibre's native `'error'` event loses nothing.
+- **The base class was a half-populated stub list**, so an engine gap failed two different ways: silently (`return this`) for the names it happened to list, and `TypeError: … is not a function` for the ones it did not. `bemap.Map.ENGINE_SURFACE` now declares the surface; anything unimplemented lands on `_notSupportedByEngine()` — one console warning per method per map naming the engine, a `bemap.Error` on the error channel, then a harmless no-op. `src-test/test-engine-parity.js` fails if the surface drifts.
+
+## [2.0.2] — credential-less browser mode
+
+### Added — credential-less browser mode (2.0.2, EVMOVE-307)
+- **`proxy` option on `bemap.Context`.** A consumer can put its **own server** in front of BeMap so real credentials never reach the browser (`ctx.login`/`ctx.password` are readable in DevTools — a security finding for production apps). Set `proxy` and omit `login`/`password`. **`proxy` is written like `host`:** the `https://` prefix is optional and a bare host inherits its protocol from `secure` (`'my-proxy.example.com'`, `'my-proxy.example.com/prefix'`, `'localhost:8787'`, `'//my-proxy.example.com'`, or any explicit `http(s)://…`, which always wins). It is normalised to a canonical `origin[+path]` — on construction **and on every read**, so the value is a fixed point. `getBaseUrl()` then targets the proxy, `getTilesLoginUrl()` becomes `<proxy>/tiles/login`, and the tiles login sends `X-BeMap-Tiles-Host` (which tiles env to mint for) instead of `Authorization`.
+- **Optional `bemapEnv`** → sent as `X-BeMap-Env` on proxy requests, and **only** when it is a non-empty string (so the literal `"null"` can never reach the wire). New public helpers `getProxyHeaders()` (object, for `fetch` sites) and `getProxyHeadersList()` (`[{key,value}]`, for `bemap.ajax` sites); both return a **fresh** object/array per call.
+- **Security invariant:** with `proxy` set, **no** BeMap credential is sent anywhere — no `Authorization: Basic`, no `appid`/`appcode` — **even when `login`/`password` are also configured**. Enforced in the v2 request funnel, every v1 XHR service, all three WMS builders, and Leaflet's `layerOption` path (the one engine that passed auth as layer options rather than through `getAuthUrlParams()`).
+- **Scope:** services + WMS + the tiles **login** go through the proxy; tile **bytes** and the `/api/*` discovery calls stay **direct** to the public `tilesHost` (token-authenticated, no credential involved). Behind a proxy the tile-auth wire is forced to **`header`** — a cookie set by the proxy's origin could never be sent to `tilesHost` (an explicit `tilesAuth:'cookie'` pin is overridden with a one-shot console warning; `'query'` is honoured).
+- MapLibre's single `transformRequest` slot now hosts a **composed** function: `tilesHost` URLs keep their token/credentials, proxy URLs additionally get the env header. Proxy matching is by parsed **origin + path boundary**, so a look-alike host (`https://<proxy-host>.evil.com/…`) receives nothing.
+- **WMS works through the proxy on all three engines** — the URL becomes `<proxy>/bgis/wms` and carries no `appid`/`appcode`. Note that Leaflet/OpenLayers load raster tiles via `<img>`, which cannot carry `X-BeMap-Env`; a multi-environment proxy therefore needs a per-environment **proxy URL** for those engines (MapLibre gets the header through `transformRequest`). Documented in the guide.
+- Hardening (from the pre-release review):
+  - `loadBeMapTiles()` — the deprecated XHR helper — now **refuses in proxy mode before reading any credential** (no request is opened at all). Documentation alone is not a security boundary for a mixed `{proxy, login, password}` config.
+  - `bemap.snippet.contextLine()` is proxy-aware: the dashboard's copy-paste panel never prints a credential when `proxy` is set (regardless of `includeCredentials`) and emits `proxy`/`bemapEnv` instead.
+  - `bemap.Autocomplete#query()` now uses the Context it was constructed with instead of the page-global `bemapMainCtx`, so a proxied Context can no longer be silently bypassed.
+  - New `getProxy()` normalises and re-validates **on read** (and invalidates the `getBaseUrl()` memo), so a late `ctx.proxy = …` write — e.g. through `RuntimeConfig`'s proxy trap, which bypasses the constructor — is still validated instead of silently serving the previous origin. `setProxy()` / `getBemapEnv()` added for the conventional path.
+  - A **half-written scheme is rejected**, never re-read as a host: `https:/host` (one slash) or `https:host` would otherwise take the bare-host branch and normalise to the host `https` with path `/host`. A numeric port (`host:8443`) stays the one legitimate colon in a bare value.
+  - **MapLibre's proxy hook resolves the proxy per request** (memoised until it changes) instead of capturing it at map construction. `setProxy()` is public, and the env header is read live from the Context, so a captured origin would have stamped the *new* environment onto the *old* proxy and left the new one bare. A Context read can no longer throw out of `transformRequest` either (it would break MapLibre's request pipeline); the bad value still surfaces on the next `getBaseUrl()`/login. Two residual limits are documented on `setProxy()` and in the guide rather than papered over: a map built on a proxy-less Context installs no hook, so it cannot gain one later; and **no URL already inside a live map is rewritten** — a MapLibre WMS/raster source, or any Leaflet/OpenLayers layer, keeps the URL it was created with, so that traffic stays on the old proxy while only the header follows. `setProxy()` now logs a one-shot notice when it swaps one live proxy for another, because that is the case that looks like it worked and only half did.
+  - **No modern-API requirement:** URL parsing falls back to a conservative ES5 parser when the browser has no working `URL` constructor (IE11 exposes `window.URL` without one). `proxy` was the only modern-API dependency on the legacy Leaflet/OpenLayers + v1-services path, which otherwise needs neither `fetch` nor `Promise`. Parity with the native parser is asserted for DNS names, IPv4 literals, **bracketed IPv6** (`[::1]:8787`), default-port dropping, trailing-dot hosts, host case and percent-encoded paths. The two canonicalisations ES5 cannot do are made explicit instead of silent: a **non-ASCII host is rejected** with a message naming the fix (write the `xn--…` form), and an abbreviated IPv4 (`127.1`) or non-canonical IPv6 literal is passed through as written — the stored string differs from a modern browser's, the destination does not. Both divergences are pinned by specs.
+  - `proxy` validation is forgiving where the intent is unambiguous and loud where it is not: a `?query`/`#fragment` or embedded `user:pass@` credentials are dropped with a **one-shot console notice** (never silently), repeated slashes in the path are collapsed, and an `http://` proxy on an `https://` page is flagged as mixed content before the browser blocks it. It still **throws** when no usable host is left — a non-`http(s)` scheme, whitespace, or a root-relative path — because silently disabling proxy mode would fall back to direct, credential-bearing requests. Error messages are redacted, so no secret can reach a crash reporter. Two parser traps are pinned by specs: `new URL('localhost:8787')` does not throw (it parses as scheme `localhost:`), and `new URL('https:///api/bemap')` resolves to the host `api`.
+- Documentation: new [`docs/integration-proxy.md`](docs/integration-proxy.md) — concept, contract, how to write the value, the per-engine `X-BeMap-Env` matrix, **how to protect the proxy** — a per-call-site table of what the SDK actually sends (no cookie is ever sent cross-origin: `fetch` is `same-origin`, XHR sets no `withCredentials`, so a session cookie only works for a same-**origin** proxy — same-*site* is not enough), plus a **per-endpoint** allow-list matrix, because neither browser header is available everywhere: an `<img>`-based Leaflet/OpenLayers WMS GET sends **no `Origin`** (requiring both headers there breaks imagery), and `Referer` can be stripped by any `Referrer-Policy: no-referrer` on the app, CDN or wrapping frame — so the guide states the referrer policy the app must run, and says plainly that neither header is authentication. Also covers what `setProxy()` can and cannot retrofit, the legacy-browser host rules, and a pre-ship checklist — deliberately **without a worked example** (the server side is deployment-specific; placeholders only).
+
+### Changed — 2.0.2
+- **`getAuthUrlParams()` returns `''` instead of `null`** when no credentials are configured (and always in proxy mode). The `null` was string-concatenated into WMS URLs as a literal `"wms?null&…"`; this is a bug fix, but it is a (tiny) public-behaviour change for anyone comparing the result to `null` — three retro assertions were updated in the same commit. A stray `&` in `authInPost` request bodies is now also suppressed.
+
+---
+### Fixed — tiles (2.0.1)
+- **PMTiles stale-archive recovery (EVMOVE-457).** An archive rebuilt under the same name no longer renders a blank map until a manual browser-cache clear. `bemap.Context` now carries per-map version tokens (`getTilesVersion`/`setTilesVersion`), resolved at load from the Worker's `/api/maps`; `getTilesFileUrl()` appends `?v=<token>` so a rebuild becomes a distinct, immutable URL (fresh bytes). The `bemap.PMTilesSliceSource` 200-slice path restores pmtiles' ETag self-heal (weak-etag-safe, sticky `mustReload`, real `pmtiles.EtagMismatch`) and, for an un-versioned archive, revalidates the ~16 KB header slice each load — with an offline-safe `force-cache` fallback — so a rebuild is noticed and self-heals with no page reload even on a Worker that ships no token. Data slices stay immutable-cached; a versioned (`?v=`) archive skips even the header revalidation. Backward-compatible: no API changes, tiles stay browser-cacheable, and the ETag check only fires on a genuine mismatch (never for a stable archive).
+  **Amended acceptance criterion (mustReload):** once a mismatch is detected, `mustReload` stays set for the remainder of that tab's session instead of clearing after recovery (deviation from the ticket's original criterion 4, matching stock pmtiles). Rationale: after a swap, *every* cached slice under that URL is suspect and pmtiles grants a failed tile only one retry — clearing early risks a permanently broken tile. Cost is confined to the rare rebuilt-under-an-open-tab case, one tab, until its next page load (where the new `?v=` URL restores full caching). Proven end-to-end by the archive-swap spec in `src-test/test-pmtiles-slice-source.js`.
+- **WMS-only geoservers no longer 403 the MapLibre basemap.** `geoserver` feeds the tiles-map resolution (`tilesFile → geoserver → 'default'`), but some geoservers (e.g. `herehlp`) exist only for WMS/services. After login the resolved map name is now validated against the Worker's `/api/maps` catalog (aliases + tilesets, **case-insensitive** like the Worker — version tokens resolve across casing too): a geoserver-**inherited** name the catalog doesn't know falls back to the server **default** map with an explanatory console note, instead of guaranteed-403 slice reads. An **explicit `tilesFile` pin never falls back** — a misspelled or unauthorised tileset keeps surfacing its clean 403 as a configuration signal. Workers without a catalog keep today's behaviour.
+
+### Added — dashboard (2.0.1)
+- **Local-only Dev environment.** When the dashboard runs on a local origin (`localhost` / `127.0.0.1` / `file:`), the Credentials picker offers **Dev (local only)** (`bemap-dev.benomad.org` + `mptiles-api-dev.benomad.net`). It never appears on a deployed site, and a stale saved selection is ignored there (per-origin storage + registry-validated resolution).
+
+### Fixed — dashboard (2.0.1)
+- **Config changes apply live on guide/doc pages.** Changing geoserver / tiles host / provider from the dropdowns now re-renders the active inline markdown page (`#page-…`, e.g. the MapLibre guide) so its runnable maps rebuild against the fresh `bemapMainCtx` immediately — previously only iframe examples reloaded. Debounced, with a fire-time hash re-check so a user navigation during the window is never undone.
+
+### Added — services
+- `bemap.ServiceV2` Promise-based base class with `AbortSignal` support and typed `bemap.Error` rejection.
+- `bemap.RoutingV2` with `calculate()`, `matrix()`, `isochrone()`, `cancel(requestId)`.
+- `bemap.TraceRoute` for GPS-trace map-matching, with `bemap.traceRouteQuality.score(response)` helper.
+- `bemap.NearPoiSearch` for POI search around a coordinate.
+- `bemap.Geocoder` — refreshed Promise-based forward geocoder.
+- `bemap.ReverseGeocoder` — new dedicated reverse-geocoder class.
+- `bemap.Autocomplete` + `bemap.GeoAutocomplete` (Promise + `attachToInput()` helper).
+- `bemap.ChargingStations` for `POST service/chargingstation/search/1.0` pool search.
+- `bemap.EvSmartRouting` for `POST service/evsmartrouting/1.0` EV journey planning.
+- `bemap.AclService` for `GET service/acl/1.0/user/details`.
+- `bemap.GeoServerInfoService` for `POST service/geoServerInfo/1.0`.
+- `bemap.ChargingTime` for `POST service/chargingTime/1.0` charging-duration estimates.
+- `bemap.EvVehicles` for the v1.1 vehicle catalogue (`getbrands` + `findvehicles` + `getlevelvehicleinfo` + `getbrandlogo` + vehicle-photo URL builder).
+- `bemap.EvReachableArea` for `POST service/evreachablearea/1.0` polygon reachable-area.
+
+### Added — helpers and infrastructure
+- `bemap.AttributionWidget` — cross-engine attribution UI (Leaflet / OL / MapLibre).
+- `bemap.helpers.snapToRoad(reverseGeocoder, coordinate, opts)` for map-click → road snapping.
+- `bemap.helpers.listGeoservers(ctx)`, `getGeoServerInfo(ctx, name)`, `listChargingStationProviders(ctx)`.
+- `bemap.snippet.contextLine(ctx)`, `jsLiteral(value)`, `requestSnippet(className, opts)` — copy-paste config-snippet helpers.
+- `bemap.Map._resolveControlOptions(opts)` + `bemap.Map.ZoomPosition` enum + `bemap.Map._translateZoomPosition(engine, pos)`.
+- Map constructor options: `nativeAttribution` (default off when AttributionWidget enabled), `zoomControl` (default **off** — opt-in; accepts `true`, position strings, or `{ position, enabled }` objects, all rendered at `'top-left'` unless a position is given).
+- `bemap.Context.chargingStationProvider` field + `getChargingStationProvider()` getter.
+- `bemap.Error` extended with `INVALID_ARGUMENT`, `OFFLINE`, `ABORTED`, `ROUTING_*`, `EV_*`, `CHARGING_*`, `VEHICLE_NOT_FOUND`, `CHARGING_TIME_FAILED`, `REACHABLE_AREA_FAILED`, `STYLE_LOAD_FAILED`, `TILE_LOAD_FAILED`, `CACHE_HOST_CONFLICT`, `MAPLIBRE_ONLY` typed codes.
+
+### Added — MapLibre & BeNomad Tiles
+- `bemap.MapLibreMap` (MapLibre GL v5) — GPU vector base from BeNomad Tiles PMTiles when `ctx.tilesHost` is set (3D buildings, terrain, globe).
+- `bemap.TilesAuth` — Worker JWT login + proactive/reactive renewal + scoped `X-Session-Token` fetch interceptor.
+- Service-Worker browser tile cache (`opts.browserCache`, `dist/bemap-sw-tiles.js`).
+- `bemap.TilesStyle` style resolver (`TILES_SOURCE` + `__BILINGUAL_PLACE__` placeholders). The live default style loads from the Worker after login (`/api/default-style` → `/styles/<name>`) so updating the charte server-side reaches every app with no redeploy; a tiny font-free `bemap.fallbackStyle` (`bemap.defaultStyle` kept as an alias) is the instant first paint + offline fallback. Named styles + `setStyle(name|url|object)` (overlay-preserving, engine-agnostic).
+- No bundled fonts (lightweight — ship JS + CSS only): the fallback is font-free and server styles fetch their own glyphs from the Worker (a root-relative `/fonts/...` is absolutised to `<tilesHost>/fonts/...`); `ctx.glyphsUrl` overrides.
+- Tiles map selection `ctx.tilesFile` with precedence `tilesFile → geoserver → 'default'` (`ctx.resolveTilesFile()`); `'default'` and aliases resolved server-side.
+- Tiles discovery — `ctx.getTilesMapsUrl()/getTilesStylesUrl()/getTilesDefaultUrl()` + `map.fetchAvailableMaps()/fetchAvailableStyles()/fetchDefaultMap()` + runnable Tiles & Map Discovery demo.
+- New Context tiles fields: `tilesHost`, `tilesFile`, `glyphsUrl`, `tokenStorage` + `getTilesBaseUrl()/getTilesLoginUrl()/getTilesStatusUrl()/getTilesLogoutUrl()`.
+- `bemap.RangeFetchPolicy` — generic, **auth-independent** fetch-cache policy that forces `cache: 'no-store'` for **desktop-Chromium** PMTiles HTTP-Range (206) reads, where Chromium's disk cache serialises concurrent same-URL range reads and makes them ~3–5× slower (the `pmtiles` library applies this only on Windows Chromium; this extends it to **all** desktop Chromium — macOS/Windows/Linux). **Safari, iOS (incl. Chrome-on-iOS/CriOS), and Firefox are unaffected and left untouched.** It is worker-independent (applied at the fetch layer, not gated on a Service Worker). `rangeCacheMode` map option (`'auto'` default | `'default'` opt-out | `'no-store'` force) tunes it; `bemap.TilesAuth` REUSES the policy inside its single global `window.fetch` interceptor (there is never a second global patch), and the raw-`opts.tiles` origin gets a standalone installer that no-ops when TilesAuth already owns the patch.
+- `bemap.RecoverablePromiseCache` — a self-healing drop-in for pmtiles' `SharedPromiseCache` that fixes **permanent tile holes**. The stock cache stores the header/directory *promise* and, when a read REJECTS (timeout / network blip / abort), leaves the rejected promise cached forever — every dependent tile then replays that failure until a full page reload. This wrapper evicts a cache entry as soon as its promise rejects (key + entry-identity guarded), so the next read re-fetches. It is **transparent**: success, in-flight de-duplication, LRU pruning and `invalidate()` are inherited unchanged (it composes a real `SharedPromiseCache`); only *failed* reads differ. `bemap.MapLibreMap` wires it into the tiles archive automatically via the new **`recoverableCache`** map option (**default on**; `false` → pmtiles' stock cache); the wiring is a safe no-op if the archive URL can't be resolved (the pmtiles Protocol just auto-creates its default cache, exactly as before — no regression). New **`map.getTilesConfig()`** surfaces the resolved tiles config (`recoverableCache`, `rangeCacheMode`, `tilesAuth`, `serviceWorker`, `tilesSliceMode`, `tileGate`) for debugging.
+- **`bemap.PMTilesSliceSource` + `bemap.RangeGate` — 200-slice tile reads (major perf) + a resilience gate.** In **`tilesSliceMode: '200'` (new default)** the archive is read as `<archive>?r=<start>-<end>` GETs (no `Range` header) → the Worker returns cacheable **HTTP 200s** the **browser HTTP cache stores natively**, so repeat tiles/visits are free with **zero Service Worker** (206 range partials aren't reliably browser-cached — that's why the SW existed). Set `tilesSliceMode: 'range'` (alias `'206'`) for the classic HTTP-Range path (byte-for-byte unchanged). Requires a Worker that serves the `?r=` route (BeNomad Tiles does on all envs; validated by `mp-tiles-bench` — warm cache-served ≥90%, repeats ~11–29 ms vs ~30–70 ms on 206). The **`bemap.RangeGate`** wraps reads with **smart-abort** semantics — a private per-attempt `AbortController`; the caller (pan/zoom) cancel and the TTFB timeout may kill the socket only **before** response headers (aborting a streaming body poisons the browser's shared H2/H3 connection); after headers the body always drains (caller cancel honoured *logically*, generous 20 s body safety cap for a truly dead socket) — plus **3 retries with 200/500/1000 ms backoff** on 429/5xx/timeout/network (never on a pan/zoom cancel), and an optional concurrency cap. Knobs (all `opts.*`, page-level defaults): `tilesSliceMode` (`'200'`), `tileGate` (`true`), `tilesSliceTimeoutMs` (`3500`, TTFB), `tilesSliceBodyTimeoutMs` (`20000`), `tilesSliceMaxRetries` (`3`), `tilesSliceRetryBackoffMs` (`[200,500,1000]`), `tilesSliceConcurrency` (`0` = uncapped). As the terminal safety net, a **recoverable tile error** (gate retries exhausted / TTFB timeout / Worker 504 / network blip — 401/403 stay with TilesAuth) schedules ONE debounced **`tilesErrorRefreshMs`** (`4000`; `0` disables) refresh of the tile-backed sources via `map.refreshTiles()` (fallback `source.setUrl`), because MapLibre never re-requests an errored tile on its own. Policy proven in mp-tiles-demo: 0 permanent grey tiles, +15 % bandwidth, worst tile ≤ 4 s. The tile **Service Worker auto-disables under `'200'`** (browser cache replaces it; kept for `'range'`), parametrable via `opts.serviceWorker`. Live runtime API: `map.setTileGateActive()` / `getTileGateActive()`, `map.setTilesSliceMode()`, `opts.onTileGateChange`, plus `?noslice` / `?nogate` URL kill-switches. Auth composes (slice reads go through `TilesAuth`'s `window.fetch`); `no-store` correctly does not apply to a header-less slice, so the 200 stays cacheable. New interactive example: `examples/example-maplibre-tiles-perf.html` (every option as a control + live cache-served metrics). Adapted from the proven bemaputnik / mp-tiles-demo reference.
+
+### Added — demos
+- 13 runnable v2 demos under `examples/services-v2/` (one per shipped service), each with a collapsible "Code example — copy & paste" panel: `routing`, `routing-isochrone`, `traceroute`, `near-poi`, `geocoder`, `autocomplete`, `geo-autocomplete`, `reverse-geocoder`, `charging-stations`, `ev-smart-routing`, `charging-time`, `ev-vehicles`, `ev-reachable-area`.
+- Dashboard sidebar: Map Provider, BeMap JS API Version, Geoserver, Charging Station Provider dropdowns + live Context snippet + admin-gated Test suite link.
+- EV Smart Routing demo: brand → model cascading vehicle picker chained from `bemap.EvVehicles`.
+
+### Changed
+- "Service Version" dashboard label renamed to "BeMap JS API Version".
+- Per-link `v1`/`v2` badges removed from sidebar — the dropdown is the single version axis.
+- Test-suite sidebar link gated behind `ROLE_ADMIN_ACCESS` (matches server's `@PreAuthorize`).
+- Sidebar widened from 200 px to 240 px for longer service names.
+- Engine-native attribution UI (Leaflet `.leaflet-control-attribution`, OL `.ol-attribution`, MapLibre `.maplibregl-ctrl-attrib`) is hidden by default when the BeMap `AttributionWidget` is enabled — no more duplicated attribution surfaces.
+- `zoomControl` now defaults to **off** across all three engines (was on/`'top-left'`). The +/- zoom buttons are opt-in via `zoomControl: true` (or a position string), matching the `keyboard` and `nativeAttribution` opt-in defaults. Pass `zoomControl: true` to restore the previous behaviour.
+- `bemap.EvSmartRouting.getBrands()` / `.getVehicles()` kept for backward compat; the new `bemap.EvVehicles` service exposes the richer v1.1 vehicle endpoints.
+- Examples pair host ↔ tilesHost per environment (beta/preprod/prod); the dashboard runs on **beta**, the shipped library default is **prod**.
+- Default MapLibre glyphs come from the Worker with the server style (no bundled `dist/fonts/`; the tiny fallback requests none).
+- Service Worker tile cache (`dist/bemap-sw-tiles.js`) hardened: a `CLAIM` message lets an active-but-uncontrolled tab (SW activated **after** the page loaded) take control without a reload; cold network responses are tagged `X-SW-Cache: MISS` (mirroring the existing `HIT`) so interception is provable in a bench, while preserving the real status (a 206 stays 206 — only the cached copy is normalised to 200); and the `CACHE_STATS` reply port is closed after posting so the `MessageChannel` doesn't dangle across worker replacement.
+- `bemap.BrowserCache` now performs a non-blocking ack handshake with the worker: `INIT`→`READY`, `ENABLE`/`DISABLE`→`STATE`, `CLAIM`→`CLAIMED`, with a short timeout that logs a warning and continues. It **never** delays map load. On registration, if the worker is active but not yet controlling the page, `CLAIM` is posted directly to the active worker (the controller is null by definition, so the controller-gated queue cannot deliver it) to recover control without a reload.
+- **Tile auth is now consumer-configurable via `tilesAuth`** — the wire mechanism is no longer hardcoded. Set `tilesAuth` on `bemap.Context` (or override per map via the `MapLibreMap` options) as a grouped object `{ mode, credentials, tokenHeader, tokenParam }` or the string shorthand `'cookie'|'header'|'query'`. `'auto'` (**default** — resolve per deployment, see the dedicated entry below), `'cookie'` (`credentials:'include'`, no header → no CORS preflight), `'header'` (`X-Session-Token`/custom header), or `'query'` (`?token=`/custom param). Normalised by `bemap.Context._resolveTilesAuth` (mirrors `bemap.Map._resolveControlOptions`), read via `ctx.getTilesAuth()`, and applied uniformly by the pmtiles Range interceptor, MapLibre `transformRequest`, `TilesStyle.fetch`, and `login`/`logout`. **Unset ⇒ `auto`** (see below). `rangeCacheMode` stays a separate option.
+- **Default tile fetch mode is now `tilesSliceMode: '200'`** (was 206-range). MapLibre + `ctx.tilesHost` now reads the archive as browser-cacheable 200-slices. The BeNomad Tiles Worker serves the `?r=` route on all envs, so this is transparent there. **Raw `opts.tiles` / `loadPMTiles` URLs on arbitrary origins** (S3/R2/presigned that do *not* serve `?r=`) stay on the **safe Range path by default** — pass `tilesSliceMode: '200'` explicitly to opt those in. Set `tilesSliceMode: 'range'` anywhere to restore the classic 206 path byte-for-byte. Under `'200'` the tile Service Worker is auto-off (browser HTTP cache replaces it) and any stale bemap SW from a prior 206 deploy is unregistered on load.
+- **Browser tile auth moved from the `X-Session-Token` header to the Worker's HttpOnly session cookie** (`bemap.TilesAuth`). Tile requests — the global `fetch` interceptor that pmtiles Range reads flow through, and MapLibre's `transformRequest` for style/glyph/sprite/XYZ — now send `credentials: 'include'` and **no** custom header, so a Range GET carries only the CORS-safelisted `Range` header → **no CORS preflight**. This eliminates the preflight storm that `cache: 'no-store'` (the desktop-Chromium Range fix) otherwise triggers: with a custom header, Chromium bypasses its preflight cache and sends **one `OPTIONS` per Range request**. `login()`/`logout()` now send `credentials: 'include'` so the browser stores/clears the Worker's `Set-Cookie: session=…; HttpOnly; Secure; SameSite=None`; the token lifecycle (exp, renewal, `handle401`) and `RangeFetchPolicy` (`no-store`) are unchanged. **Requires** the tiles Worker to return `Access-Control-Allow-Credentials: true` with an `Access-Control-Allow-Origin` that echoes the exact Origin (never `*`) on tile `200`/`206` and `OPTIONS`. Safari ITP / Firefox TCP / Chrome tracking-protection can block a cross-site `SameSite=None` cookie — prefer serving the tiles host as a first-party subdomain of the app. MapLibre **Native** (Flutter `?token=` query param) is a separate stack and unaffected. The deprecated `opts.tiles`/`opts.tilesToken` XHR path and `PMTilesLayer.tokenHeader` remain header-based (unchanged).
+- **Default tile auth is now `tilesAuth: 'auto'`** (was `'cookie'`). At construction the SDK resolves the wire mechanism for the actual deployment: when the app origin and `tilesHost` share the same **registrable domain** it uses **cookie** (first-party, zero preflight); otherwise it uses **header** (`X-Session-Token`), which works in incognito / Safari / Firefox where a cross-site `SameSite=None` cookie is blocked. So a new consumer needs **no** auth config, cross-site apps stop silently failing in incognito, and same-site apps keep cookie's zero-preflight — no perf loss either way. Detection is a dependency-free registrable-domain compare (`bemap.Context._sameSite` / `_resolveAutoMode`, resolved once in the `TilesAuth` constructor so every request site sees a concrete mode); explicit `'cookie'`/`'header'`/`'query'` always win. No version bump.
+
+### Fixed
+- **MapLibre map no longer renders "at the wrong angle" from a server style** — the SDK now owns the map projection. MapLibre GL v5 applies a style's root `projection` on **both** a full style load **and** a diff update (unlike camera keys, which the diff skips), so a server/charte style shipping `"projection":{"type":"globe"}` silently switched the map to a globe — which curves the view at low zoom and looks tilted. `bemap.MapLibreMap` now normalizes every style's root `projection` to the SDK-owned value **before** handing it to native `setStyle` (via `_normalizeStyleProjection`): the cross-engine default is `mercator` (OpenLayers/Leaflet are mercator-only) and `globe` is **opt-in** via `opts.projection: 'globe'` or `map.setProjection('globe')` — which now also **persists across later style swaps** (e.g. the async charte load after login) instead of being reset. A one-time `console.info` notes when a style's requested projection was overridden. Mirrors how the SDK already ignores a style's own `sources`. Covered by new unit tests. No version bump.
+- **MapLibre maps self-heal their container size** — `bemap.MapLibreMap` now observes its target element with a `ResizeObserver` (`_observeTargetResize`) and calls `refresh()` on change (canvas resize **plus** a camera nudge so the newly-exposed area re-requests tiles), with initial kicks (rAF / 100ms / 500ms) for the case where an iframe / flex / inactive-tab layout settles just after construction. MapLibre's built-in observer resizes the canvas but neither reloads tiles for the newly-exposed strip nor covers that first-render latch, which left the map mis-sized inside the dashboard iframe. The observer is disconnected on `remove()`. Feature-guarded (`ResizeObserver`), ES5. No version bump.
+- **Geocoder v2 demo — Nominatim + HERE HLP, availability-driven** (PMT-33 / PMT-35; demo & dashboard only, no SDK bundle change). Forward geocoding rides the autocomplete endpoint and is served by whichever forward-geocoding geoservers the account has — **HERE HLP** (autosuggest) and/or **Nominatim** (OSM). The demo now discovers those at load (`getGeoServerInfo(name).hasService('AutocompleteGeocoding')` — the ACL-filtered, authoritative signal) and offers a **provider selector** instead of hardcoding `herehlp`; it always sends the map centre as the required location bias (`coordinate`) and lets you toggle `addressDetails`. The dashboard nav entry is gated by a new **account-level `requiresGeoserver:'nominatim,herehlp'`** (from the ACL geoserver list via `applyGeoserverGate()` in the dashboard) — shown when the account has *either*, independent of the currently-selected geoserver — replacing the per-selected-geoserver `AutocompleteGeocoding` gate and the transport heuristic. Also fixed the demo's `country` input (silently dropped on the wire) → now sends `countryCode` (ISO).
+- **MapLibre draw no longer crashes updating the preview** (PMT-55). `updatePreview()` and the rubber-band mouse-move handler in the MapLibre draw control called `getSource(id).setData(...)` without checking the source exists; a `setTimeout`-deferred click firing after cleanup — or a style reload (the server charte loads async after login) that drops all sources — left `getSource()` returning `undefined`, throwing `Cannot read properties of undefined (reading 'setData')`. Each call is now guarded (bail if the source is gone), mirroring the existing guarded path. No version bump.
+- **Removed a dead Service-Worker registration that always 404'd** (PMT-26). `loadBeMapTiles` called `navigator.serviceWorker.register('sw-tiles.js')` — a wrong (real file: `bemap-sw-tiles.js`), path-less filename that resolved relative to the page and always 404'd ("A bad HTTP response code (404) was received when fetching the script."), swallowed by `.catch()` but still logged. The tile Service Worker is owned by `bemap.BrowserCache` (gated by `serviceWorker`/`browserCache`, auto-off under 200-slice), so the inline registration was redundant and is removed. No version bump.
+- **`bemap.OlMap._getOwnFromProperties` no longer crashes on draw / modify** (PMT-53). The helper assumed any feature without an `OWNREF` was an `ol.source.Cluster` wrapper and blindly read `props.features[0]`, so a pointer event over a draw-interaction sketch or a modify-vertex handle (neither `OWNREF` nor `.features`) threw `Cannot read properties of undefined (reading '0')` on `pointerup` — a regression that broke zone drawing in BFleet after the OL v4→v10 modernization. It now guards the input and the cluster fallback and returns `undefined` for non-bemap features, mirroring the MapLibre implementation. Fixed in both `bemap-ol-v10` (shipped) and `bemap-ol-v4` (legacy) sources; covered by new unit tests. No version bump.
+- **EvSmartRouting now targets REST v2.0.0** (`POST service/2.0/evsmartrouting`) instead of `service/evsmartrouting/1.0` (PMT-48). The public SDK API is unchanged — the same `bemap.EvSmartRoutingRequest` options and `bemap.EvSmartRoutingResponse` getters work as before — only the wire mapping moved to the v2 contract: the request now nests `vehicle{key,initBatLvl,payload}`, `start`/`stop`/`vias` as `{lon,lat}` places and the trip options inside `condition{}` (`toJsonV2()`; the v1 `toJson()` is retained untouched), and the response is parsed from `journeys[].summary` + the `events[]` timeline (CHARGE → `EvStepPoint`, ROUTE `geometry` → polyline, `{minLon,minLat,maxLon,maxLat}` → BoundingBox). New optional request fields (`tollCost`, `routesheet`, …) and getters (`getJourneys()`, `getVehicleInfo()`, `getTollSumFees()`, `getEvents()`, `getRouteConsumptions()`) expose the v2 richness. `chargePluggingTime` is sent as `0` when unset to preserve v1 behaviour. The legacy `bemap.EvSeRouting` service and the REST v1.0 endpoint are untouched; other v2 services stay on 1.0/1.1 (no v2 endpoint exists yet). No version bump.
+- Charging-station provider iframe propagation — sidebar selection now reaches every demo iframe via `localStorage` and `bemap._applySidebarSelections(ctx)`.
+- `ChargingStationSearchRequest.toJson()` — `pathAutoMaxPool: 0` and `filtersVersion: 0` no longer silently dropped (falsy-guard footgun).
+- `EvSmartRoutingRequest.toJson()` — `departureTime` now serialised as String (matches the Java DTO declaration).
+- `EvSmartRoutingResponse.getBoundingBox()` — dead `instanceof` branch removed.
+- `bemap.chargingStationRequestUtil` — removed from the public namespace (was an accidental global), now module-private static methods.
+- `bemap.helpers.snapToRoad` — uses `INVALID_ARGUMENT` for bad arguments (was `NETWORK`, which implied network failure).
+
+### Known gaps — endpoints used by some customers but not yet wrapped
+Cross-checked against the `evmove5` customer app for real production usage. The following endpoints are NOT exposed by the v2 surface yet:
+- `POST /service/2.0/evsmartrouting` — the v2.0 EV routing endpoint (richer than the v1.0 one `bemap.EvSmartRouting` currently wraps; `tariffChargePassHashIds` lives there). `evmove5` uses this version.
+- `POST /service/chargingcost/1.0` — per-trip charging-cost lookup (orchestrated client-side in `evmove5` today).
+- `POST /service/chargingstation/tariffs/1.0/search` — charge-pass / tariff lookup.
+
+### Tests
+- Test suite grown from 1004 (v2.0.0 baseline) to ~1900+ passing specs (Karma + Jasmine + ChromeHeadless).
+- New test files: `test-routing-v2`, `test-traceroute`, `test-snap-to-road`, `test-search-services`, `test-search-models`, `test-acl`, `test-charging-stations`, `test-ev-smart-routing`, `test-snippet`, `test-map-controls`, `test-charging-time`, `test-ev-vehicles`, `test-ev-reachable-area`.
+- Retrocompat suites (`test-retro-bfleet`, `test-retro-evmove5`, `test-retro-bemap-doc`) pass unchanged — 1004 legacy specs preserved.
+
+## [2.1.0] - 2026-03-20
+
+Upgraded OpenLayers from v4.2.0 (2017) to v10.8.0 (2025). Switched test runner from PhantomJS to ChromeHeadless. All 1004 tests pass. Full retrocompatibility maintained — bfleet, evmove5, and bemap-doc apps require zero changes. Old OL v4 implementation preserved in `src/bemap-ol/bemap-ol-v4/`.
+
+### Changes
+- OpenLayers upgraded from v4.2.0 to v10.8.0
+- Test runner switched from PhantomJS to ChromeHeadless (4x faster)
+- OL implementation files versioned: `src/bemap-ol/bemap-ol-v4/` (frozen) and `src/bemap-ol/bemap-ol-v10/` (active)
+- Removed deprecated `ol.animation.pan/bounce` + `map.beforeRender()` — replaced with `view.animate()`
+- Removed `projection` option from `ol.source.Cluster` and `ol.layer.Vector` (removed in OL v5)
+- Replaced `layer.native.redraw()` with `layer.native.getSource().changed()` (removed in OL v5)
+- Updated `forEachFeatureAtPixel()` to use options object `{layerFilter: fn}` (changed in OL v6)
+- Replaced `ol.geom.Polygon.circular(new ol.Sphere(...), ...)` with `ol.geom.Polygon.circular(center, radius)` (changed in OL v5)
+- Updated `ol.Overlay` `autoPan: true` to `autoPan: {animation: {duration: 250}}` (changed in OL v7)
+- Removed movestart hack (OL v5+ fires movestart natively)
+- Updated `view.fit(extent, size)` to `view.fit(extent)` (size auto-detected in OL v6+)
+- Fixed `bern` typo in `move()` animation branch
+
+## [2.0.0] - 2026-03-20
+
+Comprehensive unit test coverage (1004 specs), retrocompatibility guarantees for BFleet/EVMove5/BeMap-Doc, rebuilt documentation dashboard with all examples embedded inline, fixed 10 broken example pages, unified credentials, updated README/INSTALL, and bumped version to 2.0.0.

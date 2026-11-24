@@ -61,6 +61,44 @@
    * Top bar
    * -------------------------------------------------- */
 
+  // Stable / dev site switch, driven by <root>versions.json (one fetch per page).
+  var versionsPromise = null;
+  function siteInfo() {
+    var path = global.location.pathname;
+    var idx = path.lastIndexOf('examples/');
+    if (idx < 0) return null;
+    var prefix = path.slice(0, idx);
+    var isDev = prefix.slice(-4) === 'dev/';
+    return {
+      site: isDev ? 'dev' : 'stable',
+      root: isDev ? prefix.slice(0, -4) : prefix,
+      rest: path.slice(idx + 'examples/'.length)
+    };
+  }
+  function fillVersionSelect(box) {
+    var info = siteInfo();
+    if (!info || global.location.protocol === 'file:' || typeof fetch === 'undefined') return;
+    if (!versionsPromise) {
+      versionsPromise = fetch(info.root + 'versions.json', { cache: 'no-cache' })
+        .then(function (r) { if (!r.ok) throw new Error('no versions'); return r.json(); });
+    }
+    versionsPromise.then(function (v) {
+      if (!v || !v.stable || !v.dev || !v.stable.version || !v.dev.version) return;
+      var sel = el('select', { class: 'bn-topbar__version-select', title: 'Switch library version' });
+      ['stable', 'dev'].forEach(function (k) {
+        var o = el('option', { value: k, text: 'v' + v[k].version + ' (' + k + ')' });
+        if (k === info.site) o.selected = true;
+        sel.appendChild(o);
+      });
+      sel.addEventListener('change', function () {
+        var target = v[sel.value];
+        global.location.href = info.root + (target.path || '') + 'examples/' + info.rest +
+          global.location.search + global.location.hash;
+      });
+      box.appendChild(sel);
+    }).catch(function () {});
+  }
+
   function buildTopBar(opts) {
     var title    = opts.title    || doc.title || 'BeMap';
     var subtitle = opts.subtitle || '';
@@ -78,6 +116,8 @@
         on: { error: function (e) { var i = e.target || e.srcElement; if (i && !i._fellBack) { i._fellBack = true; i.src = 'benomad-logo.png'; } } } }),
       el('div', { class: 'bn-topbar__brand-text', html: 'BeMap<small>JS API · ' + libVer + '</small>' })
     ]);
+    var versionBox = el('div', { class: 'bn-topbar__version' });
+    fillVersionSelect(versionBox);
 
     var chipBox = el('div', { class: 'bn-topbar__chips' });
     chips.forEach(function (c) {
@@ -109,7 +149,7 @@
       })
     ]);
 
-    return el('header', { class: 'bn-topbar' }, [brand, chipBox, titles, actions]);
+    return el('header', { class: 'bn-topbar' }, [brand, versionBox, chipBox, titles, actions]);
   }
 
   /* --------------------------------------------------

@@ -1,0 +1,1433 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>JSDoc: Source: bemap.js</title>
+
+    <script src="scripts/prettify/prettify.js"> </script>
+    <script src="scripts/prettify/lang-css.js"> </script>
+    <!--[if lt IE 9]>
+      <script src="//html5shiv.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+    <link type="text/css" rel="stylesheet" href="styles/prettify-tomorrow.css">
+    <link type="text/css" rel="stylesheet" href="styles/jsdoc-default.css">
+</head>
+
+<body>
+
+<div id="main">
+
+    <h1 class="page-title">Source: bemap.js</h1>
+
+    
+
+
+
+    
+    <section>
+        <article>
+            <pre class="prettyprint source linenums"><code>/**
+ * BeNomad BeMap JavaScript API
+ * @projectname BeNomad BeMap JavaScript API
+ */
+
+var bemap = bemap || {};
+
+bemap.version = '2.1.0-rc.1';
+bemap.olVersion = '10.11.0';
+bemap.maplibreVersion = '6.19.0';
+
+/**
+ * Extends the class declaration with the parent class.
+ * @param {Class} child
+ * @param {Class} parent
+ */
+bemap.inherits = function (child, parent) {
+  child.prototype = Object.create(parent.prototype);
+  child.prototype.constructor = child;
+};
+
+/**
+ * Test if the object is inherits of the class (type).
+ * @param {Object} obj The object.
+ * @param {Class} type The inherits class model.
+ * @return {boolean}
+ */
+bemap.inheritsof = function (obj, type) {
+  // return obj.prototype.isPrototypeOf(type);
+  return (obj instanceof type);
+};
+
+/**
+ * Fill all fields of target object with source object.
+ * Only the feilds of target class model are filled.
+ * @param {Object} source Source object.
+ * @param {Object} target Target object.
+ */
+bemap.fillFields = function (source, target) {
+  for (var key in target) {
+    var value = source[key];
+    if (value) {
+      target[key] = value;
+    }
+  }
+};
+
+/**
+ * Get absolute path of current script.
+ * @return {String} Retun absolute path of current script.
+ */
+bemap._getCurrentPath_cache = null;
+bemap.getCurrentPath = function () {
+  if (bemap._getCurrentPath_cache === null) {
+    var scripts = document.getElementsByTagName('script');
+    var path = scripts[scripts.length - 1].src.split('?')[0];
+    bemap._getCurrentPath_cache = path.split('/').slice(0, -1).join('/') + '/';
+  }
+  return bemap._getCurrentPath_cache;
+};
+
+/**
+ * Perform a Ajax request.
+ * @param {String} method HTTP method (GET, POST).
+ * @param {String} url URL of request.
+ * @param {String|Object} data POST data of request, can by a string or javascript object. The javascript object will be converted in JSON string.
+ * @param {String} success Callback if the request is executed with success.
+ * @param {String} faild Callback if the request was failled.
+ * @param {Object}options Options object.*
+ * @param {Object} options.headers List of HTTP headers.
+ * @param {Object} options.requestFormat mime type of predefined value, json, xml or urlencoded.
+ */
+bemap.ajax = function (method, url, data, success, failled, options) {
+  var opt = options || {};
+  var xhr = new XMLHttpRequest();
+  var called = false;
+
+  xhr.open(method, url, true);
+
+  if (data instanceof Object &amp;&amp; !(data instanceof FormData)) {
+    data = JSON.stringify(data);
+    if (!opt.requestFormat) {
+      opt.requestFormat = "json";
+    }
+  }
+
+  if (opt.responseType) {
+    xhr.responseType = opt.responseType;
+  }
+
+  if (opt.requestFormat) {
+    if (!opt.headers) {
+      opt.headers = [];
+    }
+
+    if (opt.requestFormat == 'json') {
+      opt.headers.push({ "key": "Content-Type", "value": "application/json" });
+    } else if (opt.requestFormat == 'xml') {
+      opt.headers.push({ "key": "Content-Type", "value": "text/xml" });
+    } else if (opt.requestFormat == 'urlencoded') {
+      opt.headers.push({ "key": "Content-Type", "value": "application/x-www-form-urlencoded" });
+    } else {
+      opt.headers.push({ "key": "Content-Type", "value": opt.requestFormat });
+    }
+  }
+
+  if (opt.headers) {
+    for (var i = 0; i &lt; opt.headers.length; i++) {
+      var header = opt.headers[i];
+      xhr.setRequestHeader(header.key, header.value);
+    }
+  }
+
+  xhr.onreadystatechange = function () {
+    if (!called &amp;&amp; (!this.readyState || xhr.readyState === 4 || this.readyState === 'complete' || this.readyState === 'loaded')) {
+      called = true;
+      var doc = xhr.response || xhr.responseText || xhr.responseXML;
+      if (xhr.status == 200) {
+        success(xhr, doc);
+      } else {
+        if (typeof (failled) === 'function') {
+          failled(xhr, doc);
+        }
+        console.error("Status " + xhr.status, url);
+      }
+    }
+  };
+
+  xhr.send(data);
+  return xhr;
+};
+
+/**
+ * Proxy headers for a `bemap.ajax` call site, in its `[{key,value}]` shape
+ * (EVMOVE-307). Returns a FRESH array every time — `bemap.ajax` pushes
+ * `Content-Type` onto the array it is handed, so a shared one would grow
+ * unboundedly. `[]` (a no-op for `bemap.ajax`) when there is no proxy, no
+ * Context, or an older Context without the helper.
+ *
+ * Single definition for all v1 service call sites so the rule cannot drift.
+ * @private
+ * @since 2.0.2
+ * @param {bemap.Context} [ctx]
+ * @return {Array.&lt;{key: String, value: String}>}
+ */
+bemap._proxyHeaderList = function (ctx) {
+  return (ctx &amp;&amp; typeof ctx.getProxyHeadersList === 'function') ? ctx.getProxyHeadersList() : [];
+};
+
+/**
+ * Load a JavaScript file.
+ * @param {String} src Script name with path.
+ * @param {Object} options
+ */
+bemap._require_cache = [];
+bemap.require = function (src, options) {
+  var key, inCacheSrc, found = false;
+
+  for (key in bemap._require_cache) {
+    inCacheSrc = bemap._require_cache[key];
+    if (inCacheSrc == src) {
+      found = true;
+    }
+  }
+
+  if (!found) {
+    var head = document.head || document.getElementsByTagName('HEAD').item(0) || document.documentElement;
+    var tag = document.createElement('script');
+
+    if (!head || !tag) {
+      console.error("Unsupport browser!");
+    }
+
+    tag.type = 'text/javascript';
+    if (src.charAt(0) == '/') {
+      tag.src = src;
+    } else {
+      tag.src = this.getCurrentPath() + src;
+    }
+
+    var opt = options || {};
+    if (typeof (opt.success) === 'function') {
+      var called = false;
+      tag.onload = tag.onreadystatechange = function () {
+        if (!called &amp;&amp; (!this.readyState || xhr.readyState === 4 || this.readyState === 'complete' || this.readyState === 'loaded')) {
+          called = true;
+          if (xhr.Status == 200) {
+            opt.success(xhr, doc);
+          } else {
+            if (typeof (opt.faild) === 'function') {
+              faild(xhr, doc);
+            }
+          }
+        }
+      };
+    }
+
+    tag.onerror = function () {
+      console.error("Cannont load the library '" + src + "'");
+    };
+
+    head.appendChild(tag);
+    bemap._require_cache.push(src);
+  }
+};
+
+/**
+ * @classdesc
+ * Base class for Exception.
+ *
+ * @constructor
+ * @param {String} message.
+ * @param {bemap.Exception} cause.
+ */
+bemap.Exception = function (message, cause) {
+  this.message = message;
+  this.cause = cause ? cause : null;
+};
+
+/**
+ * Return the message of exception.
+ * @return {String} Return the message of exception.
+ */
+bemap.Exception.prototype.getMessage = function () {
+  return this.message;
+};
+
+/**
+ * Return the cause of exception.
+ * @return {bemap.Exception} Return the cause of exception.
+ */
+bemap.Exception.prototype.getCause = function () {
+  return this.cause;
+};
+
+/**
+ * Return stack of exceptions.
+ * @return {String} Return stack of exceptions.
+ */
+bemap.Exception.prototype.getStack = function () {
+  var exception = this,
+    stack = "";
+  while (true) {
+    stack = exception.message + "\n";
+    if (exception.cause === null) {
+      break;
+    } else {
+      exception = exception.cause;
+    }
+  }
+  return stack;
+};
+
+/**
+ * Print stack of exceptions.
+ * @return {String} Print stack of exceptions.
+ */
+bemap.Exception.prototype.printStack = function () {
+  console.error(this.getStack());
+};
+
+/**
+ * @classdesc
+ * Base class for Context.
+ *
+ * @constructor
+ * @param {object} options.
+ */
+bemap.Context = function (options) {
+  var opts = options || {};
+
+  /**
+   * Define the protocol used. The HTTP or HTTPS, by default the HTTP.
+   * @protected
+   * @type {string}
+   */
+  this.protocol = opts.secure ? 'https' : 'http';
+
+  /**
+   * Define the host name of BeMap server. By default "bemap.benomad.com"
+   * (production; the same service also answers at "bemap-prod.benomad.com").
+   * @protected
+   * @type {string}
+   */
+  this.host = opts.host || 'bemap.benomad.com';
+
+  /**
+   * Define the path of bgis context. The string must be start with / character. By default "/bgis/".
+   * @protected
+   * @type {string}
+   */
+  this.path = opts.path || '/bgis/';
+
+  /**
+   * Define the login.
+   * @protected
+   * @type {string}
+   */
+  this.login = opts.login;
+
+  /**
+   * Define the Password.
+   * @protected
+   * @type {string}
+   */
+  this.password = opts.password;
+
+  /**
+   * OPTIONAL — put your own proxy in front of BeMap so credentials never reach
+   * the browser (EVMOVE-307). Written like `host`: a bare host is enough and the
+   * `https://` prefix is **optional**, with a path prefix if your proxy lives
+   * under one —
+   * `'my-proxy.example.com'`, `'my-proxy.example.com/bemap'`,
+   * `'https://my-proxy.example.com'`, `'localhost:8787'`.
+   * When no scheme is written, the protocol comes from `secure` exactly as it
+   * does for `host`. Normalised once here (canonical `origin[+path]`, trailing
+   * slash stripped) and stored back, so every consumer reads the same form.
+   *
+   * When set: REST/WMS URLs (`getBaseUrl()`) and the tiles login
+   * (`getTilesLoginUrl()`) go through the proxy, no BeMap credentials are sent
+   * (`getAuthUrlParams()` → `''`, no `Authorization`) — even if `login`/
+   * `password` are also configured. Tile BYTES still go direct to `tilesHost`
+   * (a public host), so tile auth uses the token header wire.
+   *
+   * A query/fragment or embedded credentials are dropped with a one-shot console
+   * warning; only a value with no usable host left (a non-`http(s)` scheme, or a
+   * string that is not a host at all) throws — silently turning proxy mode OFF
+   * would fall back to direct requests, i.e. leak the very credentials this
+   * option exists to hide.
+   * @public
+   * @since 2.0.2
+   * @type {string|null}
+   */
+  this.proxy = bemap.Context._normalizeProxy(opts.proxy, this.protocol + ':');
+
+  /**
+   * OPTIONAL — environment selector for a multi-environment proxy, sent as the
+   * `X-BeMap-Env` header. Only a non-empty trimmed string is sent; anything
+   * else omits the header entirely (a single-environment proxy needs none).
+   * @public
+   * @since 2.0.2
+   * @type {string|null}
+   */
+  this.bemapEnv = (typeof opts.bemapEnv === 'string' &amp;&amp; opts.bemapEnv.trim())
+    ? opts.bemapEnv.trim() : null;
+
+  /**
+   * Heap cache of full URL to BeMap context.
+   * @private
+   * @type {string}
+   */
+  this.cacheBaseUrl = null;
+
+  /**
+   * Heap cache of base 64 authentication.
+   * @private
+   * @type {string}
+   */
+  this.cacheAuth = null;
+
+  /**
+   * Set the authentication parameters in POST data of request.
+   * @private
+   * @type {boolean}
+   */
+  this.authInPost = opts.authInPost ? true : false;
+
+  /**
+   * The default BeMap Geoserver
+   * @private
+   * @type {string}
+   */
+  this.geoserver = opts.geoserver ? opts.geoserver : undefined;
+
+  /**
+   * Default charging-station provider name (e.g. `'ecoMovement'`). When set,
+   * `bemap.ChargingStations.search()` and `bemap.EvSmartRouting.calculate()`
+   * fall back to this value when the request itself does not specify one.
+   * Only names exposed by the user's ACL (see
+   * `bemap.helpers.listChargingStationProviders`) are accepted server-side.
+   * @public
+   * @since 1.5.0
+   * @type {string}
+   */
+  this.chargingStationProvider = opts.chargingStationProvider || null;
+
+  /**
+   * BeNomad Tiles Worker host, e.g. `'mptiles-api.benomad.net'`. When set,
+   * `bemap.MapLibreMap` will route its background through PMTiles instead of
+   * WMS. Leaflet and OpenLayers ignore this field and keep WMS unchanged.
+   * @public
+   * @since 2.0.0
+   * @type {string|null}
+   */
+  this.tilesHost = opts.tilesHost || null;
+
+  /**
+   * Protocol used to reach `tilesHost`. Default `'https:'`.
+   * @public
+   * @since 2.0.0
+   * @type {string}
+   */
+  this.tilesProtocol = opts.tilesProtocol || 'https:';
+
+  /**
+   * Optional URL path prefix on `tilesHost`. Empty by default.
+   * @public
+   * @since 2.0.0
+   * @type {string}
+   */
+  this.tilesPath = opts.tilesPath || '';
+
+  /**
+   * PMTiles map served by the Worker — a bare name (the `.pmtiles` suffix is
+   * optional): an alias (`'osm'`, `'here'`) or an exact tileset
+   * (`'OSM_250901_WORLD'`). Defaults to `'default'`, which the Worker resolves
+   * to the configured default map server-side (via `_config/maps.json`), so the
+   * client never pins a map version. Aliases are case-insensitive.
+   * @public
+   * @since 2.0.0
+   * @type {string}
+   */
+  this.tilesFile = opts.tilesFile || 'default';
+
+  /**
+   * What to do when `geoserver` was inherited as the PMTiles map name but the
+   * Worker's `/api/maps` catalog has no such map — a BGIS-only provider
+   * (`herehlp`, `addok`, `photon`, `nominatim`, `tomtom`) has no vector map.
+   * `false` (the default) leaves the basemap empty, so a map never silently
+   * shows a DIFFERENT provider's data than the one that was selected. `true`
+   * loads the Worker's server-default map instead (the earlier behaviour).
+   * An explicit `tilesFile` pin is unaffected either way — it keeps surfacing
+   * its own 403/404, since a misspelled or unauthorised tileset is a
+   * configuration error, not a provider without tiles.
+   * @public
+   * @since 2.0.4
+   * @type {boolean}
+   */
+  this.tilesFallbackToDefault = opts.tilesFallbackToDefault === true;
+
+  /**
+   * What a `bemap.MapLibreMap` does when BeNomad Tiles (`tilesHost`) cannot be
+   * reached: the tiles login times out (`tilesFallbackDelayMs`), fails with a
+   * network error or an HTTP 5xx, 5 tile loads in a row fail that way, or no
+   * tiles archive answers within `tilesFallbackDelayMs` (e.g. stored token, no login).
+   * `true` (the default) shows the BeMap WMS background in the same map
+   * (overlays, center and zoom kept) and fires `tiles:fallback` (`{ wms: true }`);
+   * a login is then retried (10 s, 20 s, 40 s… up to 5 min) and the vector tiles
+   * come back with `tiles:restored`. Never on 401 / 403 / 429. Without
+   * `login`/`password` and without `proxy` (session mode) the WMS cannot be
+   * authenticated: `tiles:fallback` fires with `{ wms: false }` and the map
+   * stays as it is. `false` keeps the earlier behaviour (no switch, no event).
+   * Leaflet and OpenLayers ignore it.
+   * @public
+   * @since 2.0.5
+   * @type {boolean}
+   */
+  this.tilesFallbackToWms = opts.tilesFallbackToWms !== false;
+
+  /**
+   * How long (ms) the BeNomad Tiles login (or the first tiles archive answer)
+   * may take before `tilesFallbackToWms`
+   * switches the map to the WMS background. Default `5000`.
+   * @public
+   * @since 2.0.5
+   * @type {number}
+   */
+  this.tilesFallbackDelayMs = (+opts.tilesFallbackDelayMs > 0) ? +opts.tilesFallbackDelayMs : 5000;
+
+  /**
+   * BeNomad-Tiles archive version tokens, keyed by resolved map name
+   * (EVMOVE-457). Populated at runtime from the Worker's `/api/maps`
+   * (`aliasVersions`/`versions`). When a token is present, `getTilesFileUrl()`
+   * appends `?v=&lt;token>` so a rebuilt-under-the-same-name archive becomes a new
+   * URL and the browser fetches fresh bytes instead of stale cached slices.
+   * Empty by default → URLs are byte-identical to earlier releases.
+   * @public
+   * @since 2.0.1
+   * @type {Object.&lt;string,string>}
+   */
+  this.tilesVersions = {};
+
+  /**
+   * Optional override for the MapLibre glyphs (font) URL template, e.g.
+   * `'https://my-host/fonts/{fontstack}/{range}.pbf'`. When set it wins over
+   * every style's own `glyphs`. Leave unset and the library bundles no fonts:
+   * the tiny fallback style requests none, and server styles fetch their own
+   * glyphs from the Worker (a root-relative `/fonts/...` is absolutised to
+   * `&lt;tilesHost>/fonts/...` by `bemap.TilesStyle.resolvePlaceholders`).
+   * @public
+   * @since 2.0.0
+   * @type {string|null}
+   */
+  this.glyphsUrl = opts.glyphsUrl || null;
+
+  /**
+   * Where the JWT lives between page loads: `'session'` (default), `'local'`,
+   * or `'memory'` (no persistence).
+   * @public
+   * @since 2.0.0
+   * @type {string}
+   */
+  this.tokenStorage = opts.tokenStorage || 'session';
+
+  /**
+   * Tile-auth wire configuration — HOW authenticated requests to `tilesHost`
+   * carry their auth. A grouped object
+   * `{ mode, credentials, tokenHeader, tokenParam }` (or the shorthand string
+   * `'cookie'|'header'|'query'`), normalised by `bemap.Context._resolveTilesAuth`.
+   * Unset ⇒ `mode:'auto'` — resolved per deployment (same site as `tilesHost`
+   * ⇒ cookie, cross-site ⇒ header), so a consumer needs no auth config and never
+   * silently breaks cross-site. Read via `getTilesAuth()`; `bemap.MapLibreMap`
+   * lets a per-map `tilesAuth` opt override it field-by-field.
+   * @public
+   * @since 2.0.0
+   * @type {Object|String|null}
+   */
+  this.tilesAuth = opts.tilesAuth || null;
+
+  /**
+   * INTERNAL — a function returning a `Promise` that resolves to a BeMap
+   * **session id**, used instead of `login`/`password` when the host application
+   * already holds a session and cannot ship a password. It is re-invoked on
+   * EVERY login, including every renewal: a session captured once is already
+   * stale by the time the first token renewal is due.
+   *
+   * Only a **function** enables the mode. Any other value is stored as `null`,
+   * so a mis-typed option can never half-enable it (it falls through to the
+   * normal credential path and its existing error).
+   *
+   * NOT part of the supported API — undocumented, unadvertised, and subject to
+   * change without notice. Customers use `login` + `password`.
+   * @private
+   * @type {Function|null}
+   */
+  this.tilesSessionProvider = (typeof opts.tilesSessionProvider === 'function')
+    ? opts.tilesSessionProvider : null;
+  // Report the mistake HERE, where it was made. Normalising silently to `null`
+  // would otherwise hide a mis-typed provider until the first tile fails to load,
+  // with a "missing credentials" message pointing at the wrong fix.
+  if (opts.tilesSessionProvider != null &amp;&amp; typeof opts.tilesSessionProvider !== 'function') {
+    bemap.Context._warnBadSessionProvider(opts.tilesSessionProvider);
+  }
+};
+
+/**
+ * INTERNAL — one-shot flag for {@link bemap.Context._warnBadSessionProvider}.
+ * @private
+ */
+bemap.Context._badSessionProviderWarned = false;
+
+/**
+ * INTERNAL — report, once per page, that `tilesSessionProvider` was given a
+ * value that cannot be called. Shared by the constructor, the setter and
+ * `TilesAuth.login()` so the same mistake reads the same way wherever it is
+ * caught: the constructor/setter cover the normal path, while `login()` still
+ * covers a RAW property write (`bemap.RuntimeConfig`'s `set` trap assigns
+ * unknown keys straight onto the Context, bypassing both).
+ * @private
+ * @param {*} value the offending value — its TYPE is reported, never the value
+ */
+bemap.Context._warnBadSessionProvider = function (value) {
+  if (bemap.Context._badSessionProviderWarned) return;
+  bemap.Context._badSessionProviderWarned = true;
+  if (typeof console !== 'undefined' &amp;&amp; console.warn) {
+    console.warn('[bemap.Context] `tilesSessionProvider` is set but is not a function (got ' +
+      (typeof value) + ') — session mode is OFF.\n' +
+      '   It must be a function returning a Promise that resolves to the session id.');
+  }
+};
+
+/**
+ * Default tile-auth wire config: `mode:'auto'` — resolve per deployment at
+ * runtime (same registrable domain as `tilesHost` ⇒ `cookie`, else ⇒ `header`),
+ * so a new consumer needs NO auth config and never silently breaks cross-site
+ * (where a third-party cookie is blocked in incognito/Safari/Firefox).
+ * Consumer-supplied fields are merged over these.
+ * @public
+ * @since 2.0.0
+ */
+bemap.Context.TILES_AUTH_DEFAULTS = {
+  mode: 'auto',                   // 'auto' | 'cookie' | 'header' | 'query'
+  credentials: 'include',         // cookie mode: 'include' | 'same-origin' | 'omit'
+  tokenHeader: 'X-Session-Token', // header mode
+  tokenParam: 'token'             // query mode
+};
+
+/**
+ * Normalise a `tilesAuth` value into a fully-defaulted
+ * `{ mode, credentials, tokenHeader, tokenParam }`. Mirrors
+ * `bemap.Map._resolveControlOptions`: accepts `undefined` (→ defaults), a string
+ * shorthand (`'auto'|'cookie'|'header'|'query'` → that mode + defaults), or a
+ * partial object (missing fields filled). An unrecognised `mode` falls back to
+ * `'auto'`. `raw` fields win over `base` fields win over the defaults — so a
+ * per-map opt (`raw`) can override a Context config (`base`) field-by-field.
+ * NOTE: this is a PURE normaliser — it may return `mode:'auto'`. The runtime
+ * apply sites resolve `'auto'` → `cookie`/`header` via `_resolveAutoMode`.
+ * @public
+ * @since 2.0.0
+ * @param {Object|String} [raw]
+ * @param {Object|String} [base]
+ * @return {{mode:String, credentials:String, tokenHeader:String, tokenParam:String}}
+ */
+bemap.Context._resolveTilesAuth = function (raw, base) {
+  var D = bemap.Context.TILES_AUTH_DEFAULTS;
+  function coerce(v) {
+    if (v == null) return {};
+    if (typeof v === 'string') return { mode: v };
+    return (typeof v === 'object') ? v : {};
+  }
+  var b = coerce(base);
+  var r = coerce(raw);
+  var mode = r.mode || b.mode || D.mode;
+  if (mode !== 'auto' &amp;&amp; mode !== 'cookie' &amp;&amp; mode !== 'header' &amp;&amp; mode !== 'query') mode = D.mode;
+  return {
+    mode: mode,
+    credentials: r.credentials || b.credentials || D.credentials,
+    tokenHeader: r.tokenHeader || b.tokenHeader || D.tokenHeader,
+    tokenParam: r.tokenParam || b.tokenParam || D.tokenParam
+  };
+};
+
+/**
+ * Registrable domain of a host — the last two dot-labels (`a.b.benomad.net` →
+ * `benomad.net`; `benomadsas.github.io` → `github.io`; `localhost` → `localhost`).
+ * A deliberately dependency-free heuristic (no Public Suffix List): it is used
+ * ONLY to compare an app origin against `tilesHost`, and the tiles host is always
+ * a normal two-label domain, so a match can only ever mean a genuine same-site
+ * pair (the `*.github.io`-vs-`*.github.io` public-suffix trap cannot arise here).
+ * Accepts a bare host or a full URL; strips scheme / path / query / hash / port.
+ * @private
+ * @param {String} host
+ * @return {String}
+ */
+bemap.Context._regDomain = function (host) {
+  if (!host) return '';
+  host = String(host).toLowerCase()
+    .replace(/^[a-z][a-z0-9+.\-]*:\/\//, '')                    // scheme://
+    .split('/')[0].split('?')[0].split('#')[0].split(':')[0];  // path / query / hash / port
+  var labels = host.split('.').filter(function (p) { return p.length > 0; });
+  return (labels.length &lt;= 2) ? labels.join('.') : labels.slice(-2).join('.');
+};
+
+/**
+ * `true` when `appHost` and `tilesHost` share the same registrable domain — i.e.
+ * the browser treats the tile request as first-party, so the `SameSite=None`
+ * session cookie is sent (works in incognito/Safari/Firefox). Different domains
+ * ⇒ third-party cookie ⇒ blocked ⇒ the caller must carry the token itself.
+ * @public
+ * @since 2.0.0
+ * @param {String} appHost   e.g. `window.location.hostname`
+ * @param {String} tilesHost e.g. `ctx.tilesHost`
+ * @return {Boolean}
+ */
+bemap.Context._sameSite = function (appHost, tilesHost) {
+  var a = bemap.Context._regDomain(appHost);
+  var t = bemap.Context._regDomain(tilesHost);
+  return !!a &amp;&amp; !!t &amp;&amp; a === t;
+};
+
+/**
+ * Resolve a `mode:'auto'` config to a concrete `cookie` (same-site) or `header`
+ * (cross-site) mode for the current page. A no-op for any explicit mode. Header
+ * is the safe fallback — it works in every browser and deployment — so we only
+ * pick `cookie` on a confident same-site match, never breaking cross-site. This
+ * is the ONE place `'auto'` is turned into a wire mode, called by the fetch
+ * interceptor / `TilesStyle.fetch`. `appHost` defaults to the current
+ * `window.location.hostname` (pass it explicitly in tests / non-browser hosts).
+ * @public
+ * @since 2.0.0
+ * @param {Object} cfg resolved config from `_resolveTilesAuth` (may be `mode:'auto'`)
+ * @param {String} tilesHost
+ * @param {String} [appHost]
+ * @return {Object} `cfg` unchanged, or a clone with a concrete `mode`
+ */
+bemap.Context._resolveAutoMode = function (cfg, tilesHost, appHost) {
+  if (!cfg || cfg.mode !== 'auto') return cfg;
+  if (appHost == null) {
+    appHost = (typeof window !== 'undefined' &amp;&amp; window.location &amp;&amp; window.location.hostname) || '';
+  }
+  var out = {};
+  for (var k in cfg) { if (Object.prototype.hasOwnProperty.call(cfg, k)) out[k] = cfg[k]; }
+  out.mode = bemap.Context._sameSite(appHost, tilesHost) ? 'cookie' : 'header';
+  return out;
+};
+
+/**
+ * Matches an EXPLICIT scheme prefix (`https://`, `http://`, `ftp://`, …).
+ *
+ * The `://` is required, and detection MUST be done on this prefix rather than
+ * by trying to parse: `new URL('localhost:8787')` does **not** throw — it parses
+ * as scheme `localhost:` with path `8787`. Sniffing "does it parse?" would
+ * therefore turn a bare `host:port` into silent garbage.
+ * @private
+ * @since 2.0.2
+ */
+bemap.Context._PROXY_SCHEME_RE = /^[a-zA-Z][a-zA-Z0-9+.\-]*:\/\//;
+
+/**
+ * One-shot console notices emitted by `_normalizeProxy`, keyed by kind, so a
+ * config mistake is reported once per page instead of on every read (the proxy
+ * is re-normalised on every `getProxy()`).
+ * @private
+ * @since 2.0.2
+ */
+bemap.Context._proxyWarned = {};
+
+/**
+ * Emit `message` at most once per `key` for the lifetime of the page.
+ * @private
+ * @since 2.0.2
+ * @param {String} key
+ * @param {String} message
+ * @param {String} [level] `'warn'` (default) or `'error'`
+ */
+bemap.Context._warnProxyOnce = function (key, message, level) {
+  if (bemap.Context._proxyWarned[key]) return;
+  bemap.Context._proxyWarned[key] = true;
+  if (typeof console === 'undefined') return;
+  if (level === 'error' &amp;&amp; console.error) { console.error(message); return; }
+  if (console.warn) console.warn(message);
+};
+
+/**
+ * Is a WORKING WHATWG `URL` constructor available? Feature-*tested*, not sniffed:
+ * IE11 exposes `window.URL` (for `createObjectURL`) but `new URL(...)` throws, so
+ * `typeof URL` alone would be wrong. Memoised on first call.
+ * @private
+ * @since 2.0.2
+ * @return {boolean}
+ */
+bemap.Context._hasNativeUrl = function () {
+  if (bemap.Context._nativeUrlOk === undefined) {
+    var ok = false;
+    try { ok = (new URL('http://a.example/b').host === 'a.example'); } catch (e) { ok = false; }
+    bemap.Context._nativeUrlOk = ok;
+  }
+  return bemap.Context._nativeUrlOk;
+};
+
+/**
+ * Parse an ABSOLUTE `http(s)` URL into the subset of the `URL` interface
+ * `_normalizeProxy` reads (`protocol`, `username`, `password`, `origin`,
+ * `pathname`, `search`, `hash`). Uses the native `URL` when there is one.
+ *
+ * The fallback exists because `proxy` is the ONLY modern-API dependency on the
+ * legacy path: a Leaflet/OpenLayers app calling v1 services through a proxy uses
+ * `&lt;img>` tiles and `XMLHttpRequest` — no `fetch`, no `Promise` — so requiring
+ * `URL` here would have locked those consumers out of proxy mode alone. It is a
+ * deliberately CONSERVATIVE parser: `scheme://[user:pass@]host[:port][/path]`,
+ * where `host` is a DNS name, an IPv4 literal, or a **bracketed** IPv6 literal.
+ *
+ * Where it matches the native `URL` exactly: lower-casing the host, dropping a
+ * default port (`:80`/`:443`), preserving path case and percent-encoding, and
+ * stripping userinfo/query/fragment from the origin. Two canonicalisations it
+ * cannot do in ES5, and how each is handled so the result is never a silent
+ * divergence:
+ *   - **non-ASCII host** — a modern browser would punycode it (IDNA). REJECTED
+ *     here with a message naming the fix (write the `xn--…` form).
+ *   - **abbreviated IPv4 (`127.1` → `127.0.0.1`) and a non-canonical IPv6
+ *     literal** — passed through as written rather than expanded/compressed. The
+ *     request still resolves (the browser re-parses the URL itself); only the
+ *     string differs, and the one place that string-compares origins
+ *     (MapLibre's `transformRequest`) needs a modern browser anyway.
+ * @private
+ * @since 2.0.2
+ * @param {String} candidate An absolute URL (scheme already prefixed).
+ * @return {Object} A `URL`-like object.
+ */
+bemap.Context._parseProxyUrl = function (candidate) {
+  if (bemap.Context._hasNativeUrl()) return new URL(candidate);   // throws on a bad URL
+  // The host alternation takes a BRACKETED IPv6 literal first: '[::1]:8787' would
+  // otherwise stop the host at '[' (the class excludes ':'), leaving the rest in
+  // the path — which re-joins to the right string but breaks port handling, so
+  // `[::1]:443` would keep its default port where a browser drops it.
+  var m = /^(https?):\/\/(?:([^\/?#@]*)@)?(\[[0-9A-Fa-f:.]+\]|[^\/?#:@]+)(?::(\d+))?([^?#]*)(\?[^#]*)?(#[\s\S]*)?$/i.exec(candidate);
+  if (!m) throw new Error('bemap.Context: cannot parse `proxy` URL');
+  var scheme = m[1].toLowerCase();
+  var userinfo = m[2] || '';
+  var host = m[3].toLowerCase();
+  var port = m[4] || '';
+  var colon = userinfo.indexOf(':');
+  // No IDNA in ES5: a Unicode host would stay Unicode here while a modern browser
+  // would punycode it. Say so instead of producing a quietly different origin.
+  if (/[^\x00-\x7F]/.test(host)) {
+    // Flagged so `_normalizeProxy` re-throws THIS message instead of replacing it
+    // with the generic "must be a host or an http(s) URL" one — the actionable
+    // part is *why* it was refused (write punycode), which the generic text loses.
+    var idnaErr = new Error('bemap.Context: `proxy` host must be ASCII on a browser without the URL API — write the punycode form (e.g. "xn--bcher-kva.example")');
+    idnaErr.bemapProxyDetail = true;
+    throw idnaErr;
+  }
+  // Drop a default port so the origin matches what `URL` would produce.
+  if ((scheme === 'http' &amp;&amp; port === '80') || (scheme === 'https' &amp;&amp; port === '443')) port = '';
+  return {
+    protocol: scheme + ':',
+    username: (colon >= 0) ? userinfo.substring(0, colon) : userinfo,
+    password: (colon >= 0) ? userinfo.substring(colon + 1) : '',
+    origin: scheme + '://' + host + (port ? (':' + port) : ''),
+    pathname: m[5] || '',
+    search: m[6] || '',
+    hash: m[7] || ''
+  };
+};
+
+/**
+ * Normalise + validate a `proxy` option (EVMOVE-307) into the canonical
+ * `origin[+path]` form, with any trailing slash stripped — so composing it with
+ * `this.path` (which starts with `/`) can never produce `//`.
+ *
+ * **The scheme is optional.** `proxy` is written like `host`: a bare host is
+ * enough and inherits its protocol from `secure`, so
+ * `{ secure: true, proxy: 'my-proxy.example.com' }` and
+ * `{ proxy: 'https://my-proxy.example.com' }` are the same thing. Accepted:
+ * `my-proxy.example.com`, `my-proxy.example.com/prefix`, `localhost:8787`,
+ * `//my-proxy.example.com`, and every `http(s)://…` form (unchanged).
+ *
+ * Forgiving where a human's intent is unambiguous: a `?query`/`#fragment` or
+ * embedded `user:pass@` credentials are dropped with a one-shot console notice
+ * rather than refusing to boot. It still THROWS when nothing usable is left (a
+ * non-`http(s)` scheme, or a string that is not a host) — silently turning proxy
+ * mode off is the dangerous outcome, because the SDK would then fall back to
+ * direct requests and send the very credentials `proxy` exists to hide.
+ * A falsy input returns `null` (proxy mode off, no throw).
+ *
+ * @public
+ * @since 2.0.2
+ * @param {String} [raw]
+ * @param {String} [defaultProtocol] `'https:'` (default) or `'http:'` — the
+ *        Context passes its own `protocol` (i.e. `secure`) here.
+ * @return {String|null}
+ */
+bemap.Context._normalizeProxy = function (raw, defaultProtocol) {
+  if (raw === undefined || raw === null || raw === '') return null;
+  if (typeof raw !== 'string') {
+    throw new Error('bemap.Context: `proxy` must be a host or an http(s) URL string, got ' + (typeof raw));
+  }
+  var s = raw.trim();
+  if (!s) return null;
+  // NEVER interpolate the raw value into an error or a warning: a URL carrying
+  // userinfo (`https://user:pass@host`) would put a password into an Error
+  // message that an uncaught-error handler or crash reporter then captures.
+  var shown = bemap.Context._redactForMessage(s);
+  // Whitespace is never legitimate in a host, and engines disagree on what to do
+  // with it: Node/Ada rejects `https://not a url`, Chrome percent-encodes it into
+  // a garbage host instead of throwing. Decide it here so the behaviour is the
+  // same in every browser.
+  if (/\s/.test(s)) {
+    throw new Error('bemap.Context: `proxy` must not contain whitespace — got "' + shown + '"');
+  }
+  // A scheme-like prefix that is NOT `http://` or `https://` must be REJECTED,
+  // never re-read as a bare host. 'https:/host' (one slash) would otherwise take
+  // the bare-host branch, get a second prefix, and normalise to the host "https"
+  // with path "/host" — a request to a nonexistent host instead of a clear error.
+  // The one legitimate colon in a bare value is a numeric port ('localhost:8787').
+  if (/^[a-zA-Z][a-zA-Z0-9+.\-]*:/.test(s) &amp;&amp;
+      !bemap.Context._PROXY_SCHEME_RE.test(s) &amp;&amp;
+      !/^[^:\/?#]+:\d+(?:[\/?#]|$)/.test(s)) {
+    throw new Error('bemap.Context: `proxy` looks like a malformed URL — write "https://host", "http://host", or just "host" (optionally "host:port") — got "' + shown + '"');
+  }
+  // A ROOT-RELATIVE value ('/api/bemap') must be rejected BEFORE the bare-host
+  // branch: the URL parser skips any run of slashes after a special scheme
+  // ('https:///api/bemap' resolves to host "api", path "/bemap"), so it would
+  // silently point every request at a nonsense host. A same-origin proxy is a
+  // separate feature — the origin matcher used by MapLibre's transformRequest
+  // works on absolute origins — so say so instead of guessing.
+  if (/^[\/\\]/.test(s) &amp;&amp; s.indexOf('//') !== 0) {
+    throw new Error('bemap.Context: `proxy` must name a HOST (e.g. "my-proxy.example.com" or "https://my-proxy.example.com") — a root-relative path like "' + shown + '" is not supported');
+  }
+  // An unknown/absent protocol falls back to https: — the safe default, and what
+  // any proxy reachable from a production page must speak anyway.
+  var proto = (defaultProtocol === 'http:' || defaultProtocol === 'https:') ? defaultProtocol : 'https:';
+  var candidate;
+  if (bemap.Context._PROXY_SCHEME_RE.test(s)) candidate = s;      // explicit scheme wins, as written
+  else if (s.indexOf('//') === 0) candidate = proto + s;          // protocol-relative '//host'
+  else candidate = proto + '//' + s;                              // bare 'host[:port][/prefix]'
+  var u;
+  try {
+    u = bemap.Context._parseProxyUrl(candidate);
+  } catch (e) {
+    // A parser error that already explains itself (and never echoes the raw value)
+    // survives; only an opaque parse failure is replaced by the generic guidance.
+    if (e &amp;&amp; e.bemapProxyDetail) throw e;
+    throw new Error('bemap.Context: `proxy` must be a host (e.g. "my-proxy.example.com") or an http(s) URL (e.g. "https://my-proxy.example.com"), got "' + shown + '"');
+  }
+  if (u.protocol !== 'http:' &amp;&amp; u.protocol !== 'https:') {
+    throw new Error('bemap.Context: `proxy` must use http:// or https:// — or no scheme at all, which follows `secure` — got "' + shown + '"');
+  }
+  // `u.origin` already excludes userinfo, query and fragment, so these are
+  // dropped by construction; warn so the author learns it rather than wondering.
+  if (u.username || u.password) {
+    bemap.Context._warnProxyOnce('userinfo',
+      '[bemap.Context] `proxy` embeds credentials (user:pass@host) — they are IGNORED.\n' +
+      '   The proxy holds the BeMap credentials server-side; the browser must carry none.', 'error');
+  }
+  if (u.search || u.hash) {
+    bemap.Context._warnProxyOnce('querystring',
+      '[bemap.Context] `proxy` carries a query string or fragment — it is IGNORED.\n' +
+      '   Expected a host or an origin plus an optional path prefix, got "' + shown + '".');
+  }
+  // A proxy reached over http:// from an https:// page is blocked as mixed
+  // content by every browser, with an error that does not name the cause.
+  if (u.protocol === 'http:' &amp;&amp; typeof window !== 'undefined' &amp;&amp; window.location &amp;&amp;
+      window.location.protocol === 'https:') {
+    bemap.Context._warnProxyOnce('mixedcontent',
+      '[bemap.Context] `proxy` resolves to http:// on an https:// page — the browser\n' +
+      '   will BLOCK every request to it (mixed content). Set `secure: true` (which\n' +
+      '   also drives `host`), or write the scheme explicitly: "https://…".');
+  }
+  // Collapse any repeated slashes inside the path (`https://h//pre` → `/pre`)
+  // and strip the trailing one, so composing with `this.path` (which begins
+  // with '/') can never produce '//'.
+  return (u.origin + (u.pathname || '').replace(/\/{2,}/g, '/')).replace(/\/+$/, '');
+};
+
+/**
+ * Redact a URL-ish string for safe inclusion in an error message: drops any
+ * `user:pass@` userinfo and everything from `?`/`#` onward, and caps the length.
+ * @private
+ * @since 2.0.2
+ * @param {String} s
+ * @return {String}
+ */
+bemap.Context._redactForMessage = function (s) {
+  var out = String(s).split('#')[0].split('?')[0].replace(/\/\/[^/@]*@/, '//***@');
+  return (out.length > 120) ? (out.substring(0, 120) + '…') : out;
+};
+
+/**
+ * Return `true` when this Context has a `tilesHost` configured, meaning
+ * `bemap.MapLibreMap` should route the background through BeNomad Tiles.
+ * @public
+ * @since 2.0.0
+ * @return {boolean}
+ */
+bemap.Context.prototype.hasTilesConfig = function () {
+  return !!this.tilesHost;
+};
+
+/**
+ * Resolved tile-auth wire config `{ mode, credentials, tokenHeader, tokenParam }`
+ * — fully defaulted; `mode` is `'auto'` when unset (the fetch interceptor and
+ * `TilesStyle.fetch` resolve `'auto'` → `cookie`/`header` per deployment via
+ * `bemap.Context._resolveAutoMode`). See `this.tilesAuth`.
+ * @public
+ * @since 2.0.0
+ * @return {{mode:String, credentials:String, tokenHeader:String, tokenParam:String}}
+ */
+bemap.Context.prototype.getTilesAuth = function () {
+  return bemap.Context._resolveTilesAuth(this.tilesAuth);
+};
+
+/**
+ * Return the base URL of the BeNomad Tiles Worker, e.g.
+ * `'https://mptiles-api.benomad.net'`.
+ * @public
+ * @since 2.0.0
+ * @return {string|null}
+ */
+bemap.Context.prototype.getTilesBaseUrl = function () {
+  if (!this.tilesHost) return null;
+  return this.tilesProtocol + '//' + this.tilesHost + (this.tilesPath || '');
+};
+
+/**
+ * INTERNAL — attach (or clear) the tiles session provider on a live Context.
+ * Anything that is not a function clears it, so a mis-typed value can never
+ * half-enable session mode. See `this.tilesSessionProvider`.
+ * @private
+ * @param {Function|null} fn
+ * @return {bemap.Context} this
+ */
+bemap.Context.prototype.setTilesSessionProvider = function (fn) {
+  this.tilesSessionProvider = (typeof fn === 'function') ? fn : null;
+  if (fn != null &amp;&amp; typeof fn !== 'function') bemap.Context._warnBadSessionProvider(fn);
+  return this;
+};
+
+/**
+ * URL of the tiles login endpoint. Normally the Worker's `/api/login` on
+ * `tilesHost`; in **proxy mode** (`ctx.proxy`, EVMOVE-307) it is
+ * `&lt;proxy>/tiles/login` instead, because the login is the one tiles call that
+ * needs BeMap credentials and the proxy injects them server-side.
+ * @public
+ * @since 2.0.0
+ * @return {string|null}
+ */
+bemap.Context.prototype.getTilesLoginUrl = function () {
+  // Proxy mode (EVMOVE-307): the login is the ONE tiles call that needs
+  // credentials, so it goes through the proxy (which injects them). Tile BYTES
+  // and the /api/* discovery calls stay direct to the public tilesHost.
+  var proxy = this.getProxy();
+  if (proxy) return proxy + '/tiles/login';
+  var base = this.getTilesBaseUrl();
+  return base ? base + '/api/login' : null;
+};
+
+/**
+ * URL of the Worker status endpoint (`/api/status`).
+ * @public
+ * @since 2.0.0
+ * @return {string|null}
+ */
+bemap.Context.prototype.getTilesStatusUrl = function () {
+  var base = this.getTilesBaseUrl();
+  return base ? base + '/api/status' : null;
+};
+
+/**
+ * URL of the Worker logout endpoint (`/api/logout`).
+ * @public
+ * @since 2.0.0
+ * @return {string|null}
+ */
+bemap.Context.prototype.getTilesLogoutUrl = function () {
+  var base = this.getTilesBaseUrl();
+  return base ? base + '/api/logout' : null;
+};
+
+/**
+ * URL of the Worker map-config discovery endpoint (`/api/maps`) — returns the
+ * default map, aliases, and the allow-listed tileset filenames for this env.
+ * @public
+ * @since 2.0.0
+ * @return {string|null}
+ */
+bemap.Context.prototype.getTilesMapsUrl = function () {
+  var base = this.getTilesBaseUrl();
+  return base ? base + '/api/maps' : null;
+};
+
+/**
+ * URL of the Worker style-list endpoint (`/api/styles`) — returns the
+ * allow-listed style files for this env.
+ * @public
+ * @since 2.0.0
+ * @return {string|null}
+ */
+bemap.Context.prototype.getTilesStylesUrl = function () {
+  var base = this.getTilesBaseUrl();
+  return base ? base + '/api/styles' : null;
+};
+
+/**
+ * URL of the Worker default-STYLE pointer (`/api/default-style`) — returns the
+ * name of the MapLibre style applied when the developer pins no style. Used for
+ * the "load the live charte from the server after login" default path.
+ * @public
+ * @since 2.0.0
+ * @return {string|null}
+ */
+bemap.Context.prototype.getTilesDefaultStyleUrl = function () {
+  var base = this.getTilesBaseUrl();
+  return base ? base + '/api/default-style' : null;
+};
+
+/**
+ * URL of a named MapLibre style JSON served by the Worker. Accepts either a
+ * bare style name (`'openfreemap_graylevel'` → `&lt;base>/styles/openfreemap_graylevel`)
+ * or a Worker-relative path as returned by `/api/styles`
+ * (`'styles/openfreemap_graylevel.json'` → `&lt;base>/styles/openfreemap_graylevel.json`).
+ * A leading slash is stripped; a value that already carries a path segment is
+ * resolved against the tilesHost root rather than re-nested under `/styles/`.
+ * Returns `null` when there is no tilesHost or no name.
+ * @public
+ * @since 2.0.0
+ * @param {String} name
+ * @return {string|null}
+ */
+bemap.Context.prototype.getTilesStyleUrl = function (name) {
+  var base = this.getTilesBaseUrl();
+  if (!base || !name) return null;
+  var n = String(name).replace(/^\/+/, '');           // strip leading slash(es)
+  // Already a path (e.g. 'styles/foo.json' from /api/styles) → prefix the host
+  // root; a bare name → the /styles/ collection.
+  return (n.indexOf('/') > -1) ? (base + '/' + n) : (base + '/styles/' + n);
+};
+
+/**
+ * URL of the Worker default-map endpoint (`/api/default`) — returns the
+ * filename the `default` alias currently resolves to (or `null` server-side).
+ * @public
+ * @since 2.0.0
+ * @return {string|null}
+ */
+bemap.Context.prototype.getTilesDefaultUrl = function () {
+  var base = this.getTilesBaseUrl();
+  return base ? base + '/api/default' : null;
+};
+
+/**
+ * Build the URL of a PMTiles archive (or `{z}/{x}/{y}.pbf` directory) served
+ * by the Worker. Resolves to `https://{tilesHost}{tilesPath}/{file}`.
+ * @public
+ * @since 2.0.0
+ * @param {string} [file] Archive file name; defaults to `Context.tilesFile`.
+ * @return {string|null}
+ */
+bemap.Context.prototype.getTilesFileUrl = function (file) {
+  var base = this.getTilesBaseUrl();
+  if (!base) return null;
+  // An explicit `file` is honoured as-is; otherwise apply the full precedence
+  // (ctx.tilesFile -> geoserver -> 'default'). The Worker resolves bare names
+  // and the 'default' alias server-side (via _config/maps.json), so the client
+  // never pins a map version. Map names are bare (no `.pmtiles`).
+  var f = file || this.resolveTilesFile();
+  var name = f.replace(/^\//, '');
+  var url = base + '/' + name;
+  // EVMOVE-457: when a version token is known for this map, append `?v=&lt;token>`
+  // so a rebuilt archive is a distinct URL (fresh bytes) instead of stale
+  // immutable cache. No token → identical URL to earlier releases.
+  var token = this.getTilesVersion(name);
+  if (token) url += (url.indexOf('?') === -1 ? '?' : '&amp;') + 'v=' + encodeURIComponent(token);
+  return url;
+};
+
+/**
+ * Decide which tiles map (PMTiles alias / tileset) MapLibre should load.
+ * Precedence, highest first:
+ *   1. an explicit per-call tile parameter (`explicit`, e.g. `opts.tilesFile`)
+ *   2. an explicit `ctx.tilesFile` (any value other than the 'default' sentinel)
+ *   3. `ctx.geoserver`, when set — so `geoserver: 'osm'` loads the 'osm' tiles
+ *   4. the literal 'default' — the Worker resolves it server-side
+ *
+ * The string `'default'` is treated as "not explicitly chosen", so a configured
+ * `geoserver` outranks the implicit default that `ctx.tilesFile` carries when
+ * the caller never set a tiles map.
+ *
+ * @public
+ * @since 2.0.0
+ * @param {String} [explicit] A per-call tilesFile that outranks the ctx values.
+ * @return {String}
+ */
+bemap.Context.prototype.resolveTilesFile = function (explicit) {
+  if (explicit &amp;&amp; explicit !== 'default') return explicit;
+  if (this.tilesFile &amp;&amp; this.tilesFile !== 'default') return this.tilesFile;
+  if (this.geoserver) return this.geoserver;
+  return 'default';
+};
+
+/**
+ * Version token currently known for a BeNomad-Tiles map (EVMOVE-457), or null.
+ * @public
+ * @since 2.0.1
+ * @param {String} [name] Resolved map name; defaults to `resolveTilesFile()`.
+ * @return {String|null}
+ */
+bemap.Context.prototype.getTilesVersion = function (name) {
+  if (!this.tilesVersions) return null;
+  var key = String(name || this.resolveTilesFile()).replace(/^\/+/, '');
+  return this.tilesVersions[key] || null;
+};
+
+/**
+ * Record (or clear) the version token for a BeNomad-Tiles map (EVMOVE-457).
+ * A non-empty string sets it; anything else clears it. Keyed by resolved map
+ * name, so several maps sharing one Context can each carry their own version.
+ * @public
+ * @since 2.0.1
+ * @param {String} name Resolved map name.
+ * @param {String} [token] Opaque version token from `/api/maps`.
+ * @return {bemap.Context}
+ */
+bemap.Context.prototype.setTilesVersion = function (name, token) {
+  if (!this.tilesVersions) this.tilesVersions = {};
+  var key = String(name || this.resolveTilesFile()).replace(/^\/+/, '');
+  if (typeof token === 'string' &amp;&amp; token) this.tilesVersions[key] = token;
+  else delete this.tilesVersions[key];
+  return this;
+};
+
+/**
+ * Return the configured default charging-station provider, or `null` when none
+ * is set. Mirrors the convenience shape of `getGeoserver()`.
+ * @public
+ * @since 1.5.0
+ * @return {String|null}
+ */
+bemap.Context.prototype.getChargingStationProvider = function () {
+  return this.chargingStationProvider || null;
+};
+
+/**
+ * Base URL of the BeMap REST/WMS endpoints — `protocol://host + path`.
+ *
+ * In **proxy mode** (`ctx.proxy`, EVMOVE-307) the consumer's own proxy origin
+ * replaces `protocol://host`, i.e. `&lt;proxy> + path`, so every REST/WMS call is
+ * routed through it (the proxy adds the credentials server-side).
+ * @public
+ * @return {String} BeMap URL
+ */
+bemap.Context.prototype.getBaseUrl = function () {
+  // getProxy() re-validates + invalidates cacheBaseUrl if `proxy` changed since
+  // the last read, so a late write (RuntimeConfig's Proxy `set` trap assigns
+  // straight onto the Context, bypassing the constructor) can neither skip
+  // validation nor be masked by a stale memo.
+  var proxy = this.getProxy();
+  if (!this.cacheBaseUrl) {
+    // Proxy mode (EVMOVE-307): the consumer's own proxy replaces the BeMap
+    // origin. `proxy` is normalised without a trailing slash and `path` starts
+    // with '/', so this can never yield '//'.
+    this.cacheBaseUrl = proxy
+      ? (proxy + this.path)
+      : (this.protocol + "://" + this.host + this.path);
+  }
+  return this.cacheBaseUrl;
+};
+
+/**
+ * The effective, NORMALISED proxy for this Context (EVMOVE-307), or `null` when
+ * proxy mode is off.
+ *
+ * Normalises **on read** and re-checks whenever the stored `proxy` value has
+ * changed since the last call: `bemap.RuntimeConfig`'s Proxy `set` trap writes
+ * unknown keys straight onto the shared Context, so a runtime
+ * `ctx.proxy = '…'` never passes through the constructor. Reading through this
+ * getter means such a write is still validated (it throws on a bad URL) and the
+ * `getBaseUrl()` memo is invalidated instead of serving the old origin.
+ * @public
+ * @since 2.0.2
+ * @return {String|null}
+ */
+bemap.Context.prototype.getProxy = function () {
+  if (this.proxy !== this._proxyChecked) {
+    // Pass our own protocol so a scheme-less late write ('my-proxy.example.com')
+    // follows `secure`, exactly like one passed to the constructor.
+    this._proxyResolved = bemap.Context._normalizeProxy(this.proxy, this.protocol + ':');
+    this._proxyChecked = this.proxy;
+    this.cacheBaseUrl = null;          // origin changed → rebuild on next read
+  }
+  return this._proxyResolved || null;
+};
+
+/**
+ * Set (or clear with `null`) the proxy at runtime, validating + normalising it
+ * and invalidating the base-URL memo. Accepts the same shapes as the constructor
+ * option, including a bare host (the protocol follows `secure`).
+ *
+ * **Set `proxy` BEFORE constructing a map.** This exists for config layers that
+ * mutate a live Context, and everything URL-shaped follows immediately
+ * (`getBaseUrl()`, `getAuthUrlParams()`, `getTilesLoginUrl()`, all v1/v2 service
+ * calls, and — for a map that already had a proxy — MapLibre's per-request env
+ * header). What it CANNOT retrofit:
+ *   - a `bemap.MapLibreMap` built on a proxy-less Context has no proxy
+ *     `transformRequest` wrapper installed at all, so it will never send
+ *     `X-BeMap-Env` (its tile auth is untouched, and services still switch);
+ *   - **no URL already built into a live map is rewritten** — a MapLibre WMS/raster
+ *     source added to the style, and any Leaflet/OpenLayers layer, keep the URL
+ *     they were created with, so their requests keep going to the OLD proxy (only
+ *     the env header follows the new one). Rebuild the source/layer — or re-apply
+ *     the style — to move that traffic;
+ *   - a tiles JWT already minted for the previous proxy stays in use until it
+ *     expires or `TilesAuth.logout()` clears it.
+ * @public
+ * @since 2.0.2
+ * @param {String|null} raw
+ * @return {bemap.Context} this
+ */
+bemap.Context.prototype.setProxy = function (raw) {
+  var before = this.proxy || null;
+  this.proxy = bemap.Context._normalizeProxy(raw, this.protocol + ':');
+  this._proxyChecked = this.proxy;
+  this._proxyResolved = this.proxy;
+  this.cacheBaseUrl = null;
+  // Swapping one live proxy for another is the case that looks like it worked but
+  // only half did: URLs already baked into a map (a MapLibre WMS source, a Leaflet
+  // or OpenLayers layer) still point at the OLD proxy, and nothing rewrites them.
+  // Say it once rather than let it surface as half the traffic on the old origin.
+  if (before &amp;&amp; this.proxy &amp;&amp; before !== this.proxy) {
+    bemap.Context._warnProxyOnce('switch',
+      '[bemap.Context] `proxy` changed after it was already set. URLs already built\n' +
+      '   into existing map sources/layers (MapLibre WMS sources, Leaflet/OpenLayers\n' +
+      '   layers) still point at the previous proxy — rebuild the layer or the style\n' +
+      '   to move them. Services, WMS URLs built from now on, and the tiles login\n' +
+      '   follow the new value immediately.');
+  }
+  return this;
+};
+
+/**
+ * The environment selector sent as `X-BeMap-Env` on proxy requests, or `null`.
+ * @public
+ * @since 2.0.2
+ * @return {String|null}
+ */
+bemap.Context.prototype.getBemapEnv = function () {
+  return (typeof this.bemapEnv === 'string' &amp;&amp; this.bemapEnv.trim()) ? this.bemapEnv.trim() : null;
+};
+
+/**
+ * URL auth parameters (`appid=…&amp;appcode=…`) for REST/WMS URLs.
+ *
+ * Returns `''` when there are no credentials, and **always `''` in proxy mode**
+ * (`ctx.proxy`, EVMOVE-307) — credentials never travel to a proxy, even when
+ * `login`/`password` are also configured. (Before 2.0.2 the credential-less case
+ * returned `null`, which string-concatenated into URLs as a literal `"null"`.)
+ * @public
+ * @return {String} `appid=…&amp;appcode=…`, or `''`
+ */
+bemap.Context.prototype.getAuthUrlParams = function () {
+  // Proxy mode (EVMOVE-307): credentials NEVER travel to a proxy — the proxy
+  // injects them server-side. Answered before the memo is touched, so a stale
+  // cacheAuth can neither be read nor written on this path.
+  if (this.getProxy()) return '';
+  if (this.login &amp;&amp; this.password &amp;&amp; !this.cacheAuth) {
+    // Encoded (EVMOVE-474): a password holding &amp; &lt; | { + or % broke the URL and
+    // BeMap answered 400 ("Invalid character found in the request target").
+    this.cacheAuth = "appid=" + encodeURIComponent(this.login) + "&amp;appcode=" + encodeURIComponent(this.password);
+  }
+  // No credentials → '' (not null): the value is string-concatenated into WMS
+  // URLs, where null produced a literal "wms?null&amp;…". @since 2.0.2
+  return this.cacheAuth || '';
+};
+
+/**
+ * Extra HTTP headers required by the configured proxy (EVMOVE-307), as a plain
+ * object for `fetch`-based call sites. Currently `X-BeMap-Env` when `bemapEnv`
+ * is a non-empty string; `{}` otherwise (no proxy, or no env selector).
+ *
+ * Returns a FRESH object on every call — callers merge/mutate it.
+ * @public
+ * @since 2.0.2
+ * @return {Object}
+ */
+bemap.Context.prototype.getProxyHeaders = function () {
+  var out = {};
+  var env = this.getBemapEnv();
+  if (this.getProxy() &amp;&amp; env) out['X-BeMap-Env'] = env;
+  return out;
+};
+
+/**
+ * Same header set as {@link bemap.Context#getProxyHeaders}, in the
+ * `[{key, value}]` shape `bemap.ajax` (and `evmove5`'s dao) consumes. Derived
+ * from `getProxyHeaders()`, so a future header appears in both automatically.
+ *
+ * Returns a FRESH array on every call — `bemap.ajax` PUSHES onto the array it
+ * is given (Content-Type), so a shared array would grow without bound.
+ * @public
+ * @since 2.0.2
+ * @return {Array.&lt;{key: String, value: String}>}
+ */
+bemap.Context.prototype.getProxyHeadersList = function () {
+  var obj = this.getProxyHeaders();
+  var list = [];
+  for (var k in obj) {
+    if (Object.prototype.hasOwnProperty.call(obj, k)) list.push({ key: k, value: obj[k] });
+  }
+  return list;
+};
+
+/**
+ * Set to true if the authentication parameters will be write in the POST data of request.
+ */
+bemap.Context.prototype.setAuthInPost = function (authInPost) {
+  this.authInPost = authInPost;
+};
+
+/**
+ * Return true if the authentication parameters will be write in the POST data of request.
+ * @return {boolean} true if the authentication parameters will be write in the POST data of request..
+ */
+bemap.Context.prototype.isAuthInPost = function () {
+  return this.authInPost;
+};
+
+/**
+ * Return the default BaMap Geoserver of context.
+ * @return {String} BeMap Geoserver
+ */
+bemap.Context.prototype.getGeoserver = function () {
+  return this.geoserver;
+};
+
+/**
+ * Perform a HTTP Post request.
+ * @param {Object} options
+ */
+bemap.Context.prototype.post = function (options) {
+  var opt = options || {};
+  return this;
+};
+</code></pre>
+        </article>
+    </section>
+
+
+
+
+</div>
+
+<nav>
+    <h2><a href="index.html">Home</a></h2><h3>Classes</h3><ul><li><a href="bemap.AclDetailsResponse.html">AclDetailsResponse</a></li><li><a href="bemap.AclLabel.html">AclLabel</a></li><li><a href="bemap.AclService.html">AclService</a></li><li><a href="bemap.Address.html">Address</a></li><li><a href="bemap.AttributionWidget.html">AttributionWidget</a></li><li><a href="bemap.Autocomplete.html">Autocomplete</a></li><li><a href="bemap.AutocompleteElement.html">AutocompleteElement</a></li><li><a href="bemap.AutocompleteGeocodingRequest.html">AutocompleteGeocodingRequest</a></li><li><a href="bemap.AutocompleteGeocodingResponse.html">AutocompleteGeocodingResponse</a></li><li><a href="bemap.BemapLayer.html">BemapLayer</a></li><li><a href="bemap.BoundingBox.html">BoundingBox</a></li><li><a href="bemap.BrowserCache.html">BrowserCache</a></li><li><a href="bemap.BuildingsLayer.html">BuildingsLayer</a></li><li><a href="bemap.ChargingPoint.html">ChargingPoint</a></li><li><a href="bemap.ChargingStation.html">ChargingStation</a></li><li><a href="bemap.ChargingStationPool.html">ChargingStationPool</a></li><li><a href="bemap.ChargingStations.html">ChargingStations</a></li><li><a href="bemap.ChargingStationSearchRequest.html">ChargingStationSearchRequest</a></li><li><a href="bemap.ChargingStationSearchResponse.html">ChargingStationSearchResponse</a></li><li><a href="bemap.ChargingStationStep.html">ChargingStationStep</a></li><li><a href="bemap.ChargingTime.html">ChargingTime</a></li><li><a href="bemap.ChargingTimeRequest.html">ChargingTimeRequest</a></li><li><a href="bemap.ChargingTimeResponse.html">ChargingTimeResponse</a></li><li><a href="bemap.Circle.html">Circle</a></li><li><a href="bemap.CircleStyle.html">CircleStyle</a></li><li><a href="bemap.clusterStyle.html">clusterStyle</a></li><li><a href="bemap.Color.html">Color</a></li><li><a href="bemap.CondMaxSpeed.html">CondMaxSpeed</a></li><li><a href="bemap.Context.html">Context</a></li><li><a href="bemap.Coordinate.html">Coordinate</a></li><li><a href="bemap.CoordinateSat.html">CoordinateSat</a></li><li><a href="bemap.Destination.html">Destination</a></li><li><a href="bemap.Error.html">Error</a></li><li><a href="bemap.EvBrand.html">EvBrand</a></li><li><a href="bemap.EvReachableArea.html">EvReachableArea</a></li><li><a href="bemap.EvReachableAreaRequest.html">EvReachableAreaRequest</a></li><li><a href="bemap.EvReachableAreaResponse.html">EvReachableAreaResponse</a></li><li><a href="bemap.EvseRouting.html">EvseRouting</a></li><li><a href="bemap.EvSmartRouting.html">EvSmartRouting</a></li><li><a href="bemap.EvSmartRoutingRequest.html">EvSmartRoutingRequest</a></li><li><a href="bemap.EvSmartRoutingResponse.html">EvSmartRoutingResponse</a></li><li><a href="bemap.EvStepPoint.html">EvStepPoint</a></li><li><a href="bemap.EvVehicle.html">EvVehicle</a></li><li><a href="bemap.EvVehicles.html">EvVehicles</a></li><li><a href="bemap.Exception.html">Exception</a></li><li><a href="bemap.GeoAutocomplete.html">GeoAutocomplete</a></li><li><a href="bemap.Geocoder.html">Geocoder</a></li><li><a href="bemap.GeocodingItem.html">GeocodingItem</a></li><li><a href="bemap.GeocodingRequest.html">GeocodingRequest</a></li><li><a href="bemap.GeocodingResponse.html">GeocodingResponse</a></li><li><a href="bemap.GeoSearchInfo.html">GeoSearchInfo</a></li><li><a href="bemap.GeoServerInfoResponse.html">GeoServerInfoResponse</a></li><li><a href="bemap.GeoServerInfoService.html">GeoServerInfoService</a></li><li><a href="bemap.GeoServerServiceInfo.html">GeoServerServiceInfo</a></li><li><a href="bemap.GeoServerServiceLimit.html">GeoServerServiceLimit</a></li><li><a href="bemap.HeatmapLayer.html">HeatmapLayer</a></li><li><a href="bemap.Icon.html">Icon</a></li><li><a href="bemap.Isochrone.html">Isochrone</a></li><li><a href="bemap.Layer.html">Layer</a></li><li><a href="bemap.LeafletMap.html">LeafletMap</a></li><li><a href="bemap.LineStyle.html">LineStyle</a></li><li><a href="bemap.Listener.html">Listener</a></li><li><a href="bemap.Map.html">Map</a></li><li><a href="bemap.MapEvent.html">MapEvent</a></li><li><a href="bemap.MapLibreMap.html">MapLibreMap</a></li><li><a href="bemap.Marker.html">Marker</a></li><li><a href="bemap.MultiMarker.html">MultiMarker</a></li><li><a href="bemap.NearPoint.html">NearPoint</a></li><li><a href="bemap.NearPoiRequest.html">NearPoiRequest</a></li><li><a href="bemap.NearPoiResponse.html">NearPoiResponse</a></li><li><a href="bemap.NearPoiSearch.html">NearPoiSearch</a></li><li><a href="bemap.Object.html">Object</a></li><li><a href="bemap.Ol3Map.html">Ol3Map</a></li><li><a href="bemap.OlMap.html">OlMap</a></li><li><a href="bemap.OsmLayer.html">OsmLayer</a></li><li><a href="bemap.PMTilesLayer.html">PMTilesLayer</a></li><li><a href="bemap.PMTilesSliceSource.html">PMTilesSliceSource</a></li><li><a href="bemap.Polygon.html">Polygon</a></li><li><a href="bemap.PolygonStyle.html">PolygonStyle</a></li><li><a href="bemap.Polyline.html">Polyline</a></li><li><a href="bemap.Popup.html">Popup</a></li><li><a href="bemap.PostalAddress.html">PostalAddress</a></li><li><a href="bemap.RangeGate.html">RangeGate</a></li><li><a href="bemap.RasterLayer.html">RasterLayer</a></li><li><a href="bemap.RecoverablePromiseCache.html">RecoverablePromiseCache</a></li><li><a href="bemap.ReverseGeocoder.html">ReverseGeocoder</a></li><li><a href="bemap.ReverseGeocodingRequest.html">ReverseGeocodingRequest</a></li><li><a href="bemap.RevGeoSearchInfo.html">RevGeoSearchInfo</a></li><li><a href="bemap.RoadFeature.html">RoadFeature</a></li><li><a href="bemap.Route.html">Route</a></li><li><a href="bemap.Route.Event.html">Event</a></li><li><a href="bemap.Route.RoutesheetInstruction.html">RoutesheetInstruction</a></li><li><a href="bemap.Routing.html">Routing</a></li><li><a href="bemap.RoutingDestination.html">RoutingDestination</a></li><li><a href="bemap.RoutingInstruction.html">RoutingInstruction</a></li><li><a href="bemap.RoutingRequest.html">RoutingRequest</a></li><li><a href="bemap.RoutingResponse.html">RoutingResponse</a></li><li><a href="bemap.RoutingRoute.html">RoutingRoute</a></li><li><a href="bemap.RoutingSummary.html">RoutingSummary</a></li><li><a href="bemap.RoutingV2.html">RoutingV2</a></li><li><a href="bemap.RoutingVehicleProfile.html">RoutingVehicleProfile</a></li><li><a href="bemap.RoutingWaypoint.html">RoutingWaypoint</a></li><li><a href="bemap.Service.html">Service</a></li><li><a href="bemap.TextStyle.html">TextStyle</a></li><li><a href="bemap.TilesAuth.html">TilesAuth</a></li><li><a href="bemap.TilesOverlayCatalog.html">TilesOverlayCatalog</a></li><li><a href="global.html#bemap#.TraceRoute">TraceRoute</a></li><li><a href="bemap.TraceRouteDestination.html">TraceRouteDestination</a></li><li><a href="bemap.TraceRouteRequest.html">TraceRouteRequest</a></li><li><a href="bemap.VectorLayer.html">VectorLayer</a></li><li><a href="bemap.VectorTileLayer.html">VectorTileLayer</a></li><li><a href="bemap.WmsLayer.html">WmsLayer</a></li></ul><h3>Global</h3><ul><li><a href="global.html#_bemapAbortError">_bemapAbortError</a></li><li><a href="global.html#AC">AC</a></li><li><a href="global.html#AC_SINGLE_PHASE">AC_SINGLE_PHASE</a></li><li><a href="global.html#AC_THREE_PHASES">AC_THREE_PHASES</a></li><li><a href="global.html#bemap">bemap</a></li><li><a href="global.html#DC">DC</a></li><li><a href="global.html#NA">NA</a></li></ul>
+</nav>
+
+<br class="clear">
+
+<footer>
+    Documentation generated by <a href="https://github.com/jsdoc/jsdoc">JSDoc 3.6.3</a> on Tue Nov 24 2026 14:56:40 GMT+0100 (Central European Standard Time)
+</footer>
+
+<script> prettyPrint(); </script>
+<script src="scripts/linenumber.js"> </script>
+</body>
+</html>

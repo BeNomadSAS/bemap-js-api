@@ -1,0 +1,448 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>BeMap JS API — MapLibre Route + Slider (bfleet-style scrubber)</title>
+
+  <link rel="stylesheet" href="../dist/maplibre-gl.css">
+  <link rel="stylesheet" href="../dist/bemap-js-api.css">
+  <link rel="stylesheet" href="bn-2026.css">
+
+  <script src="../dist/maplibre-gl.js"></script>
+  <script src="../dist/pmtiles.js"></script>
+  <script src="../dist/bemap-js-api.js"></script>
+  <script src="effect-bridge.js"></script>
+  <script src="context.js"></script>
+  <script src="bn-2026.js"></script>
+</head>
+<body data-bn-page
+      data-bn-title="Route + Slider — MapLibre perf"
+      data-bn-subtitle="Multi-coloured route polyline with a scrubber marker, like bfleet's timeline. Compare <strong>NAIVE</strong> (remove + recreate per tick — what evmove5 does today) vs <strong>FAST</strong> (build once, <code>setCoordinate</code> + <code>setPaintProperty</code> per tick). FPS counter shows the real cost."
+      data-bn-chips="MapLibre:ml,perf:brand">
+  <div class="bn-shell">
+    <div class="bn-stage">
+      <div class="bn-map-cell" style="flex:1;">
+        <div class="bn-map-cell__label bn--ml">
+          <span class="bn-chip bn-chip--ml">MapLibre</span>
+          <span id="mapEngineLabel">bemap.MapLibreMap — synthetic 5000-pt route</span>
+        </div>
+        <div id="map1" class="bn-map" style="height:calc(100vh - 280px);"></div>
+
+        <!-- Slider + control bar -->
+        <div style="padding:10px 14px;background:linear-gradient(135deg,#2980b9,#3498db);color:#fff;">
+          <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:8px;">
+            <button id="btnNaive"  class="bn-btn"            type="button">Marker: NAIVE</button>
+            <button id="btnFast"   class="bn-btn bn-btn--primary" type="button">Marker: FAST</button>
+            <span style="opacity:0.6;">|</span>
+            <button id="btnRouteCoalesced" class="bn-btn bn-btn--primary" type="button">Route: 1 source / N features</button>
+            <button id="btnRouteSplit"     class="bn-btn"                 type="button" title="Mimics bfleet's per-segment addPolyline pattern — slow in MapLibre">Route: N sources / N layers (bfleet-style)</button>
+            <span style="opacity:0.6;">|</span>
+            <button id="btnAuto"   class="bn-btn bn-btn--ok"  type="button">Auto-scrub</button>
+            <button id="btnReset"  class="bn-btn bn-btn--ghost" type="button">Reset</button>
+            <span style="margin-left:auto;font-family:monospace;font-size:12px;">
+              <span style="opacity:0.85;">FPS:</span> <b id="fps">—</b>
+              &nbsp;<span style="opacity:0.85;">ms/tick:</span> <b id="msTick">—</b>
+              &nbsp;<span style="opacity:0.85;">ticks:</span> <b id="ticks">0</b>
+              &nbsp;<span style="opacity:0.85;">sources:</span> <b id="srcCount">0</b>
+              &nbsp;<span style="opacity:0.85;">layers:</span> <b id="lyrCount">0</b>
+            </span>
+          </div>
+          <input id="slider" type="range" min="0" max="4999" value="0" style="width:100%;">
+          <div style="display:flex;justify-content:space-between;font-family:monospace;font-size:11px;margin-top:4px;opacity:0.85;">
+            <span>Start</span>
+            <span id="sliderPct">0%</span>
+            <span>End</span>
+          </div>
+        </div>
+      </div>
+
+      <aside class="bn-panel">
+        <div class="bn-panel__header">
+          <span class="bn-panel__header-title">Notes</span>
+        </div>
+        <div class="bn-panel__body">
+          <section class="bn-panel__section">
+            <h4>What this exercises</h4>
+            <ul style="font-size:12px;line-height:1.5;padding-left:18px;margin:0;">
+              <li>One 5000-point route (synthetic sine wave through France).</li>
+              <li>Coloured in 10 segments — traffic-style (green/yellow/red).</li>
+              <li>Slider moves a marker along it + highlights the traversed portion.</li>
+              <li>FPS is computed over the last 30 frames during scrub.</li>
+            </ul>
+          </section>
+          <section class="bn-panel__section">
+            <h4>NAIVE mode</h4>
+            <p style="font-size:12px;line-height:1.5;margin:0;">
+              On every slider tick: <code>removeMarker</code> → <code>new bemap.Icon</code>
+              → <code>new bemap.Marker</code> → <code>addMarker</code>. In MapLibre each
+              add/remove is a DOM mutation + paint. <strong>This is what evmove5's
+              chart-hover scrubber does today.</strong>
+            </p>
+          </section>
+          <section class="bn-panel__section">
+            <h4>FAST mode</h4>
+            <p style="font-size:12px;line-height:1.5;margin:0;">
+              Marker built once. Each tick = <code>marker.setCoordinate(c)</code>
+              (one <code>setLngLat</code>) + <code>setPaintProperty('line-gradient',
+              …)</code>. No DOM churn, no source mutation. <strong>This is the bfleet
+              equivalent of OL's cheap vector-feature add/remove.</strong>
+            </p>
+          </section>
+          <section class="bn-panel__section">
+            <h4>API used</h4>
+            <div class="bn-stat"><span class="bn-stat__label">marker.setCoordinate</span> <span class="bn-stat__value">setLngLat</span></div>
+            <div class="bn-stat"><span class="bn-stat__label">line-gradient</span> <span class="bn-stat__value">paint property</span></div>
+            <div class="bn-stat"><span class="bn-stat__label">lineMetrics</span> <span class="bn-stat__value">true</span></div>
+          </section>
+        </div>
+      </aside>
+    </div>
+  </div>
+
+<script>
+  // ===========================================================================
+  // 1.  Build a synthetic 5000-point route through northern France
+  // ===========================================================================
+  var N = 5000;
+  var route = [];
+  for (var i = 0; i < N; i++) {
+    var t = i / (N - 1);                              // 0..1
+    var lon = -1.5 + t * 7;                            // -1.5 → 5.5
+    var lat = 49 + 1.3 * Math.sin(t * Math.PI * 4);   // sine wave around 49°
+    route.push([lon, lat]);
+  }
+
+  // Cumulative distance (for proportional progress on the gradient)
+  var cumDist = [0];
+  var totalDist = 0;
+  for (var k = 1; k < route.length; k++) {
+    var dx = route[k][0] - route[k-1][0];
+    var dy = route[k][1] - route[k-1][1];
+    totalDist += Math.sqrt(dx * dx + dy * dy);
+    cumDist.push(totalDist);
+  }
+
+  // ===========================================================================
+  // 2.  Map + base style (no auth required — uses default WMS via Context)
+  // ===========================================================================
+  var map = new bemap.MapLibreMap(bemapMainCtx, 'map1').defaultLayers().move(2, 49.5, 6);
+
+  // ===========================================================================
+  // 3.  Multi-coloured route — one GeoJSON source, multi-feature, segment colour
+  //     This is the CHEAP rendering pattern: one source/layer, many features,
+  //     paint-property uses ['get', 'color'] to colour per-feature.
+  // ===========================================================================
+  var SEGMENT_COUNT = 10;
+  var SEGMENT_SIZE = Math.floor(route.length / SEGMENT_COUNT);
+  var trafficPalette = [
+    '#2ecc71','#27ae60','#f1c40f','#e67e22','#e74c3c',
+    '#c0392b','#f1c40f','#27ae60','#2ecc71','#16a085'
+  ];
+
+  // Single feature for the full route (used for the highlight gradient).
+  var fullRouteGeoJson = {
+    type: 'FeatureCollection',
+    features: [{
+      type: 'Feature',
+      geometry: { type: 'LineString', coordinates: route },
+      properties: {}
+    }]
+  };
+
+  // Multi-feature for the base coloured render (10 segments, each its own colour).
+  var segmentsGeoJson = {
+    type: 'FeatureCollection',
+    features: []
+  };
+  for (var s = 0; s < SEGMENT_COUNT; s++) {
+    var from = s * SEGMENT_SIZE;
+    var to = (s === SEGMENT_COUNT - 1) ? route.length : (s + 1) * SEGMENT_SIZE + 1;
+    segmentsGeoJson.features.push({
+      type: 'Feature',
+      geometry: { type: 'LineString', coordinates: route.slice(from, to) },
+      properties: { color: trafficPalette[s], idx: s }
+    });
+  }
+
+  // Sources/layers we add in COALESCED mode.
+  var coalescedAdded = false;
+  // Sources/layers we add in SPLIT mode (one per segment — bfleet pattern).
+  var splitAdded = false;
+
+  function refreshCounters() {
+    try {
+      var style = map.native.getStyle();
+      document.getElementById('srcCount').textContent = Object.keys(style.sources || {}).length;
+      document.getElementById('lyrCount').textContent = (style.layers || []).length;
+    } catch (e) {}
+  }
+
+  function addRouteCoalesced() {
+    if (coalescedAdded) return;
+    // Base coloured route — ONE layer, segment colour via ['get', 'color'].
+    map.native.addSource('seg-src', { type: 'geojson', data: segmentsGeoJson });
+    map.native.addLayer({
+      id: 'seg-layer',
+      type: 'line',
+      source: 'seg-src',
+      paint: {
+        'line-color': ['get', 'color'],
+        'line-width': 5,
+        'line-opacity': 0.85
+      },
+      layout: { 'line-cap': 'round', 'line-join': 'round' }
+    });
+    coalescedAdded = true;
+    refreshCounters();
+  }
+
+  function removeRouteCoalesced() {
+    if (!coalescedAdded) return;
+    try { if (map.native.getLayer('seg-layer'))  map.native.removeLayer('seg-layer');  } catch (e) {}
+    try { if (map.native.getSource('seg-src')) map.native.removeSource('seg-src'); } catch (e) {}
+    coalescedAdded = false;
+    refreshCounters();
+  }
+
+  // Bfleet-style: one addPolyline per segment. With the current MapLibre
+  // adapter every Polyline gets ITS OWN source + layer — so 10 segments =
+  // 10 sources + 10 layers. Switch SEGMENT_COUNT to 50 / 200 to see how it
+  // scales (set window.SEG_OVERRIDE in the console then click again).
+  var splitPolylines = [];
+  function addRouteSplit() {
+    if (splitAdded) return;
+    var t0 = performance.now();
+    var count = window.SEG_OVERRIDE || SEGMENT_COUNT;
+    var step = Math.floor(route.length / count);
+    for (var s = 0; s < count; s++) {
+      var from = s * step;
+      var to = (s === count - 1) ? route.length : (s + 1) * step + 1;
+      var coords = [];
+      for (var j = from; j < to; j++) {
+        coords.push(new bemap.Coordinate(route[j][0], route[j][1]));
+      }
+      var color = trafficPalette[s % trafficPalette.length];
+      // Parse "#rrggbb" to bemap.Color
+      var r = parseInt(color.slice(1,3),16), g = parseInt(color.slice(3,5),16), b = parseInt(color.slice(5,7),16);
+      var pl = new bemap.Polyline(coords, {
+        style: new bemap.LineStyle({ width: 5, color: new bemap.Color(r,g,b,0.85), type: bemap.LineStyle.TYPE.PLANE })
+      });
+      map.addPolyline(pl);
+      splitPolylines.push(pl);
+    }
+    var dt = performance.now() - t0;
+    splitAdded = true;
+    bn.log('Added ' + count + ' polylines via addPolyline (one source/layer each) in ' + dt.toFixed(1) + ' ms.', 'warn');
+    refreshCounters();
+  }
+
+  function removeRouteSplit() {
+    if (!splitAdded) return;
+    for (var i = 0; i < splitPolylines.length; i++) {
+      try { map.removePolyline(splitPolylines[i]); } catch (e) {}
+    }
+    splitPolylines = [];
+    splitAdded = false;
+    refreshCounters();
+  }
+
+  function addHighlightLayer() {
+    if (map.native.getSource('hl-src')) return;
+    // Highlight layer — same geometry as the FULL route, paint with
+    // line-gradient that fills in up to the current progress.
+    // Requires lineMetrics: true on the source.
+    map.native.addSource('hl-src', { type: 'geojson', data: fullRouteGeoJson, lineMetrics: true });
+    map.native.addLayer({
+      id: 'hl-layer',
+      type: 'line',
+      source: 'hl-src',
+      paint: {
+        'line-width': 8,
+        'line-opacity': 0.9,
+        'line-gradient': [
+          'step',
+          ['line-progress'],
+          'rgba(0, 102, 204, 1)',
+          0.001,
+          'rgba(0, 0, 0, 0)'
+        ]
+      },
+      layout: { 'line-cap': 'round', 'line-join': 'round' }
+    });
+    refreshCounters();
+  }
+
+  map.native.once('idle', function () {
+    addRouteCoalesced();
+    addHighlightLayer();
+    bn.log('Map ready — slider scrubs the marker. Try Marker FAST vs NAIVE, then Route COALESCED vs SPLIT.', 'ok');
+  });
+
+  // ===========================================================================
+  // 4.  Two scrubber implementations, selectable at runtime
+  // ===========================================================================
+  var mode = 'fast';     // 'fast' | 'naive'
+  var fastMarker = null; // built once
+
+  function buildFastMarker(c) {
+    // Use a data: URI for a small SVG pin so the example never 404s on
+    // an image path — and shows up visually in the perf test.
+    var svg = '<svg xmlns="http://www.w3.org/2000/svg" width="28" height="36" viewBox="0 0 28 36">'
+            + '<path d="M14 0C6.3 0 0 6.3 0 14c0 10 14 22 14 22s14-12 14-22C28 6.3 21.7 0 14 0z"'
+            +   ' fill="#0066cc" stroke="#fff" stroke-width="2"/>'
+            + '<circle cx="14" cy="14" r="5" fill="#fff"/>'
+            + '</svg>';
+    var icon = new bemap.Icon({
+      src: 'data:image/svg+xml;base64,' + btoa(svg),
+      width: 28, height: 36,
+      anchorX: 0.5, anchorY: 1.0,
+      anchorXUnits: 'fraction', anchorYUnits: 'fraction'
+    });
+    return new bemap.Marker(c, { icon: icon });
+  }
+
+  function scrubFast(index) {
+    var pt = route[index];
+    var c = new bemap.Coordinate(pt[0], pt[1]);
+    if (!fastMarker) {
+      fastMarker = buildFastMarker(c);
+      map.addMarker(fastMarker);
+    } else {
+      fastMarker.setCoordinate(c);   // ← the one cheap call
+    }
+    // Highlight progress — O(1) paint property update.
+    var progress = cumDist[index] / totalDist;
+    if (map.native.getLayer('hl-layer')) {
+      map.native.setPaintProperty('hl-layer', 'line-gradient', [
+        'step',
+        ['line-progress'],
+        'rgba(0, 102, 204, 1)',
+        Math.max(0.001, Math.min(0.999, progress)),
+        'rgba(0, 0, 0, 0)'
+      ]);
+    }
+  }
+
+  // The pattern evmove5 / older bfleet uses on MapLibre — full remove + recreate
+  // every tick.
+  var naiveMarker = null;
+  function scrubNaive(index) {
+    var pt = route[index];
+    if (naiveMarker) {
+      map.removeMarker(naiveMarker);
+      naiveMarker = null;
+    }
+    naiveMarker = buildFastMarker(new bemap.Coordinate(pt[0], pt[1]));
+    map.addMarker(naiveMarker);
+
+    // Highlight via the same paint property — keeping the gradient comparison
+    // fair across modes (otherwise we'd be comparing apples to oranges).
+    var progress = cumDist[index] / totalDist;
+    if (map.native.getLayer('hl-layer')) {
+      map.native.setPaintProperty('hl-layer', 'line-gradient', [
+        'step',
+        ['line-progress'],
+        'rgba(0, 102, 204, 1)',
+        Math.max(0.001, Math.min(0.999, progress)),
+        'rgba(0, 0, 0, 0)'
+      ]);
+    }
+  }
+
+  // ===========================================================================
+  // 5.  FPS counter — sliding window over last 30 ticks
+  // ===========================================================================
+  var tickTimes = [];
+  var tickCount = 0;
+  function recordTick(duration) {
+    tickCount++;
+    tickTimes.push(duration);
+    if (tickTimes.length > 30) tickTimes.shift();
+    var avg = tickTimes.reduce(function (a, b) { return a + b; }, 0) / tickTimes.length;
+    document.getElementById('msTick').textContent = avg.toFixed(2);
+    document.getElementById('fps').textContent = (1000 / Math.max(avg, 0.01)).toFixed(1);
+    document.getElementById('ticks').textContent = tickCount;
+  }
+
+  // ===========================================================================
+  // 6.  Slider wiring + auto-scrub
+  // ===========================================================================
+  var slider = document.getElementById('slider');
+  function applySlider() {
+    var index = parseInt(slider.value, 10);
+    document.getElementById('sliderPct').textContent = ((index / (N - 1)) * 100).toFixed(1) + '%';
+    var t0 = performance.now();
+    if (mode === 'fast') scrubFast(index); else scrubNaive(index);
+    recordTick(performance.now() - t0);
+  }
+  slider.addEventListener('input', applySlider);
+
+  document.getElementById('btnFast').onclick = function () {
+    mode = 'fast';
+    this.classList.add('bn-btn--primary');
+    document.getElementById('btnNaive').classList.remove('bn-btn--primary');
+    bn.log('Marker mode → FAST (build once + setCoordinate).', 'ok');
+  };
+  document.getElementById('btnNaive').onclick = function () {
+    mode = 'naive';
+    this.classList.add('bn-btn--primary');
+    document.getElementById('btnFast').classList.remove('bn-btn--primary');
+    bn.log('Marker mode → NAIVE (remove+recreate every tick).', 'warn');
+  };
+
+  // Route render mode — coalesced (1 source / N features, the right pattern)
+  // vs split (N sources / N layers, mimics what bfleet does via addPolyline).
+  document.getElementById('btnRouteCoalesced').onclick = function () {
+    removeRouteSplit();
+    addRouteCoalesced();
+    this.classList.add('bn-btn--primary');
+    document.getElementById('btnRouteSplit').classList.remove('bn-btn--primary');
+    bn.log('Route → 1 source / N features. Check sources/layers counter.', 'ok');
+  };
+  document.getElementById('btnRouteSplit').onclick = function () {
+    removeRouteCoalesced();
+    addRouteSplit();
+    this.classList.add('bn-btn--primary');
+    document.getElementById('btnRouteCoalesced').classList.remove('bn-btn--primary');
+    bn.log('Route → N sources / N layers (bfleet-style). Watch the FPS during scrub.', 'warn');
+  };
+
+  var autoTimer = null;
+  document.getElementById('btnAuto').onclick = function () {
+    if (autoTimer) {
+      cancelAnimationFrame(autoTimer);
+      autoTimer = null;
+      this.textContent = 'Auto-scrub';
+      this.classList.remove('bn-btn--err');
+      this.classList.add('bn-btn--ok');
+      return;
+    }
+    this.textContent = 'Stop';
+    this.classList.remove('bn-btn--ok');
+    this.classList.add('bn-btn--err');
+    var idx = parseInt(slider.value, 10);
+    var dir = 1;
+    var step = function () {
+      idx += dir * 5;
+      if (idx >= N - 1) { idx = N - 1; dir = -1; }
+      if (idx <= 0)     { idx = 0;     dir = 1; }
+      slider.value = idx;
+      applySlider();
+      autoTimer = requestAnimationFrame(step);
+    };
+    autoTimer = requestAnimationFrame(step);
+  };
+
+  document.getElementById('btnReset').onclick = function () {
+    slider.value = 0;
+    tickTimes = [];
+    tickCount = 0;
+    applySlider();
+    document.getElementById('fps').textContent = '—';
+    document.getElementById('msTick').textContent = '—';
+    bn.log('Reset.', 'info');
+  };
+</script>
+</body>
+</html>

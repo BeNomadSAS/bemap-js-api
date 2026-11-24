@@ -108,6 +108,15 @@ body.bn-page code, body.bn-page kbd {
   display: block; font-size: 9px; opacity: 0.6; letter-spacing: 1px; font-weight: 400;
   margin-top: 1px;
 }
+.bn-topbar__version:empty { display: none; }
+.bn-topbar__version { margin-right: 12px; }
+.bn-topbar__version-select {
+  font-size: 11px; padding: 2px 4px;
+  color: var(--bn-text); background: transparent;
+  border: 1px solid var(--bn-line); border-radius: 4px;
+  cursor: pointer;
+}
+.bn-topbar__version-select option { color: #000; }
 .bn-topbar__titles {
   flex: 1; min-width: 0; line-height: 1.2;
 }

@@ -1,0 +1,3902 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>JSDoc: Source: bemap-maplibre/bemap-maplibre-v5/bemap-map-maplibre.js</title>
+
+    <script src="scripts/prettify/prettify.js"> </script>
+    <script src="scripts/prettify/lang-css.js"> </script>
+    <!--[if lt IE 9]>
+      <script src="//html5shiv.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+    <link type="text/css" rel="stylesheet" href="styles/prettify-tomorrow.css">
+    <link type="text/css" rel="stylesheet" href="styles/jsdoc-default.css">
+</head>
+
+<body>
+
+<div id="main">
+
+    <h1 class="page-title">Source: bemap-maplibre/bemap-maplibre-v5/bemap-map-maplibre.js</h1>
+
+    
+
+
+
+    
+    <section>
+        <article>
+            <pre class="prettyprint source linenums"><code>/**
+ * BeNomad BeMap JavaScript API - Map - MapLibre GL JS v5
+ */
+
+// Event name translation: bemap → MapLibre
+bemap.MapLibreMap_eventMap = {
+  'pointerup': 'mouseup',
+  'pointerdown': 'mousedown',
+  'pointerdrag': 'drag',
+  'pointermove': 'mousemove',
+  'singleclick': 'click',
+  'postrender': 'render',
+  'postcompose': 'render',
+  'precompose': 'render',
+  'propertychange': 'moveend',
+  'change': 'moveend',
+  'change:size': 'resize',
+  'change:view': 'moveend'
+};
+
+/**
+ * @classdesc
+ * Map implementation using MapLibre GL JS.
+ * @public
+ * @constructor
+ * @extends {bemap.Map}
+ */
+bemap.MapLibreMap = function(context, target, options) {
+  // Runtime dependency check FIRST — emits a loud console banner with
+  // the exact &lt;script>/&lt;link> tags to add when maplibregl / pmtiles /
+  // maplibre-gl.css are missing. Throws on missing critical JS deps.
+  var _hasTiles = !!(context &amp;&amp; typeof context.hasTilesConfig === 'function' &amp;&amp; context.hasTilesConfig());
+  bemap.Map._checkDependencies('maplibre', { tilesHost: _hasTiles });
+
+  this.target = target;
+  bemap.Map.call(this, context, options);
+
+  var opts = options || {};
+  this._layerCounter = 0;
+  // Tiles config is active when the Context exposes a tilesHost. This is the
+  // single switch that promotes the MapLibre background to BeNomad Tiles —
+  // explicit, surfaced through `ctx.hasTilesConfig()` so consumers can read it.
+  this._hasTilesConfig = !!(context &amp;&amp; typeof context.hasTilesConfig === 'function' &amp;&amp; context.hasTilesConfig());
+  this._hasCustomStyle = !!(opts.style || opts.tiles);
+  // Desktop-Chromium PMTiles Range no-store policy (bemap.RangeFetchPolicy).
+  // `rangeCacheMode` ('auto' | 'default' | 'no-store', default 'auto') is a
+  // page-level default read by BOTH the BeNomad-Tiles path (TilesAuth's shared
+  // policy) and the raw opts.tiles standalone installer. Set it BEFORE the
+  // TilesAuth interceptor below so its lazily-created policy picks it up.
+  if (opts.rangeCacheMode &amp;&amp; typeof bemap.RangeFetchPolicy === 'function') {
+    bemap.RangeFetchPolicy.defaultMode = opts.rangeCacheMode;
+  }
+  // Self-healing pmtiles header/directory cache (bemap.RecoverablePromiseCache).
+  // `recoverableCache` (default true) is a page-level default: when on, the tiles
+  // archive is wired through a cache that evicts REJECTED header/dir promises so a
+  // failed read self-heals instead of leaving a permanent hole. `false` → pmtiles'
+  // stock (poisoning) SharedPromiseCache. Transparent: only failed reads differ.
+  if (opts.recoverableCache != null &amp;&amp; typeof bemap.RecoverablePromiseCache === 'function') {
+    bemap.RecoverablePromiseCache.enabled = (opts.recoverableCache !== false);
+  }
+  // PMTiles fetch mode + resilience gate (bemap.PMTilesSliceSource / bemap.RangeGate).
+  // `tilesSliceMode` ('200' default | 'range'/'206') picks HOW the archive is read:
+  //   '200'  → `?r=` slices; the Worker returns cacheable 200s (browser HTTP cache;
+  //            needs a Worker that serves the slice route — BeNomad Tiles does).
+  //   'range'→ classic HTTP Range (206) via pmtiles' stock source (today's path).
+  // `tilesSliceTimeoutMs` (pre-header TTFB) / `tilesSliceBodyTimeoutMs` (post-header
+  // safety cap) / `tilesSliceMaxRetries` / `tilesSliceRetryBackoffMs` /
+  // `tilesSliceConcurrency` tune the shared gate. All page-level defaults,
+  // applied here BEFORE the archive is wired.
+  bemap.MapLibreMap._applyTilesSliceOpts(opts);
+  // Optional callback fired by setTileGateActive() so an embedder's UI can
+  // reflect the live gate state (the SDK ships no UI — see the example page).
+  this._onTileGateChange = (typeof opts.onTileGateChange === 'function') ? opts.onTileGateChange : null;
+  // Debounce (ms) for the recoverable-tile-error refresh safety net installed
+  // below (`tilesErrorRefreshMs`, default 4000; 0 disables). MapLibre never
+  // re-requests an errored tile on its own — see the 'error' listener.
+  this._tilesErrorRefreshMs = (opts.tilesErrorRefreshMs != null) ? +opts.tilesErrorRefreshMs : 4000;
+  this._tileRefreshTimer = null;
+  this._featureRegistry = {};   // _bemapId → bemap object
+  this._markerElements = {};    // _bemapId → { element, bemapObject }
+  this._geoJsonLayerIds = [];   // track all GeoJSON layer IDs for hit-testing
+  this._geoJsonData = {};       // sourceId → GeoJSON data (for drag updates)
+
+  // Per-instance overlay catalogue — used by setStyle() to replay overlays
+  // after the native style swap that would otherwise wipe markers/polylines.
+  if (typeof bemap.TilesOverlayCatalog === 'function') {
+    this._overlayCatalog = new bemap.TilesOverlayCatalog();
+  }
+
+  // Register the pmtiles:// MapLibre protocol once per page load.
+  if (typeof pmtiles !== 'undefined' &amp;&amp; !bemap.MapLibreMap._pmtilesRegistered) {
+    var _proto = new pmtiles.Protocol();
+    maplibregl.addProtocol('pmtiles', _proto.tile);
+    // Retain the (page-global) Protocol so the recoverable cache can be wired
+    // in per archive via `_proto.add(new pmtiles.PMTiles(url, cache))`.
+    bemap.MapLibreMap._pmtilesProtocol = _proto;
+    bemap.MapLibreMap._pmtilesRegistered = true;
+  }
+
+  // BeNomad Tiles auth — replaces the global window.fetch patch with a
+  // transformRequest that captures `getToken()` (not the token value) so
+  // proactive / reactive renewal flows are transparent.
+  var _self = this;
+  this._tilesAuth = null;
+  this._currentStyleSpec = null;
+  if (this._hasTilesConfig &amp;&amp; typeof bemap.TilesAuth === 'function') {
+    this._tilesAuth = new bemap.TilesAuth(context, {
+      // Per-map auth override — merged field-by-field over context.tilesAuth,
+      // both normalised to a full { mode, credentials, tokenHeader, tokenParam }.
+      tilesAuth: opts.tilesAuth,
+      onError: function (err) { _self._fireError(err); },
+      onToken: function (info) {
+        // Only reload the style when the new token has actually been
+        // fetched (`reason: 'refresh'`). Doing it on `'expired'` would
+        // reload with the still-expired token and trigger another 401
+        // → refresh loop. We also route through the wrapper's setStyle
+        // (not native) so the overlay catalogue replay listener fires.
+        if (info &amp;&amp; info.reason === 'refresh' &amp;&amp; _self.native &amp;&amp; _self._currentStyleSpec) {
+          // _internal: this re-applies the SAME current spec for token renewal —
+          // it is not the developer choosing a style, so it must not latch
+          // _userSetStyle (which would suppress the init default-style refresh).
+          try { _self.setStyle(_self._currentStyleSpec, { _internal: true }); } catch (e) { /* ignore */ }
+        }
+      }
+    });
+    // Install the scoped fetch interceptor BEFORE the native MapLibre
+    // map is constructed — pmtiles.js issues range requests via
+    // `fetch()` directly, bypassing MapLibre's `transformRequest`. The
+    // interceptor awaits the in-flight login (which stores the Worker's
+    // HttpOnly session cookie) and sends every ctx.tilesHost request with
+    // `credentials:'include'` — cookie auth, no X-Session-Token header, so
+    // Range GETs carry only the safelisted `Range` header → no CORS preflight.
+    bemap.TilesAuth.installFetchInterceptor(this._tilesAuth, context.tilesHost);
+    // Kick off login if no valid token is in storage. The interceptor
+    // is what actually waits for it — the constructor stays sync.
+    if (this._tilesAuth.getToken() == null || !this._tilesAuth.isValid()) {
+      var _initLogin = this._tilesAuth.login();
+      _initLogin.catch(function () { /* surfaced via onError */ });
+    }
+  }
+  // PMT-66 — BeNomad Tiles unreachable → BeMap WMS background (ctx.tilesFallbackToWms).
+  this._tilesFallbackEnabled = !!(this._tilesAuth &amp;&amp; context.tilesFallbackToWms !== false);
+  this._tilesFallbackDelayMs = (context &amp;&amp; +context.tilesFallbackDelayMs > 0) ? +context.tilesFallbackDelayMs : 5000;
+  this._tilesFallbackActive = false;
+  this._tilesErrorStreak = 0;
+
+  // Build style. Precedence:
+  //   opts.style              → explicit style wins
+  //   opts.tiles              → custom PMTiles URL with optional style URL
+  //   ctx.hasTilesConfig()    → BeNomad Tiles default style
+  //   none                    → empty background (legacy fallback)
+  var style;
+  // opts.style is EXPLICIT only as an inline object or a URL/path. A bare style
+  // NAME, the string 'default', or omitting it all flow to the tiny fallback
+  // below, then load/refresh from the Worker after login.
+  var _explicitStyle = opts.style &amp;&amp; (typeof opts.style === 'object' || /[:/]/.test(opts.style));
+  if (_explicitStyle) {
+    style = opts.style;
+  } else if (opts.tiles) {
+    // Raw PMTiles URL — this origin bypasses TilesAuth's interceptor (TilesAuth
+    // only patches for registered tilesHost origins). Install the standalone
+    // RangeFetchPolicy ONCE per page so these Range requests also get the
+    // desktop-Chromium no-store fix. Gated on !_hasTilesConfig so it never
+    // stacks a SECOND global fetch patch on top of TilesAuth's (exactly one
+    // interceptor); the installer itself also no-ops if TilesAuth already owns
+    // the patch.
+    if (!this._hasTilesConfig &amp;&amp; typeof bemap.RangeFetchPolicy === 'function' &amp;&amp; !bemap.MapLibreMap._rangePolicyInstalled) {
+      new bemap.RangeFetchPolicy({ rangeCacheMode: (opts.rangeCacheMode || bemap.RangeFetchPolicy.defaultMode || 'auto') }).installFetchInterceptor();
+      bemap.MapLibreMap._rangePolicyInstalled = true;
+    }
+    // PMTiles URL — build a minimal style, then load real style async
+    var tilesUrl = opts.tiles.indexOf('pmtiles://') === 0 ? opts.tiles : 'pmtiles://' + opts.tiles;
+    style = {
+      version: 8,
+      glyphs: 'https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf',
+      sources: { tiles: { type: 'vector', url: tilesUrl, maxzoom: 14 } },
+      layers: [{ id: 'background', type: 'background', paint: { 'background-color': '#f0f0f0' } }]
+    };
+    this._pendingTilesStyle = opts.tilesStyle || null;
+    this._pendingTilesUrl = tilesUrl;
+    // Raw opts.tiles is an ARBITRARY origin (S3/R2/presigned) that may not serve
+    // the Worker's ?r= slice route — default it to the always-safe Range path
+    // unless the caller EXPLICITLY opts into '200'. (200-slice is only assumed
+    // for the BeNomad-Tiles ctx.tilesHost path below, where the Worker serves it.)
+    bemap.MapLibreMap._addTilesArchive(
+      tilesUrl.replace('pmtiles://', ''),
+      opts.tilesSliceMode === '200' ? '200' : 'range'
+    );
+  } else if (this._hasTilesConfig &amp;&amp; typeof bemap.fallbackStyle !== 'undefined' &amp;&amp; typeof bemap.TilesStyle !== 'undefined') {
+    // BeNomad Tiles — clone the tiny font-free fallback style then resolve
+    // placeholders against the configured ctx/tilesFile. Precedence is
+    // opts.tilesFile -> ctx.tilesFile -> ctx.geoserver -> 'default', so a
+    // Context with `geoserver: 'osm'` (and no explicit tilesFile) loads the
+    // 'osm' tiles instead of the server default.
+    //
+    // The fallback has no symbol layers and no `glyphs`, so it requests no
+    // fonts. ctx.glyphsUrl (if set) is still applied by resolvePlaceholders;
+    // server styles bring their own (Worker) fonts when they swap in.
+    style = JSON.parse(JSON.stringify(bemap.fallbackStyle));
+    // Resolve this map's tiles name ONCE and store it on the instance — the
+    // SINGLE source of truth reused by version discovery, archive registration,
+    // and every setStyle, so their URLs (and the ?v= token) can never diverge
+    // and silently drop the slice source (EVMOVE-457 key-identity).
+    this._tilesFile = context.resolveTilesFile(opts.tilesFile);
+    // Remember HOW the name was chosen (same "'default' = not chosen" rule as
+    // resolveTilesFile): an EXPLICIT pin (opts.tilesFile / ctx.tilesFile) must
+    // keep surfacing its own 403/404 — a misspelled or unauthorised tileset is
+    // a configuration signal. Only a name merely INHERITED from ctx.geoserver
+    // may auto-fall back to 'default' when the Worker catalog doesn't know it.
+    this._tilesFileExplicit = !!((opts.tilesFile &amp;&amp; opts.tilesFile !== 'default') ||
+      (context.tilesFile &amp;&amp; context.tilesFile !== 'default'));
+    bemap.TilesStyle.resolvePlaceholders(style, context, this._tilesFile);
+    // Wire the self-healing cache for the BeNomad-Tiles archive. The URL is the
+    // SAME derivation resolvePlaceholders uses for the source (`pmtiles://` +
+    // getTilesFileUrl), so the Protocol will use this cache; a mismatch is a
+    // harmless no-op (Protocol auto-creates its default cache, as today).
+    if (context.getTilesFileUrl) {
+      // If the app pre-set a version token on the Context (before constructing
+      // the map), the url already carries ?v= — register the source as versioned
+      // so its header read stays immutable (same rule as setStyle / re-register).
+      var _preVersioned = !!(typeof context.getTilesVersion === 'function' &amp;&amp; context.getTilesVersion(this._tilesFile));
+      bemap.MapLibreMap._addTilesArchive(
+        context.getTilesFileUrl(this._tilesFile), bemap.MapLibreMap._tilesSliceMode, _preVersioned);
+    }
+    if (typeof bemap.TilesStyle.hardenSymbolCollisions === 'function') {
+      bemap.TilesStyle.hardenSymbolCollisions(style);
+    }
+    // After construction (so setStyle has a target): a bare NAME swaps to
+    // /styles/&lt;name>; omitted or 'default' refreshes to the Worker's live
+    // default style once login completes. The tiny fallback above is the
+    // instant first paint either way — no first-paint cost, and it stays if
+    // the server style ever fails to load.
+    if (typeof opts.style === 'string' &amp;&amp; opts.style &amp;&amp; opts.style !== 'default') {
+      this._pendingStyleName = opts.style;
+    } else {
+      this._refreshDefaultOnInit = true;
+    }
+  } else {
+    style = {
+      version: 8,
+      sources: {},
+      layers: [{ id: 'background', type: 'background', paint: { 'background-color': '#f0f0f0' } }]
+    };
+  }
+  this._currentStyleSpec = style;
+
+  // Set up token injection for authenticated PMTiles via opts.tilesToken.
+  // The v2 ctx.tilesHost path uses TilesAuth + transformRequest below (not
+  // the global fetch patch). This legacy block stays for opts.tiles users.
+  if (opts.tiles &amp;&amp; opts.tilesToken) {
+    this._setupTilesAuth(opts.tiles, opts.tilesToken, opts.tilesTokenHeader || 'X-Session-Token');
+  }
+
+  // Projection is SDK-owned: the default is `mercator` (north-up, flat — the
+  // cross-engine contract; OpenLayers/Leaflet are mercator-only) and `globe`
+  // is opt-in only. Track the developer's choice so a *server* style that
+  // carries its own root `projection` can't silently switch it after load —
+  // MapLibre v5 applies a stylesheet's `projection` on every setStyle, and a
+  // globe curves the view at low zoom, reading as a map "at the wrong angle".
+  // This mirrors how the SDK already ignores a style's own `sources`
+  // (see bemap.TilesStyle.resolvePlaceholders). Re-asserted after each style
+  // swap via _applyDesiredProjection().
+  this._desiredProjection = (opts.projection === 'globe') ? 'globe' : 'mercator';
+  // Seed the FIRST style so the initial paint already matches the request.
+  if (this._desiredProjection === 'globe' &amp;&amp; style &amp;&amp; typeof style === 'object') {
+    style.projection = { type: 'globe' };
+  }
+
+  // Resolve native-attribution + zoom-control options (uniform across engines).
+  // bemap.Map._resolveControlOptions hides MapLibre's built-in attribution
+  // by default when the BeMap AttributionWidget is enabled. For zoom, we
+  // add a NavigationControl when zoomControl is enabled — gives MapLibre
+  // the same +/- buttons Leaflet + OL expose by default, at the same
+  // configurable position.
+  var _ctrl = bemap.Map._resolveControlOptions(opts);
+
+  // UX tuning for BeNomad Tiles (snappier than the MapLibre defaults):
+  //   - fadeDuration: 200ms (default 300) — tiles snap in faster, less mid-pan grey
+  //   - maxTileCacheSize: 500 — keep more recently-seen tiles in memory so
+  //     pan-back is instant (default is viewport * ~5, often 50–100 on big screens)
+  //   - refreshExpiredTiles: true (default) — keep stale tiles painted while
+  //     re-fetching, avoids flashing transparent during cache-validation
+  // Consumers can override via opts.fadeDuration / opts.maxTileCacheSize.
+  var _nativeOpts = {
+    container: target,
+    style: style,
+    center: [0, 0],
+    zoom: opts.zoom || 2,
+    pitch: opts.pitch || 0,
+    bearing: opts.bearing || 0,
+    minZoom: opts.minZoom || 0,
+    maxZoom: opts.maxZoom || 22,
+    maxBounds: bemap.MapLibreMap._normalizeBounds(opts.maxBounds),
+    fadeDuration: opts.fadeDuration != null ? opts.fadeDuration : 200,
+    maxTileCacheSize: opts.maxTileCacheSize != null ? opts.maxTileCacheSize : 500,
+    refreshExpiredTiles: opts.refreshExpiredTiles !== false,
+    attributionControl: _ctrl.nativeAttribution,
+    // Keyboard interactions — default OFF (see bemap.Map._resolveControlOptions).
+    // MapLibre v5's `KeyboardHandler` is one bundled unit (arrow pan + `=`/`-`
+    // zoom + `Shift+arrow` rotate/tilt); granular `{pan, zoom}` collapses to
+    // "either-or" here. Consumers needing finer control can reach
+    // `map.native.keyboard.disableRotation()` etc. after construction.
+    keyboard: _ctrl.keyboard.pan || _ctrl.keyboard.zoom,
+    // Keep the MapLibre 5 rendering: MapLibre 6 defaults to 4 (tile slicing), undefined turns it off.
+    zoomLevelsToOverscale: undefined
+  };
+  this._keyboardEnabled = !!(_ctrl.keyboard.pan || _ctrl.keyboard.zoom);
+  this._keyboardOptions = _ctrl.keyboard;
+  // MapLibre accepts exactly ONE transformRequest, so tile auth and the proxy
+  // env header must be COMPOSED into a single function (EVMOVE-307 #7).
+  // getProxy() (not the raw field) so a pre-construction raw write is validated
+  // and normalised here, exactly as getBaseUrl() would.
+  if (this._tilesAuth || (context &amp;&amp; (typeof context.getProxy === 'function' ? context.getProxy() : context.proxy))) {
+    _nativeOpts.transformRequest = bemap.MapLibreMap._buildTransformRequest(context, this._tilesAuth);
+  }
+  try {
+    this.native = new maplibregl.Map(_nativeOpts);
+  } catch (e) {
+    // MapLibre 6 needs WebGL2 and throws GPUInitializationError without it.
+    if (!e || e.name !== 'GPUInitializationError') throw e;
+    var _gpuMsg = 'bemap.MapLibreMap needs WebGL2, which this browser or device does not provide.';
+    console.error('[bemap] ' + _gpuMsg + ' ' + e.message);
+    throw new bemap.Error({
+      code: bemap.Error.MISSING_DEPENDENCY,
+      message: _gpuMsg,
+      context: { engine: 'maplibre', missing: ['WebGL2'], cause: e }
+    });
+  }
+
+  // Default-style "bootstrap → refresh", or a deferred named style — run once on
+  // init, after the native map exists so setStyle() has a target to swap into.
+  // _refreshDefaultStyleFromServer() waits for login; setStyle(name) resolves it
+  // to /styles/&lt;name>. The tiny fallback already painted, so no first-paint cost.
+  // EVMOVE-457: before the real style is applied, best-effort resolve this map's
+  // archive version token (from /api/maps, after login) and re-register the
+  // archive under its VERSIONED url — so the versioned style url matches the
+  // registered slice source (else pmtiles silently drops PMTilesSliceSource +
+  // the recoverable cache). Never blocks first paint (the fallback already
+  // painted) and never hangs (timeout + always-resolve); on any failure the
+  // UNVERSIONED style applies exactly as before. This is the ONLY site that
+  // consumes _refreshDefaultOnInit / _pendingStyleName, so both are gated here.
+  // (_self is declared once near the top of the constructor.)
+  function _applyInitStyle() {
+    if (_self._refreshDefaultOnInit) _self._refreshDefaultStyleFromServer();
+    else if (_self._pendingStyleName &amp;&amp; !_self._userSetStyle) _self.setStyle(_self._pendingStyleName);
+  }
+  if ((this._refreshDefaultOnInit || this._pendingStyleName) &amp;&amp; typeof this._discoverTilesVersion === 'function') {
+    this._versionReady = this._discoverTilesVersion();
+    this._versionReady.then(function () {
+      if (_self.ctx &amp;&amp; typeof _self.ctx.getTilesFileUrl === 'function'
+          &amp;&amp; typeof _self.ctx.getTilesVersion === 'function'
+          &amp;&amp; _self.ctx.getTilesVersion(_self._tilesFile)) {
+        // Re-register the archive under its now-versioned url so the versioned
+        // style url has a matching slice source (else pmtiles auto-creates a
+        // stock Range source). Idempotent per url (a new ?v= url is a new entry).
+        // versioned:true → the offset-0 header read on this source stays immutable
+        // (the ?v= token already makes the cache entry rebuild-distinct).
+        bemap.MapLibreMap._addTilesArchive(
+          _self.ctx.getTilesFileUrl(_self._tilesFile), bemap.MapLibreMap._tilesSliceMode, true);
+      }
+      _applyInitStyle();
+    });
+  } else {
+    _applyInitStyle();
+  }
+
+  // Reload tiles on resize. MapLibre v5 already observes the container and
+  // resizes its canvas, but resize() updates the canvas + transform WITHOUT
+  // marking the sources dirty — so the newly-exposed strip never requests tiles
+  // and paints the style background (the grey/blank bar after a panel collapse).
+  // Nudge the camera once per resize to force the tile request: setCenter →
+  // jumpTo fires move/moveend → _sourcesDirty → _updateSources(transform). Skip
+  // while a camera animation runs (its own move events already do this). The
+  // listener lives on the native map, so native.remove() tears it down — no leak.
+  var _roSelf = this;
+  this.native.on('resize', function () {
+    if (_roSelf.native &amp;&amp; !_roSelf.native.isMoving()) {
+      try { _roSelf.native.setCenter(_roSelf.native.getCenter()); } catch (e) {}
+    }
+  });
+  this._observeTargetResize(target);
+
+  // Browser-cache wiring — opts.browserCache (true | false | 'auto', default 'auto').
+  //
+  // Logging contract (so consumers know whether tile caching is active):
+  //   - tilesHost set + SW registers     → console.info "browser cache active"
+  //   - tilesHost set + SW not supported → console.warn (HTTP without localhost, or no SW API)
+  //   - tilesHost set + opt-out          → console.info "browser cache disabled by opts.browserCache"
+  //   - tilesHost set + register failed  → console.warn with the underlying error
+  //   - tilesHost set + bemap.BrowserCache class missing (script not loaded) → console.warn
+  // No tilesHost: silent — non-tiles consumers don't care.
+  this._browserCache = null;
+  // Under `tilesSliceMode:'200'` the browser HTTP cache stores the 200-slices
+  // natively, so the tile Service Worker is redundant → default it OFF on the
+  // slice path (kept for the 206-Range path, where it is the only client-side
+  // cache). Parametrable: `opts.serviceWorker` (true/false) forces it either way;
+  // legacy `opts.browserCache:false` still opts out everywhere.
+  var _swExplicit = (opts.serviceWorker != null) ? (opts.serviceWorker !== false)
+    : (opts.browserCache != null ? (opts.browserCache !== false) : null);
+  var _swWanted = (_swExplicit != null) ? _swExplicit : (bemap.MapLibreMap._tilesSliceMode !== '200');
+  if (this._hasTilesConfig) {
+    if (!_swWanted) {
+      var _swWhy;
+      if (bemap.MapLibreMap._tilesSliceMode === '200') {
+        // Under 200-slice the browser HTTP cache stores tiles natively, so the SW
+        // is redundant EITHER way — make that clear so a consumer carrying a
+        // legacy browserCache:false doesn't think caching is broken.
+        _swWhy = (_swExplicit == null)
+          ? '200-slice mode uses the browser HTTP cache instead (SW not needed). Pass serviceWorker:true to force it on.'
+          : 'you set serviceWorker/browserCache off — but 200-slice mode still caches tiles via the browser HTTP cache.';
+      } else {
+        _swWhy = 'disabled by option — tiles will hit the network (206-Range is not browser-cached without the SW).';
+      }
+      console.info('[bemap] BeNomad Tiles: tile Service Worker OFF — ' + _swWhy);
+      // Remove any bemap tile SW left controlling this origin by a PRIOR deploy
+      // (e.g. an app upgraded from 206-range to the 200-slice default) — otherwise
+      // a stale worker keeps intercepting/serving 206 range data. Safe no-op if
+      // none exist.
+      if (typeof bemap.BrowserCache === 'function' &amp;&amp; typeof bemap.BrowserCache.unregisterStale === 'function') {
+        bemap.BrowserCache.unregisterStale();
+      }
+    } else if (typeof bemap.BrowserCache !== 'function') {
+      console.warn('[bemap] BeNomad Tiles: bemap.BrowserCache is not loaded — tile caching is OFF. Verify dist/bemap-js-api.js is up to date.');
+    } else {
+      var _bcSelf = this;
+      // Only forward serviceWorkerPath when the consumer actually pinned it —
+      // BrowserCache treats any provided value as "explicit", which disables
+      // the auto-fallback chain. Defaulting it here would defeat discovery.
+      var _bcOpts = {
+        tilesHost: context &amp;&amp; context.tilesHost,
+        onStats: function (stats) {
+          if (_bcSelf._cacheStatsListeners) {
+            for (var _csi = 0; _csi &lt; _bcSelf._cacheStatsListeners.length; _csi++) {
+              try { _bcSelf._cacheStatsListeners[_csi](stats); } catch (e) {}
+            }
+          }
+        },
+        onError: function (err) { _bcSelf._fireError(err); }
+      };
+      if (opts.serviceWorkerPath != null) _bcOpts.serviceWorkerPath = opts.serviceWorkerPath;
+      this._browserCache = new bemap.BrowserCache(_bcOpts);
+      if (!this._browserCache.isSupported()) {
+        console.warn(
+          '[bemap] BeNomad Tiles: Service Worker not supported here — tile caching is OFF.\n' +
+          '   Cause: page is served over plain HTTP (Service Workers require HTTPS, or localhost/127.0.0.1).\n' +
+          '   Effect: every tile hits the network. First-load UX will feel slower than with caching.\n' +
+          '   Fix:   serve over HTTPS in production.'
+        );
+      } else {
+        var _bc = this._browserCache;
+        _bc.register().then(function (reg) {
+          // Success is silent; misplacement warnings come from BrowserCache.register.
+          if (!reg) {
+            var attempts = (typeof _bc.getRegistrationAttempts === 'function') ? _bc.getRegistrationAttempts() : [];
+            var bundleInfo = (typeof bemap.BrowserCache._findBemapScriptInfo === 'function')
+              ? bemap.BrowserCache._findBemapScriptInfo() : null;
+            var origin = (typeof window !== 'undefined' &amp;&amp; window.location) ? window.location.origin : '';
+            var pageUrl = (typeof window !== 'undefined' &amp;&amp; window.location) ? window.location.href : '(unknown)';
+            var pageDir = (typeof window !== 'undefined' &amp;&amp; window.location)
+              ? window.location.pathname.replace(/[^/]*$/, '') : '/';
+            var bundleLine = bundleInfo
+              ? '   Bundle URL:  ' + bundleInfo.src
+              : '   Bundle URL:  (no &lt;script src="…bemap-js-api.js"> found — bundler-inlined?)';
+            var triedLines = attempts.length
+              ? '\n   Tried:\n     - ' + attempts.map(function (a) {
+                  var parts = a.split(' → ');
+                  return origin + parts[0] + '  →  ' + (parts[1] || '');
+                }).join('\n     - ')
+              : '';
+            console.warn(
+              '[bemap] BeNomad Tiles: Service Worker could not be registered — tile caching is OFF.\n' +
+              bundleLine + '\n' +
+              '   Page URL:    ' + pageUrl + triedLines + '\n\n' +
+              '   To fix, copy dist/bemap-sw-tiles.js to ONE of these URLs and reload:\n' +
+              '     ' + origin + '/bemap-sw-tiles.js                (site root — preferred)\n' +
+              (pageDir !== '/' ? '     ' + origin + pageDir + 'bemap-sw-tiles.js   (app sub-root, next to your page)\n' : '') +
+              '   …or pass an explicit path:\n' +
+              "     new bemap.MapLibreMap(ctx, target, { serviceWorkerPath: 'bemap-sw-tiles.js', ... })"
+            );
+          }
+        }).catch(function (err) {
+          console.warn(
+            '[bemap] BeNomad Tiles: Service Worker registration failed — tile caching is OFF.\n' +
+            '   Error: ' + (err &amp;&amp; err.message ? err.message : err) + '\n' +
+            '   Fix:   verify bemap-sw-tiles.js is reachable (see ' + _bc.swPath + ').'
+          );
+        });
+      }
+    }
+  }
+
+  // Surface 401s / 403s from MapLibre's error channel into TilesAuth + the
+  // public error event. Without this, an expired token silently fails tiles.
+  if (this._tilesAuth) {
+    var _authSelf = this;
+    this.native.on('error', function (e) {
+      var err = e &amp;&amp; e.error;
+      var status = err &amp;&amp; (err.status || (err.statusText ? parseInt(err.statusText, 10) : 0));
+      if (status === 401) {
+        // Pass the WRAPPER (_authSelf), not _authSelf.native. handle401
+        // calls `arg.setStyle(spec)` internally — when arg is the wrapper,
+        // bemap.MapLibreMap.prototype.setStyle replays the overlay catalogue
+        // once the new style is applied (_onStyleApplied),
+        // so every SOURCE/LAYER overlay (polyline / polygon / circle /
+        // raster / heatmap) registered before the 401 storm gets re-added on
+        // the new style. (DOM overlays — markers / popups — live in the map
+        // container, survive setStyle untouched, and are intentionally NOT in
+        // the replay set; replaying them would duplicate them — see
+        // TilesOverlayCatalog / PMT-28.)
+        // Previously we passed .native → wrapper.setStyle bypassed → no
+        // replay → 24 of 33 polylines silently dropped (the ones added
+        // before the post-401 setStyle wiped them).
+        _authSelf._tilesAuth.handle401(_authSelf, _authSelf._currentStyleSpec)
+          .catch(function () { /* surfaced via TilesAuth.onError */ });
+      } else if (status === 403) {
+        _authSelf._fireError(new bemap.Error({
+          code: bemap.Error.FORBIDDEN, status: 403,
+          message: 'BeNomad Tiles: forbidden — your account is not authorised for this resource'
+        }));
+      } else if (status === 429) {
+        _authSelf._fireError(new bemap.Error({
+          code: bemap.Error.RATE_LIMITED, status: 429,
+          message: 'BeNomad Tiles: rate limited'
+        }));
+      }
+    });
+  }
+
+  // Terminal safety net for RECOVERABLE tile failures. MapLibre does NOT
+  // re-request an errored tile on its own, so once the RangeGate's retries are
+  // exhausted (TTFB timeout → AbortError, the Worker's ~3 s deadline → 504,
+  // 429/5xx, a network blip) the tile would stay grey until the next zoom
+  // change. Schedule ONE debounced refresh of the tile-backed sources instead.
+  // 401/403 are auth — handled above by TilesAuth — and stay untouched. The
+  // smart-abort gate makes this rare (~0.1 % of tiles under heavy panning);
+  // this is the last line of defence, not the primary recovery. Policy proven
+  // in mp-tiles-demo: 0 permanent grey tiles.
+  if (this._hasTilesConfig || opts.tiles) {
+    var _healSelf = this;
+    this.native.on('error', function (e) {
+      var err = e &amp;&amp; e.error;
+      if (!bemap.MapLibreMap._isRecoverableTileError(err)) return;
+      _healSelf._scheduleTileRefresh();
+    });
+  }
+
+  // PMT-66 — watch for a BeNomad Tiles outage (watchdog, first login, tile errors, 'online').
+  if (this._tilesFallbackEnabled) this._startTilesFallback(_initLogin);
+
+  if (_ctrl.zoomControl &amp;&amp; typeof maplibregl.NavigationControl === 'function') {
+    var _navCtrl = new maplibregl.NavigationControl({
+      showZoom: true,
+      showCompass: false,
+      visualizePitch: false
+    });
+    this.native.addControl(_navCtrl,
+      bemap.Map._translateZoomPosition('maplibre', _ctrl.zoomPosition));
+  }
+
+  // Suppress WMS tile decode errors (server returns XML/text error instead of image)
+  this.native.on('error', function(e) {
+    if (e &amp;&amp; e.error &amp;&amp; e.error.message &amp;&amp; e.error.message.indexOf('could not be decoded') !== -1) {
+      return; // Silently ignore WMS tile decode errors
+    }
+  });
+
+  // MapLibre 6 fires 'error' when its worker file cannot load: say which file is missing,
+  // once, and put it on the bemap error channel.
+  var _workerSelf = this;
+  this.native.on('error', function (e) {
+    var msg = e &amp;&amp; e.error &amp;&amp; e.error.message;
+    if (_workerSelf._workerErrorReported || !msg || msg.indexOf('Worker failed to load') !== 0) return;
+    _workerSelf._workerErrorReported = true;
+    var _workerMsg = 'MapLibre could not load maplibre-gl-worker.mjs: copy it next to maplibre-gl.js, or call maplibregl.setWorkerUrl().';
+    console.error('[bemap] ' + _workerMsg);
+    _workerSelf._fireError(new bemap.Error({
+      code: bemap.Error.MISSING_DEPENDENCY,
+      message: _workerMsg,
+      context: { engine: 'maplibre', missing: ['maplibre-gl-worker.mjs'], workerUrl: maplibregl.getWorkerUrl ? maplibregl.getWorkerUrl() : null }
+    }));
+  });
+
+  // Cursor pointer on hover over GeoJSON features
+  var _mapRef = this;
+  this.native.on('mousemove', function(evt) {
+    if (!_mapRef._geoJsonLayerIds.length) return;
+    var existingLayers = [];
+    for (var i = 0; i &lt; _mapRef._geoJsonLayerIds.length; i++) {
+      try { if (_mapRef.native.getLayer(_mapRef._geoJsonLayerIds[i])) existingLayers.push(_mapRef._geoJsonLayerIds[i]); } catch(e) {}
+    }
+    if (!existingLayers.length) { _mapRef.native.getCanvas().style.cursor = ''; return; }
+    var features = _mapRef.native.queryRenderedFeatures(evt.point, { layers: existingLayers });
+    _mapRef.native.getCanvas().style.cursor = (features &amp;&amp; features.length > 0) ? 'pointer' : '';
+  });
+  // If tiles option with a style URL, load the full style async after map init
+  if (this._pendingTilesStyle) {
+    var _mapInst = this;
+    var _tilesUrl = this._pendingTilesUrl;
+    var styleUrl = this._pendingTilesStyle;
+    var xhr2 = new XMLHttpRequest();
+    xhr2.open('GET', styleUrl, true);
+    if (opts.tilesToken) xhr2.setRequestHeader(opts.tilesTokenHeader || 'X-Session-Token', opts.tilesToken);
+    xhr2.onload = function() {
+      if (xhr2.status === 200) {
+        try {
+          var fullStyle = JSON.parse(xhr2.responseText);
+          var placeholder = (fullStyle.metadata &amp;&amp; fullStyle.metadata.source_placeholder) || 'TILES_SOURCE';
+          fullStyle.sources['tiles'] = Object.assign({}, fullStyle.sources[placeholder] || {}, { type: 'vector', url: _tilesUrl, maxzoom: 14 });
+          if (placeholder !== 'tiles' &amp;&amp; fullStyle.sources[placeholder]) delete fullStyle.sources[placeholder];
+          for (var si = 0; si &lt; fullStyle.layers.length; si++) { if (fullStyle.layers[si].source === placeholder) fullStyle.layers[si].source = 'tiles'; }
+          if (!fullStyle.glyphs) fullStyle.glyphs = 'https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf';
+          _mapInst.native.setStyle(fullStyle);
+        } catch(e) {}
+      }
+    };
+    xhr2.send();
+  }
+
+  // Attribution widget (v1.5.0) — auto-instantiated unless options.attribution === false
+  if (typeof bemap.AttributionWidget === 'function') {
+    var _attr = opts.attribution;
+    if (_attr !== false) {
+      var _attrOpts = (_attr &amp;&amp; typeof _attr === 'object') ? _attr : {};
+      this._attributionWidget = new bemap.AttributionWidget(this, _attrOpts);
+    }
+  }
+};
+bemap.inherits(bemap.MapLibreMap, bemap.Map);
+
+/**
+ * MapLibre-only container-size self-healing.
+ *
+ * The broken cases here are not OpenLayers cases: MapLibre can latch its canvas
+ * size while an iframe/flex/tab layout is still settling. Window resize does
+ * not fire for those parent/container-only changes, so observe this map's
+ * target and call the MapLibre resize path directly.
+ * @private
+ */
+bemap.MapLibreMap.prototype._observeTargetResize = function (target) {
+  if (typeof ResizeObserver !== 'function') return this;
+
+  var el = target || this.target;
+  if (typeof el === 'string') {
+    if (typeof document === 'undefined') return this;
+    el = document.getElementById(el);
+  }
+  if (!el || el.nodeType !== 1) return this;
+
+  this._disconnectTargetResizeObserver();
+
+  var self = this;
+  var token = {};
+  var scheduled = false;
+  this._targetResizeObserverToken = token;
+
+  var run = function () {
+    scheduled = false;
+    if (self._targetResizeObserverToken !== token || !self.native) return;
+    try { self.refresh(); } catch (e) { /* map may be torn down */ }
+  };
+
+  var schedule = function () {
+    if (self._targetResizeObserverToken !== token || scheduled) return;
+    scheduled = true;
+    if (typeof requestAnimationFrame === 'function') requestAnimationFrame(run);
+    else setTimeout(run, 0);
+  };
+
+  try {
+    this._targetResizeObserver = new ResizeObserver(schedule);
+    this._targetResizeObserver.observe(el);
+
+    // First render in the dashboard iframe/flex layout can settle just after
+    // construction. These kicks cover initial frame, post-layout frame, and
+    // short delayed iframe layout without requiring page-level hacks.
+    schedule();
+    if (typeof requestAnimationFrame === 'function') {
+      requestAnimationFrame(function () { requestAnimationFrame(schedule); });
+    } else {
+      setTimeout(schedule, 0);
+    }
+    setTimeout(schedule, 100);
+    setTimeout(schedule, 500);
+  } catch (e) {
+    this._targetResizeObserver = null;
+    this._targetResizeObserverToken = null;
+  }
+
+  return this;
+};
+
+/** @private */
+bemap.MapLibreMap.prototype._disconnectTargetResizeObserver = function () {
+  this._targetResizeObserverToken = null;
+  if (this._targetResizeObserver) {
+    try { this._targetResizeObserver.disconnect(); } catch (e) {}
+    this._targetResizeObserver = null;
+  }
+  return this;
+};
+
+/**
+ * Toggle keyboard navigation (arrow-pan + `=`/`-` zoom + `Shift+arrow`
+ * rotate/tilt — MapLibre's `KeyboardHandler` is one bundle) at runtime.
+ * @public
+ * @param {Boolean} enabled
+ * @return {bemap.MapLibreMap}
+ */
+bemap.MapLibreMap.prototype.setKeyboard = function (enabled) {
+  if (this.native &amp;&amp; this.native.keyboard) {
+    if (enabled) this.native.keyboard.enable();
+    else this.native.keyboard.disable();
+  }
+  this._keyboardEnabled = !!enabled;
+  return this;
+};
+
+/** @public @return {Boolean} */
+bemap.MapLibreMap.prototype.getKeyboard = function () { return !!this._keyboardEnabled; };
+
+/**
+ * Normalize a bounds-shaped input into MapLibre's `[[west, south], [east, north]]`.
+ * Accepts MapLibre's own forms (passthrough), Leaflet LatLngBounds
+ * (getSouthWest/getNorthEast → {lat,lng}), bemap.BoundingBox
+ * ({minLon,minLat,maxLon,maxLat}), and `[west,south,east,north]` flat arrays.
+ * Returns the original value when it can't be classified — let MapLibre throw
+ * its own error rather than swallow a genuinely bad input.
+ */
+bemap.MapLibreMap._normalizeBounds = function (b) {
+  if (b == null) return undefined;
+
+  // Web Mercator's safe latitude limit is atan(sinh(π)) ≈ 85.05112878°.
+  // Any value at or beyond ±85.05113 pushes mercatorYfromLat() to NaN /
+  // Infinity, which propagates into vec4.transformMat4 inside MapLibre's
+  // _calcMatrices and crashes with "Cannot read properties of null
+  // (reading '0')". Use 85.0 (well inside the limit) as the conservative
+  // clamp so legacy callers passing L.latLngBounds(-90..90, -180..180)
+  // simply work.
+  var MAX_LAT = 85.0,     MIN_LAT = -85.0;
+  var MAX_LON = 180,      MIN_LON = -180;
+
+  // If the bounds cover essentially the whole world there's nothing to
+  // constrain — drop the option entirely so MapLibre doesn't bother
+  // computing constraint geometry that could still produce NaN at edges.
+  function isWholeWorld(swLng, swLat, neLng, neLat) {
+    return (neLng - swLng) >= 359.5 &amp;&amp; (neLat - swLat) >= 169.5;
+  }
+  function cl(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+  function ok(swLng, swLat, neLng, neLat) {
+    if (isWholeWorld(swLng, swLat, neLng, neLat)) return undefined;
+    return [[cl(swLng, MIN_LON, MAX_LON), cl(swLat, MIN_LAT, MAX_LAT)],
+            [cl(neLng, MIN_LON, MAX_LON), cl(neLat, MIN_LAT, MAX_LAT)]];
+  }
+
+  if (typeof b.getSouthWest === 'function' &amp;&amp; typeof b.getNorthEast === 'function') {
+    var sw = b.getSouthWest();
+    var ne = b.getNorthEast();
+    if (sw &amp;&amp; ne &amp;&amp; sw.lng != null &amp;&amp; ne.lng != null) {
+      return ok(sw.lng, sw.lat, ne.lng, ne.lat);
+    }
+  }
+  if (typeof b.getWest === 'function' &amp;&amp; typeof b.getNorth === 'function') {
+    // MapLibre LngLatBounds — already typed correctly. Still check for
+    // whole-world by reading the accessors, otherwise pass through.
+    var w = b.getWest(), s = b.getSouth(), e2 = b.getEast(), n = b.getNorth();
+    if (isWholeWorld(w, s, e2, n)) return undefined;
+    return b;
+  }
+  if (b.minLon != null &amp;&amp; b.minLat != null &amp;&amp; b.maxLon != null &amp;&amp; b.maxLat != null) {
+    return ok(b.minLon, b.minLat, b.maxLon, b.maxLat);
+  }
+  if (Object.prototype.toString.call(b) === '[object Array]' &amp;&amp; b.length === 4 &amp;&amp;
+      typeof b[0] === 'number' &amp;&amp; typeof b[1] === 'number' &amp;&amp;
+      typeof b[2] === 'number' &amp;&amp; typeof b[3] === 'number') {
+    return ok(b[0], b[1], b[2], b[3]);
+  }
+  // [[lng,lat],[lng,lat]] — already MapLibre-shaped; still check + clamp.
+  if (Object.prototype.toString.call(b) === '[object Array]' &amp;&amp; b.length === 2 &amp;&amp;
+      Object.prototype.toString.call(b[0]) === '[object Array]' &amp;&amp;
+      Object.prototype.toString.call(b[1]) === '[object Array]') {
+    return ok(b[0][0], b[0][1], b[1][0], b[1][1]);
+  }
+  return b;
+};
+
+/**
+ * True when the current stylesheet is parsed, even if some sources are still
+ * loading. `isStyleLoaded()` stays false while any source loads (e.g. a GeoJSON
+ * source updated every frame by an animation), but addSource / addLayer only
+ * need the parsed stylesheet (MapLibre's Style#_checkLoaded checks `_loaded`).
+ * @private
+ */
+bemap.MapLibreMap.prototype._isStyleParsed = function () {
+  var native = this.native;
+  if (!native) return false;
+  try {
+    if (native.style &amp;&amp; native.style._loaded) return true;
+    if (typeof native.isStyleLoaded === 'function' &amp;&amp; native.isStyleLoaded()) return true;
+    // getStyle() returns nothing before the stylesheet is parsed (PMT-66).
+    return !!(typeof native.getStyle === 'function' &amp;&amp; native.getStyle());
+  } catch (e) { return false; }
+};
+
+/**
+ * Run a callback when the map style is ready: stylesheet parsed and no
+ * setStyle in flight. Waits for 'style.load' / 'idle', with a bounded poll as
+ * safety net.
+ */
+bemap.MapLibreMap.prototype._whenStyleReady = function(fn) {
+  var _this = this;
+  // During the post-setStyle gap the OLD style still answers "loaded". Any
+  // addSource / addLayer issued in that window hits the stale Style and gets
+  // wiped when the new one replaces it — the root cause of "5 of 33 polylines
+  // survive in evsmartrouting". So never run while `_setStyleInFlight` is set;
+  // setStyle clears it once the new style is applied (_onStyleApplied).
+  // PMT-66: during a tiles outage the tiles never settle (no 'idle'); a parsed
+  // style is enough.
+  var ready = function () {
+    if (!_this._isStyleParsed()) return false;
+    return _this._setStyleInFlight !== true || _this._tilesFallbackActive === true;
+  };
+  if (ready()) { fn(); return; }
+  var fired = false;
+  var timer = null;
+  var tries = 0;
+  var check = function () { if (ready()) done(); };
+  var done = function () {
+    if (fired) return;
+    fired = true;
+    done._done = true;   // read by the PMT-66 outage waiter list
+    if (timer) clearTimeout(timer);
+    try {
+      _this.native.off('style.load', check);
+      _this.native.off('idle', check);
+    } catch (e) { /* ignore */ }
+    fn();
+  };
+  this.native.on('style.load', check);
+  this.native.on('idle', check);
+  if (this._tilesFallbackEnabled) this._addTilesFallbackWaiter(done);
+  // Safety net: a diff setStyle fires no 'style.load', and 'idle' never fires
+  // while an animation keeps a source busy. Poll every 250 ms, for ~30 s max.
+  // One poll per waiter: addPolyline bursts share one waiter (_flushStyleOps).
+  var poll = function () {
+    timer = null;
+    if (fired) return;
+    if (ready()) { done(); return; }
+    if (++tries &lt; 120) timer = setTimeout(poll, 250);
+  };
+  timer = setTimeout(poll, 250);
+};
+
+/* ------------------------------------------------------------
+ * Style-op coalescing — collect bursts of addSource/addLayer
+ * calls into a single requestAnimationFrame so the user sees ONE
+ * MapLibre render pass per render-cycle instead of 17–66.
+ *
+ * Eliminates the flicker between `polylineLayer.clear()` and the
+ * subsequent re-add loop in consumer apps that re-render routes
+ * on every selection change (e.g. evmove5's EV routing UI).
+ *
+ * Currently used only by addPolyline. Same pattern can be applied
+ * later to addPolygon / addCircle / addRasterLayer if those see
+ * similar burst patterns.
+ * ------------------------------------------------------------ */
+bemap.MapLibreMap.prototype._enqueueStyleOp = function (id, fn) {
+  if (!this._pendingStyleOps) this._pendingStyleOps = [];
+  this._pendingStyleOps.push({ id: id, fn: fn });
+  if (this._styleOpsScheduled) return;
+  this._styleOpsScheduled = true;
+  var _this = this;
+  var flush = function () {
+    _this._styleOpsScheduled = false;
+    var ops = _this._pendingStyleOps || [];
+    _this._pendingStyleOps = [];
+    _this._flushStyleOps(ops);
+  };
+  // Prefer rAF for visual frame alignment; fall back to setTimeout(0) for
+  // environments where rAF is unavailable (Karma / headless tests, etc.).
+  if (typeof requestAnimationFrame === 'function') {
+    requestAnimationFrame(flush);
+  } else {
+    setTimeout(flush, 0);
+  }
+};
+
+bemap.MapLibreMap.prototype._flushStyleOps = function (ops) {
+  if (!ops || !ops.length) return;
+  var _this = this;
+  var runAll = function () {
+    for (var i = 0; i &lt; ops.length; i++) {
+      try { ops[i].fn(); } catch (e) { /* per-op error logged inside fn */ }
+    }
+  };
+  // ONE _whenStyleReady subscription for the whole batch instead of one
+  // per op — avoids 17 separate listeners + 17 timeouts.
+  if (this._isStyleParsed() &amp;&amp; this._setStyleInFlight !== true) {
+    runAll();
+  } else {
+    this._whenStyleReady(runAll);
+  }
+};
+
+/**
+ * Legacy auth path for the `opts.tiles` + `opts.tilesToken` usage shape.
+ * **Deprecated** in v2.0 — prefer `ctx.tilesHost` + `bemap.TilesAuth` (the
+ * v2 path uses MapLibre's `transformRequest` instead of patching the global
+ * `window.fetch`). Kept callable for backwards compatibility.
+ *
+ * @deprecated Since 2.0.0. Use `ctx.tilesHost` instead.
+ */
+bemap.MapLibreMap.prototype._setupTilesAuth = function(tilesUrl, token, headerName) {
+  // If the v2 `bemap.TilesAuth` interceptor is already patched on this
+  // page, stay out of its way. Stacking two interceptors would have the
+  // legacy wrapper capture the v2-patched fetch as its "original" and
+  // double-wrap every request.
+  if (typeof bemap.TilesAuth !== 'undefined' &amp;&amp; bemap.TilesAuth._fetchPatched) {
+    console.warn('bemap.MapLibreMap._setupTilesAuth is deprecated; ctx.tilesHost (v2) is already active on this page, ignoring the legacy call.');
+    return;
+  }
+  bemap.MapLibreMap._tokenMap = bemap.MapLibreMap._tokenMap || {};
+  if (bemap.MapLibreMap._fetchIntercepted) {
+    var domain = tilesUrl.replace('pmtiles://', '').split('/')[2] || tilesUrl.split('/')[2];
+    bemap.MapLibreMap._tokenMap[domain] = { header: headerName, token: token };
+    return;
+  }
+  var domain2 = tilesUrl.replace('pmtiles://', '').split('/')[2] || tilesUrl.split('/')[2];
+  bemap.MapLibreMap._tokenMap[domain2] = { header: headerName, token: token };
+  // Capture the original fetch reference and wrap it. Uses a rest-parameter
+  // bridge to avoid the `arguments` re-binding bug present in the v1
+  // prototype (where reassigning `arguments[1]` did not actually change
+  // the outgoing call on some engines). Host comparison uses `new URL`
+  // host parsing — substring matching would leak the token to attacker
+  // URLs like `https://evil.com/?h=mptiles-api-beta.benomad.net`.
+  var _origFetch = window.fetch;
+  window.fetch = function (input, init) {
+    var url = (typeof input === 'string' ? input : (input &amp;&amp; input.url)) || '';
+    var newInit = init;
+    var reqHost = null;
+    try { reqHost = new URL(url, (window.location &amp;&amp; window.location.href) || 'http://localhost/').host; } catch (e) { /* malformed */ }
+    if (reqHost) {
+      for (var d in bemap.MapLibreMap._tokenMap) {
+        if (d === reqHost) {
+          var tokenInfo = bemap.MapLibreMap._tokenMap[d];
+          var headers = new Headers((init || {}).headers || {});
+          headers.set(tokenInfo.header, tokenInfo.token);
+          newInit = Object.assign({}, init || {}, { headers: headers });
+          break;
+        }
+      }
+    }
+    return _origFetch.call(this, input, newInit);
+  };
+  bemap.MapLibreMap._fetchIntercepted = true;
+};
+
+/**
+ * Add default layers. If no custom style was provided, adds WMS background
+ * from the BeMap server (same as OlMap). Always adds overlay layers.
+ */
+bemap.MapLibreMap.prototype.defaultLayers = function(options) {
+  var opts = options || {};
+  // Short-circuit WMS when an explicit style is present OR when BeNomad
+  // Tiles is configured on the Context — in both cases the background is
+  // already supplied (via the custom style or the bundled default).
+  if (!this._hasCustomStyle &amp;&amp; !this._hasTilesConfig) {
+    this.addLayer(new bemap.BemapLayer({
+      name: bemap.Map.DEFAULT_LAYER.BACKGROUND,
+      styles: opts.styles ? opts.styles : ''
+    }));
+  }
+  bemap.Map.prototype.defaultOverlayLayers.call(this, opts);
+  return this;
+};
+
+/**
+ * No-op, kept so `.backgroundLayers(list).switchBackgroundLayer(name)` stays
+ * valid cross-engine. MapLibre needs no pre-declared layers.
+ *
+ * @public
+ * @param {Array.&lt;String>} geoservers Ignored.
+ * @param {Object} [options] Ignored.
+ * @return {bemap.MapLibreMap} Return this.
+ */
+bemap.MapLibreMap.prototype.backgroundLayers = function(geoservers, options) { return this; };
+
+/**
+ * Point the basemap at another geoserver's tiles, in place.
+ *
+ * Leaflet and OpenLayers toggle pre-created raster layers; MapLibre re-resolves
+ * the archive and re-applies the current style, so the map instance and its
+ * overlays survive. Was a stub, so a geoserver selector had no effect on any
+ * MapLibre map (BEMAP-1905).
+ *
+ * `setStyle` does the work — re-registers the slice source, re-resolves the
+ * placeholders, replays the overlays. The name is passed EXPLICITLY so it
+ * outranks `ctx.tilesFile`, and `_tilesFileExplicit` is cleared so a provider
+ * with no archive is treated as "no vector map" rather than a misconfiguration.
+ * Selecting a provider that HAS one restores the basemap.
+ *
+ * @public
+ * @since 2.0.4
+ * @param {String} geoserver Geoserver / tiles name, e.g. `'osm'`.
+ * @return {bemap.MapLibreMap} Return this.
+ */
+bemap.MapLibreMap.prototype.switchBackgroundLayer = function(geoserver) {
+  if (!geoserver || !this.ctx || typeof this.ctx.resolveTilesFile !== 'function') return this;
+  // No tiles config → the basemap is the WMS raster fallback (defaultLayers).
+  if (!this._hasTilesConfig) return this;
+  // PMT-66: the WMS shown during a tiles outage follows this choice.
+  this._backgroundGeoserver = geoserver;
+
+  var name = this.ctx.resolveTilesFile(geoserver);
+  // PMT-66: same archive → no setStyle; rebuild the outage WMS for the new geoserver.
+  if (name === this._tilesFile &amp;&amp; this._tilesFallbackActive) this._resetTilesFallbackWms();
+  if (name === this._tilesFile) return this;
+
+  // A map blanked by the catalog check (a provider with no vector map) has the
+  // source-free style as its _currentStyleSpec, so re-applying THAT would stay
+  // blank. Restore the last real spec instead, and keep the current one on the
+  // way in so there is always something to come back to.
+  var wasMissing = !!this._tilesFileMissing;
+  if (!wasMissing) this._tilesLastStyleSpec = this._currentStyleSpec;
+  this._tilesFile = name;
+  this._tilesFileExplicit = false;
+  this._tilesFileMissing = false;
+
+  var spec = wasMissing
+    ? (this._tilesLastStyleSpec || JSON.parse(JSON.stringify(bemap.fallbackStyle)))
+    : this._currentStyleSpec;
+  if (spec) {
+    this.setStyle(spec, { tilesFile: geoserver, _internal: true });
+  }
+  return this;
+};
+
+// =========================================================================
+// Internal Helpers
+// =========================================================================
+
+bemap.MapLibreMap.prototype._uniqueId = function(prefix) {
+  return (prefix || 'bemap') + '_' + (++this._layerCounter);
+};
+
+bemap.MapLibreMap.prototype._colorToRgba = function(color) {
+  if (!color) return 'rgba(0,0,0,1)';
+  return 'rgba(' + color.getRed() + ',' + color.getGreen() + ',' + color.getBlue() + ',' + color.getAlpha() + ')';
+};
+
+bemap.MapLibreMap.prototype._addOwnToProperties = function(bemapObject) {
+  if (!bemapObject) return;
+  // Idempotent: reuse an existing id instead of minting a new one. When the
+  // overlay catalog replays an add after a setStyle (e.g. the live charte load
+  // on a tilesHost page), a fresh id would give a polyline/polygon/circle a NEW
+  // source/layer id that escapes addPolyline's `getLayer()` dedupe guard and
+  // paints a DUPLICATE layer over the original — the "two polylines, drag one
+  // and the other moves" symptom (PMT-28). Keeping the id stable makes the
+  // guard fire so replay is a no-op for an overlay that is already present.
+  var id = bemapObject._bemapId || this._uniqueId('obj');
+  bemapObject._bemapId = id;
+  this._featureRegistry[id] = bemapObject;
+};
+
+bemap.MapLibreMap.prototype._getOwnFromProperties = function(feature) {
+  if (feature &amp;&amp; feature.properties &amp;&amp; feature.properties._bemapId) {
+    return this._featureRegistry[feature.properties._bemapId] || null;
+  }
+  return null;
+};
+
+bemap.MapLibreMap.prototype._hitTestMarkerElements = function(point) {
+  var mapContainer = this.native.getContainer();
+  if (!mapContainer) return null;
+  var mapRect = mapContainer.getBoundingClientRect();
+  var px = point.x + mapRect.left;
+  var py = point.y + mapRect.top;
+
+  for (var id in this._markerElements) {
+    var entry = this._markerElements[id];
+    var el = entry.element;
+    if (!el) continue;
+    var rect = el.getBoundingClientRect();
+    if (px >= rect.left &amp;&amp; px &lt;= rect.right &amp;&amp; py >= rect.top &amp;&amp; py &lt;= rect.bottom) {
+      return entry.bemapObject;
+    }
+  }
+  return null;
+};
+
+// =========================================================================
+// Event System — mirrors OlMap's _onFeature architecture
+// =========================================================================
+
+bemap.MapLibreMap.prototype._checkModeOfEvent = function(mode, bemapObject, eventType) {
+  if (bemapObject &amp;&amp; bemapObject.callback &amp;&amp; bemapObject.callback[eventType] &amp;&amp; typeof bemapObject.callback[eventType] === 'function') {
+    return bemapObject.callback[eventType];
+  }
+  if (this.events) {
+    if (this.events[eventType + 'markers'] &amp;&amp; this.events[eventType + 'markers'].callback &amp;&amp; typeof this.events[eventType + 'markers'].callback === 'function' &amp;&amp; bemap.inheritsof(bemapObject, bemap.Marker)) {
+      return this.events[eventType + 'markers'].callback;
+    }
+    if (this.events[eventType + 'multiMarkers'] &amp;&amp; this.events[eventType + 'multiMarkers'].callback &amp;&amp; typeof this.events[eventType + 'multiMarkers'].callback === 'function' &amp;&amp; bemap.inheritsof(bemapObject, bemap.MultiMarker)) {
+      return this.events[eventType + 'multiMarkers'].callback;
+    }
+    if (this.events[eventType + 'polylines'] &amp;&amp; this.events[eventType + 'polylines'].callback &amp;&amp; typeof this.events[eventType + 'polylines'].callback === 'function' &amp;&amp; bemap.inheritsof(bemapObject, bemap.Polyline)) {
+      return this.events[eventType + 'polylines'].callback;
+    }
+    if (this.events[eventType + 'polygons'] &amp;&amp; this.events[eventType + 'polygons'].callback &amp;&amp; typeof this.events[eventType + 'polygons'].callback === 'function' &amp;&amp; bemap.inheritsof(bemapObject, bemap.Polygon)) {
+      return this.events[eventType + 'polygons'].callback;
+    }
+    if (this.events[eventType + 'circles'] &amp;&amp; this.events[eventType + 'circles'].callback &amp;&amp; typeof this.events[eventType + 'circles'].callback === 'function' &amp;&amp; bemap.inheritsof(bemapObject, bemap.Circle)) {
+      return this.events[eventType + 'circles'].callback;
+    }
+  }
+  if (bemapObject &amp;&amp; bemapObject.events &amp;&amp; bemapObject.events.draggable &amp;&amp; bemapObject.callback &amp;&amp; bemapObject.callback.draggable &amp;&amp; typeof bemapObject.callback.draggable === 'function') {
+    return bemapObject.callback.draggable;
+  }
+  return null;
+};
+
+bemap.MapLibreMap.prototype._onFeature = function(declaredObj, eventType, callback, options, mode) {
+  var opts = options || {};
+  var mlEvent = bemap.MapLibreMap_eventMap[eventType] || eventType;
+  var _this = this;
+  var nativeListener;
+
+  if (!this.events[eventType]) {
+    nativeListener = function(evt) {
+      var bemapObject = null;
+
+      // Hit-test GeoJSON layers
+      if (evt.point &amp;&amp; _this._geoJsonLayerIds.length > 0) {
+        try {
+          var existingLayers = [];
+          for (var i = 0; i &lt; _this._geoJsonLayerIds.length; i++) {
+            if (_this.native.getLayer(_this._geoJsonLayerIds[i])) {
+              existingLayers.push(_this._geoJsonLayerIds[i]);
+            }
+          }
+          if (existingLayers.length > 0) {
+            var features = _this.native.queryRenderedFeatures(evt.point, { layers: existingLayers });
+            if (features &amp;&amp; features.length > 0) {
+              bemapObject = _this._getOwnFromProperties(features[0]);
+            }
+          }
+        } catch(e) {}
+      }
+
+      // Hit-test HTML markers
+      if (!bemapObject &amp;&amp; evt.point) {
+        bemapObject = _this._hitTestMarkerElements(evt.point);
+      }
+
+      // Fallback to map
+      if (!bemapObject) {
+        bemapObject = _this;
+      }
+
+      var coord = evt.lngLat ? new bemap.Coordinate(evt.lngLat.lng, evt.lngLat.lat) : new bemap.Coordinate();
+      var mapEvent = new bemap.MapEvent({
+        native: evt,
+        map: _this,
+        bemapObject: bemapObject,
+        x: evt.point ? evt.point.x : 0,
+        y: evt.point ? evt.point.y : 0,
+        coordinate: coord,
+        properties: opts
+      });
+
+      var cb = _this._checkModeOfEvent(mode, bemapObject, eventType);
+      if (cb) { cb(mapEvent); }
+    };
+
+    this.native.on(mlEvent, nativeListener);
+
+    this.events[eventType] = new bemap.Listener({
+      native: nativeListener,
+      callback: callback,
+      key: mlEvent,
+      bemapObject: declaredObj
+    });
+  } else {
+    nativeListener = this.events[eventType].native;
+  }
+
+  // Store callback routing
+  if (declaredObj &amp;&amp; mode &amp;&amp; mode.singleFeature &amp;&amp; typeof callback === 'function') {
+    if (!declaredObj.callback) declaredObj.callback = {};
+    declaredObj.callback[eventType] = callback;
+  } else if (!declaredObj &amp;&amp; mode &amp;&amp; mode.markers &amp;&amp; typeof callback === 'function') {
+    this.events[eventType + 'markers'] = new bemap.Listener({ callback: callback, key: eventType + 'markers' });
+    return this.events[eventType + 'markers'];
+  } else if (!declaredObj &amp;&amp; mode &amp;&amp; mode.multiMarkers &amp;&amp; typeof callback === 'function') {
+    this.events[eventType + 'multiMarkers'] = new bemap.Listener({ callback: callback, key: eventType + 'multiMarkers' });
+    return this.events[eventType + 'multiMarkers'];
+  } else if (!declaredObj &amp;&amp; mode &amp;&amp; mode.polylines &amp;&amp; typeof callback === 'function') {
+    this.events[eventType + 'polylines'] = new bemap.Listener({ callback: callback, key: eventType + 'polylines' });
+    return this.events[eventType + 'polylines'];
+  } else if (!declaredObj &amp;&amp; mode &amp;&amp; mode.polygons &amp;&amp; typeof callback === 'function') {
+    this.events[eventType + 'polygons'] = new bemap.Listener({ callback: callback, key: eventType + 'polygons' });
+    return this.events[eventType + 'polygons'];
+  } else if (!declaredObj &amp;&amp; mode &amp;&amp; mode.circles &amp;&amp; typeof callback === 'function') {
+    this.events[eventType + 'circles'] = new bemap.Listener({ callback: callback, key: eventType + 'circles' });
+    return this.events[eventType + 'circles'];
+  }
+
+  return this.events[eventType];
+};
+
+// Public event methods — all delegate to _onFeature
+bemap.MapLibreMap.prototype.on = function(eventType, callback, options) {
+  // 'error*' also reaches the map's error channel (BEMAP-1898 audit). Additive:
+  // MapLibre's own native 'error' event still arrives via _onFeature below, so a
+  // consumer already listening for tile/style failures keeps getting them.
+  this._subscribeErrorChannel(eventType, callback);
+  // 'tiles:fallback' / 'tiles:restored' (PMT-66): fired by the map itself, not by MapLibre.
+  if (eventType === 'tiles:fallback' || eventType === 'tiles:restored') {
+    if (typeof callback === 'function') {
+      this._tilesListeners = this._tilesListeners || { 'tiles:fallback': [], 'tiles:restored': [] };
+      this._tilesListeners[eventType].push(callback);
+    }
+    return new bemap.Listener({ callback: callback, key: eventType });
+  }
+  return this._onFeature(this, eventType, callback, options, { singleFeature: true });
+};
+
+bemap.MapLibreMap.prototype.onMarker = function(marker, eventType, callback, options) {
+  return this._onFeature(marker, eventType, callback, options, { singleFeature: true });
+};
+
+bemap.MapLibreMap.prototype.onMarkers = function(eventType, callback, options) {
+  return this._onFeature(null, eventType, callback, options, { markers: true });
+};
+
+bemap.MapLibreMap.prototype.onMultiMarkers = function(eventType, callback, options) {
+  return this._onFeature(null, eventType, callback, options, { multiMarkers: true });
+};
+
+bemap.MapLibreMap.prototype.onMultiMarker = function(multimarker, eventType, callback, options) {
+  return this._onFeature(multimarker, eventType, callback, options, { singleFeature: true });
+};
+
+bemap.MapLibreMap.prototype.onPolyline = function(polyline, eventType, callback, options) {
+  return this._onFeature(polyline, eventType, callback, options, { singleFeature: true });
+};
+
+bemap.MapLibreMap.prototype.onPolylines = function(eventType, callback, options) {
+  return this._onFeature(null, eventType, callback, options, { polylines: true });
+};
+
+bemap.MapLibreMap.prototype.onPolygon = function(polygon, eventType, callback, options) {
+  return this._onFeature(polygon, eventType, callback, options, { singleFeature: true });
+};
+
+bemap.MapLibreMap.prototype.onPolygons = function(eventType, callback, options) {
+  return this._onFeature(null, eventType, callback, options, { polygons: true });
+};
+
+bemap.MapLibreMap.prototype.onCircle = function(circle, eventType, callback, options) {
+  return this._onFeature(circle, eventType, callback, options, { singleFeature: true });
+};
+
+bemap.MapLibreMap.prototype.removeListener = function(listener, options) {
+  if (listener &amp;&amp; listener.native &amp;&amp; listener.key) {
+    this.native.off(listener.key, listener.native);
+  }
+  if (listener &amp;&amp; this._tilesListeners &amp;&amp; (listener.key === 'tiles:fallback' || listener.key === 'tiles:restored')) {
+    var _tl = this._tilesListeners[listener.key];
+    for (var _ti = _tl.length - 1; _ti >= 0; _ti--) { if (_tl[_ti] === listener.callback) _tl.splice(_ti, 1); }
+  }
+  if (listener &amp;&amp; listener.bemapObject &amp;&amp; listener.bemapObject.callback) {
+    if (listener.key === 'dragFeature') {
+      listener.bemapObject.events.draggable = false;
+      listener.bemapObject.callback.draggable = null;
+    }
+  }
+  return this;
+};
+
+// =========================================================================
+// Layer Management
+// =========================================================================
+
+bemap.MapLibreMap.prototype.addLayer = function(layer, options) {
+  if (layer === null || !bemap.inheritsof(layer, bemap.Layer)) return this;
+
+  var _this = this;
+  var layerId = this._uniqueId('layer');
+  layer._maplibreId = layerId;
+
+  if (bemap.inheritsof(layer, bemap.BemapLayer)) {
+    // Skip WMS when an alternate background is already in use — either
+    // an explicit `opts.style` (_hasCustomStyle) OR `ctx.tilesHost`
+    // (BeNomad Tiles, _hasTilesConfig). Without the tilesHost check, a
+    // legacy app that constructs MapLibreMap with tilesHost set AND then
+    // calls `addLayer(new BemapLayer({name:"normal"}))` (the same code
+    // it ran against LeafletMap) ends up stacking the WMS raster layer
+    // ON TOP of the loaded PMTiles — symptom: "PMTiles loads then snaps
+    // back to WMS". Register the layer logically and return.
+    if (this._hasCustomStyle || this._hasTilesConfig) {
+      layer.native = { id: layerId, type: 'raster' };
+      if (layer.map === null) layer.map = this;
+      bemap.Map.prototype.addLayer.call(this, layer);
+      return this;
+    }
+    var wmsUrl = bemap.MapLibreMap._bemapWmsUrl(this.ctx, layer);
+
+    var addWms = function() {
+      if (!_this.native.getSource(layerId)) {
+        _this.native.addSource(layerId, { type: 'raster', tiles: [wmsUrl], tileSize: 256 });
+        _this.native.addLayer({ id: layerId, type: 'raster', source: layerId });
+      }
+    };
+    this._whenStyleReady(addWms);
+    layer.native = { id: layerId, type: 'raster' };
+
+  } else if (bemap.inheritsof(layer, bemap.WmsLayer)) {
+    var wmsUrl2 = layer.url + '?SERVICE=WMS&amp;VERSION=1.1.1&amp;REQUEST=GetMap'
+      + '&amp;LAYERS=' + (layer.layers || '') + '&amp;STYLES=' + (layer.styles || '')
+      + '&amp;FORMAT=' + (layer.format || 'image/png') + '&amp;SRS=EPSG:3857&amp;WIDTH=256&amp;HEIGHT=256&amp;BBOX={bbox-epsg-3857}';
+    var addWms2 = function() {
+      if (!_this.native.getSource(layerId)) {
+        _this.native.addSource(layerId, { type: 'raster', tiles: [wmsUrl2], tileSize: 256 });
+        _this.native.addLayer({ id: layerId, type: 'raster', source: layerId });
+      }
+    };
+    this._whenStyleReady(addWms2);
+    layer.native = { id: layerId, type: 'raster' };
+
+  } else if (bemap.inheritsof(layer, bemap.ClusterLayer)) {
+    layer.native = { id: layerId, type: 'cluster', features: [], markers: [] };
+    layer._sourceId = layerId + '-src';
+
+  } else if (bemap.inheritsof(layer, bemap.VectorTileLayer)) {
+    var addVt = function() {
+      if (!_this.native.getSource(layerId)) {
+        _this.native.addSource(layerId, { type: 'vector', tiles: [layer.url], minzoom: layer.minZoom || 0, maxzoom: layer.maxZoom || 14 });
+      }
+    };
+    this._whenStyleReady(addVt);
+    layer.native = { id: layerId, type: 'vector' };
+
+  } else if (bemap.inheritsof(layer, bemap.VectorLayer)) {
+    layer.native = { id: layerId, type: 'vector', features: [], markers: [], geoJsonIds: [] };
+
+  } else if (bemap.inheritsof(layer, bemap.OsmLayer)) {
+    var addOsm = function() {
+      if (!_this.native.getSource(layerId)) {
+        _this.native.addSource(layerId, { type: 'raster', tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'], tileSize: 256 });
+        _this.native.addLayer({ id: layerId, type: 'raster', source: layerId });
+      }
+    };
+    this._whenStyleReady(addOsm);
+    layer.native = { id: layerId, type: 'raster' };
+  }
+
+  if (layer.map === null) layer.map = this;
+  bemap.Map.prototype.addLayer.call(this, layer);
+  return this;
+};
+
+/**
+ * BeMap WMS GetMap tile URL (EPSG:3857) for a `bemap.BemapLayer`-like object.
+ * Shared by `addLayer` and the BeNomad Tiles → WMS fallback (PMT-66).
+ * @private
+ * @param {bemap.Context} ctx
+ * @param {Object} layer `geoserver`, `layers`, `styles`, `format`, `transparent` (all optional)
+ * @return {String}
+ */
+bemap.MapLibreMap._bemapWmsUrl = function(ctx, layer) {
+  // No geoserver → no parameter, so the server uses the account's default.
+  // Concatenated as is, a Context without one sent `geoserver=undefined`,
+  // which BeMap answers with "GeoServer not found" instead of a tile (BEMAP-1940).
+  var wmsGeoserver = layer.geoserver ? layer.geoserver : ctx.getGeoserver();
+  return ctx.getBaseUrl() + 'wms?' + ctx.getAuthUrlParams()
+    + (wmsGeoserver ? '&amp;geoserver=' + wmsGeoserver : '')
+    + '&amp;LAYERS=' + (layer.layers ? layer.layers : 'default')
+    + '&amp;STYLES=' + (layer.styles ? layer.styles : '')
+    + '&amp;FORMAT=' + (layer.format ? layer.format : 'image/png')
+    + '&amp;TRANSPARENT=' + (layer.transparent ? 'true' : 'false')
+    + '&amp;SERVICE=WMS&amp;VERSION=1.1.1&amp;REQUEST=GetMap&amp;SRS=EPSG:3857&amp;WIDTH=256&amp;HEIGHT=256&amp;BBOX={bbox-epsg-3857}';
+};
+
+/**
+ * Load PMTiles vector tiles with optional style and authentication.
+ * Registers the pmtiles:// protocol, sets up token injection, loads style,
+ * and applies it to the map. Requires pmtiles.js library.
+ *
+ * @public
+ * @param {bemap.PMTilesLayer} layer PMTilesLayer with url, style, token, etc.
+ * @param {function} callback Called when loading is complete (optional).
+ * @return {bemap.MapLibreMap} this
+ */
+// @todo WIP — PMTiles loading is functional but needs further production testing.
+bemap.MapLibreMap.prototype.loadPMTiles = function(layer, callback) {
+  if (!layer || !bemap.inheritsof(layer, bemap.PMTilesLayer)) {
+    console.warn('loadPMTiles() requires a bemap.PMTilesLayer');
+    return this;
+  }
+  if (typeof pmtiles === 'undefined') {
+    console.error('PMTiles library not loaded. Add &lt;script src="pmtiles.js">&lt;/script>');
+    return this;
+  }
+  if (!layer.url) {
+    console.error('PMTilesLayer.url is required');
+    return this;
+  }
+
+  var _this = this;
+  var tilesUrl = 'pmtiles://' + layer.url;
+  var sourceName = layer.sourceName || 'tiles';
+
+  // Register PMTiles protocol (safe to call multiple times)
+  if (!bemap.MapLibreMap._pmtilesRegistered) {
+    var protocol = new pmtiles.Protocol();
+    maplibregl.addProtocol('pmtiles', protocol.tile);
+    bemap.MapLibreMap._pmtilesProtocol = protocol;
+    bemap.MapLibreMap._pmtilesRegistered = true;
+  }
+
+  // Self-healing cache for this archive (no-op if disabled / URL unresolvable).
+  // layer.url is an arbitrary origin → keep it on the always-safe Range path
+  // unless the layer explicitly asks for 200-slice.
+  bemap.MapLibreMap._addTilesArchive(layer.url, layer.sliceMode === '200' ? '200' : 'range');
+
+  // Set up token injection for authenticated PMTiles
+  if (layer.token) {
+    this._setupTilesAuth(layer.url, layer.token, layer.tokenHeader || 'X-Session-Token');
+  }
+
+  // Load style
+  var applyStyle = function(style) {
+    // Inject PMTiles source into style
+    var placeholder = (style.metadata &amp;&amp; style.metadata.source_placeholder) || 'TILES_SOURCE';
+    style.sources[sourceName] = Object.assign(
+      {}, style.sources[placeholder] || {},
+      { type: 'vector', url: tilesUrl, maxzoom: layer.pmtilesMaxZoom || 14 }
+    );
+    if (placeholder !== sourceName &amp;&amp; style.sources[placeholder]) {
+      delete style.sources[placeholder];
+    }
+    for (var i = 0; i &lt; style.layers.length; i++) {
+      if (style.layers[i].source === placeholder) style.layers[i].source = sourceName;
+    }
+    if (!style.glyphs) style.glyphs = layer.glyphs || 'https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf';
+
+    // Register callback BEFORE setStyle so we catch the style.load event
+    if (callback) {
+      _this.native.once('style.load', function() { callback(_this); });
+    }
+    _this._normalizeStyleProjection(style);   // SDK owns projection, not the style
+
+    _this.native.setStyle(style);
+    _this._hasCustomStyle = true;
+  };
+
+  if (typeof layer.style === 'string') {
+    // Style is a URL — fetch it
+    var xhr = new XMLHttpRequest();
+    xhr.open('GET', layer.style, true);
+    if (layer.token) {
+      xhr.setRequestHeader(layer.tokenHeader || 'X-Session-Token', layer.token);
+    }
+    xhr.onload = function() {
+      if (xhr.status === 200) {
+        try {
+          var style = JSON.parse(xhr.responseText);
+          applyStyle(style);
+        } catch(e) {
+          console.error('Failed to parse PMTiles style JSON:', e);
+        }
+      } else {
+        console.error('Failed to load PMTiles style:', xhr.status);
+      }
+    };
+    xhr.send();
+  } else if (layer.style &amp;&amp; typeof layer.style === 'object') {
+    // Style is an object — use directly
+    applyStyle(JSON.parse(JSON.stringify(layer.style))); // deep clone
+  } else {
+    // No style — create minimal style with the PMTiles source
+    applyStyle({
+      version: 8,
+      glyphs: layer.glyphs || 'https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf',
+      sources: {},
+      layers: [{ id: 'background', type: 'background', paint: { 'background-color': '#f0f0f0' } }]
+    });
+  }
+
+  layer.map = this;
+  bemap.Map.prototype.addLayer.call(this, layer);
+  return this;
+};
+bemap.MapLibreMap._pmtilesRegistered = false;
+bemap.MapLibreMap._pmtilesProtocol = null;      // retained pmtiles.Protocol (page-global)
+bemap.MapLibreMap._tilesArchives = {};          // archiveUrl → true (added once)
+bemap.MapLibreMap._fetchIntercepted = false;
+bemap.MapLibreMap._tokenMap = {};
+
+/**
+ * Page-level tile fetch mode: `'200'` (default) reads the archive as
+ * browser-cacheable 200-slices via `bemap.PMTilesSliceSource`; `'range'` uses
+ * pmtiles' stock HTTP-Range (206) source (today's path). `?noslice` forces
+ * `'range'`. Set from `opts.tilesSliceMode` by `_applyTilesSliceOpts`.
+ * @private
+ */
+bemap.MapLibreMap._tilesSliceMode = (typeof location !== 'undefined' &amp;&amp; location.search &amp;&amp; /[?&amp;]noslice\b/.test(location.search)) ? 'range' : '200';
+
+/**
+ * Apply `opts.tilesSlice*` to the page-level slice mode + the shared RangeGate.
+ * Everything is read from `opts` with a default; nothing is hardcoded downstream.
+ * @private
+ */
+bemap.MapLibreMap._applyTilesSliceOpts = function (opts) {
+  opts = opts || {};
+  if (opts.tilesSliceMode === '200' || opts.tilesSliceMode === 'range' || opts.tilesSliceMode === '206') {
+    bemap.MapLibreMap._tilesSliceMode = (opts.tilesSliceMode === '206') ? 'range' : opts.tilesSliceMode;
+  }
+  if (typeof bemap.PMTilesSliceSource === 'function' &amp;&amp; bemap.PMTilesSliceSource.defaultGate) {
+    var g = bemap.PMTilesSliceSource.defaultGate;
+    if (opts.tilesSliceTimeoutMs != null) g.timeoutMs = opts.tilesSliceTimeoutMs;
+    if (opts.tilesSliceBodyTimeoutMs != null) g.bodyTimeoutMs = opts.tilesSliceBodyTimeoutMs;
+    if (opts.tilesSliceMaxRetries != null) g.maxRetries = opts.tilesSliceMaxRetries;
+    if (Array.isArray(opts.tilesSliceRetryBackoffMs)) g.retryBackoffMs = opts.tilesSliceRetryBackoffMs.slice();
+    if (opts.tilesSliceConcurrency != null) g.concurrency = (opts.tilesSliceConcurrency > 0 ? opts.tilesSliceConcurrency : 0);
+    if (opts.tileGate != null) g.setActive(opts.tileGate !== false);
+  }
+};
+
+/**
+ * Compose the ONE `transformRequest` MapLibre accepts (EVMOVE-307 #7).
+ *
+ * MapLibre keeps only the last assignment, so tile auth and the proxy env header
+ * cannot each install their own. This wraps them:
+ *   - every request first goes through `TilesAuth.buildTransformRequest()` (when
+ *     tile auth exists), so `tilesHost` URLs keep their token / credentials;
+ *   - a request whose URL belongs to `ctx.proxy` additionally gets the proxy
+ *     headers (e.g. `X-BeMap-Env`).
+ *
+ * Proxy matching is by **parsed origin + path boundary**, never `startsWith`: a
+ * raw prefix test would also match `https://&lt;proxy-host>.evil.com/…` and leak
+ * the header to an attacker-controlled origin.
+ *
+ * The proxy is resolved from the Context **per request** (memoised until it
+ * changes), not captured here, so a later `ctx.setProxy()` re-targets matching
+ * and headers together. One caveat remains, documented on `setProxy()`: a map
+ * built on a Context that had NO proxy gets no wrapper at all (see the retrocompat
+ * line below), so it cannot pick one up afterwards — set `proxy` before
+ * constructing the map.
+ *
+ * With no `ctx.proxy` the tile-auth function is returned UNWRAPPED, so existing
+ * consumers get byte-identical behaviour.
+ *
+ * @private
+ * @since 2.0.2
+ * @param {bemap.Context} ctx
+ * @param {bemap.TilesAuth} [tilesAuth]
+ * @return {Function|undefined}
+ */
+bemap.MapLibreMap._buildTransformRequest = function (ctx, tilesAuth) {
+  var inner = (tilesAuth &amp;&amp; typeof tilesAuth.buildTransformRequest === 'function')
+    ? tilesAuth.buildTransformRequest() : null;
+  var proxy = ctx &amp;&amp; (typeof ctx.getProxy === 'function' ? ctx.getProxy() : ctx.proxy);
+  if (!proxy) return inner || undefined;          // unchanged path (retrocompat)
+
+  // Resolve the proxy PER REQUEST (memoised until it changes) rather than
+  // capturing it here. `ctx.setProxy()` is a public runtime API, and the headers
+  // below are read live from the Context: a captured origin would then match the
+  // OLD proxy while stamping the NEW environment header on it, and requests to
+  // the new proxy would get no header at all. Cost is one string compare per
+  // request; re-parsing happens only when the value actually changes.
+  var cachedFor = null, pOrigin = null, pPath = '';
+  function resolveProxyOrigin() {
+    var cur;
+    // getProxy() re-validates on read and THROWS on a bad late write. MapLibre's
+    // transformRequest must never throw (it would break the request pipeline), so
+    // treat an unusable proxy as "no proxy" here — the same bad value surfaces
+    // loudly on the next getBaseUrl()/login call.
+    try { cur = (typeof ctx.getProxy === 'function') ? ctx.getProxy() : ctx.proxy; }
+    catch (e) { cur = null; }
+    if (cur !== cachedFor) {
+      cachedFor = cur;
+      pOrigin = null;
+      pPath = '';
+      if (cur) {
+        try {
+          var pu = new URL(cur);
+          pOrigin = pu.origin;
+          pPath = (pu.pathname || '').replace(/\/+$/, '');
+        } catch (e2) { /* normalisation already validated it; stay silent */ }
+      }
+    }
+    return pOrigin;
+  }
+
+  function isProxyUrl(url) {
+    if (!resolveProxyOrigin()) return false;
+    var parsed;
+    try {
+      parsed = new URL(url, (typeof window !== 'undefined' &amp;&amp; window.location &amp;&amp; window.location.href) || 'http://localhost/');
+    } catch (e) { return false; }
+    if (parsed.origin !== pOrigin) return false;   // exact origin — blocks look-alike hosts
+    if (!pPath) return true;                       // proxy is a bare origin
+    var path = parsed.pathname || '';
+    return (path === pPath) || (path.indexOf(pPath + '/') === 0);
+  }
+
+  return function (url, resourceType) {
+    var out = inner ? inner(url, resourceType) : null;
+    if (!out) out = { url: url };
+    if (isProxyUrl(url)) {
+      // Same rule as resolveProxyOrigin(): never let a Context read throw out of
+      // transformRequest (getProxyHeaders → getProxy → re-validation).
+      var ph = {};
+      try { if (typeof ctx.getProxyHeaders === 'function') ph = ctx.getProxyHeaders(); }
+      catch (e) { ph = {}; }
+      var hasAny = false;
+      for (var k in ph) { if (Object.prototype.hasOwnProperty.call(ph, k)) { hasAny = true; break; } }
+      if (hasAny) {
+        var headers = out.headers || {};
+        for (var hk in ph) {
+          if (Object.prototype.hasOwnProperty.call(ph, hk)) headers[hk] = ph[hk];
+        }
+        out.headers = headers;
+      }
+    }
+    return out;
+  };
+};
+
+/**
+ * Wire one tiles archive URL into the (page-global) pmtiles Protocol, choosing
+ * the source by `_tilesSliceMode` and wrapping it in the self-healing
+ * `bemap.RecoverablePromiseCache` when enabled:
+ *   - `'200'` → `bemap.PMTilesSliceSource` (browser-cacheable 200-slices).
+ *   - `'range'` → stock source (HTTP Range 206), pmtiles' default.
+ * Idempotent per URL.
+ *
+ * Fully guarded — a no-op (leaving pmtiles' stock auto-create, i.e. today's
+ * behaviour) when there is nothing custom to add, pmtiles/the classes are
+ * absent, the Protocol wasn't retained, the URL is empty, or anything throws.
+ * The archive is `protocol.add`-ed under its exact URL key; a key mismatch just
+ * means the Protocol auto-creates its own default for the real URL — a mismatch
+ * cannot break tile loading. Construction is lazy (no eager fetch).
+ * @private
+ * @param {String} archiveUrl the pmtiles archive URL (no `pmtiles://` prefix).
+ * @param {String} [forceMode] override the page-level `_tilesSliceMode` for THIS
+ *   archive (`'200'` | `'range'`). Used by the raw-`opts.tiles` / `loadPMTiles`
+ *   paths to keep arbitrary origins (S3/R2/presigned that don't serve `?r=`) on
+ *   the always-safe Range path unless the caller explicitly opts into `'200'`.
+ * @return {Boolean} true if a custom source/cache was wired for this URL.
+ */
+bemap.MapLibreMap._addTilesArchive = function (archiveUrl, forceMode, versioned) {
+  if (!archiveUrl) return false;
+  if (typeof pmtiles === 'undefined' || typeof pmtiles.PMTiles !== 'function') return false;
+  var proto = bemap.MapLibreMap._pmtilesProtocol;
+  if (!proto || typeof proto.add !== 'function') return false;
+  if (!bemap.MapLibreMap._tilesArchives) bemap.MapLibreMap._tilesArchives = {};
+  if (bemap.MapLibreMap._tilesArchives[archiveUrl]) return true;   // already wired
+
+  var mode = forceMode || bemap.MapLibreMap._tilesSliceMode;
+  var useSlice = (mode === '200') &amp;&amp; (typeof bemap.PMTilesSliceSource === 'function');
+  var cache;
+  if (typeof bemap.RecoverablePromiseCache === 'function' &amp;&amp; bemap.RecoverablePromiseCache.enabled !== false
+      &amp;&amp; typeof pmtiles.SharedPromiseCache === 'function') {
+    cache = new bemap.RecoverablePromiseCache();
+  }
+  // Nothing custom to wire (stock range + stock cache) → let the Protocol
+  // auto-create exactly as today (avoids a redundant explicit instance).
+  if (!useSlice &amp;&amp; !cache) return false;
+
+  // Mark BEFORE proto.add so a throwing/duplicate add is not re-attempted on
+  // every construction — a failed add safely falls back to the Protocol's own
+  // auto-create for that URL (today's behaviour), keeping the guard effective.
+  bemap.MapLibreMap._tilesArchives[archiveUrl] = true;
+  try {
+    var source = useSlice ? new bemap.PMTilesSliceSource(archiveUrl, { versioned: !!versioned }) : archiveUrl;
+    proto.add(new pmtiles.PMTiles(source, cache));   // cache undefined → pmtiles default
+    return true;
+  } catch (e) {
+    return false;   // fell back to Protocol auto-create (no regression); stays marked
+  }
+};
+
+/**
+ * Return the resolved BeNomad-Tiles configuration for this map — the effective
+ * values after opts + Context + page-level defaults are merged. Useful for
+ * debugging ("what is actually in effect?"). All fields are read-only snapshots.
+ * @public
+ * @since 2.0.0
+ * @return {{tilesHost:(String|null), tilesSliceMode:String, recoverableCache:Boolean, rangeCacheMode:(String|null), tileGate:(Object|null), tilesAuth:(Object|null), serviceWorker:{enabled:Boolean, path:(String|null)}}}
+ */
+bemap.MapLibreMap.prototype.getTilesConfig = function () {
+  var gate = (typeof bemap.PMTilesSliceSource === 'function') ? bemap.PMTilesSliceSource.defaultGate : null;
+  var cfg = {
+    tilesHost: (this.ctx &amp;&amp; this.ctx.tilesHost) || null,
+    tilesSliceMode: bemap.MapLibreMap._tilesSliceMode,
+    recoverableCache: (typeof bemap.RecoverablePromiseCache === 'function') ? (bemap.RecoverablePromiseCache.enabled !== false) : false,
+    rangeCacheMode: (typeof bemap.RangeFetchPolicy === 'function') ? (bemap.RangeFetchPolicy.defaultMode || 'auto') : null,
+    tileGate: gate ? {
+      active: gate.isActive(),
+      concurrency: gate.concurrency,      // 0 = uncapped
+      timeoutMs: gate.timeoutMs,          // pre-header (TTFB) timeout
+      bodyTimeoutMs: gate.bodyTimeoutMs,  // post-header body safety cap
+      maxRetries: gate.maxRetries,
+      retryBackoffMs: (gate.retryBackoffMs || []).slice()
+    } : null,
+    tilesAuth: null,
+    serviceWorker: { enabled: false, path: null }
+  };
+  if (this._tilesAuth &amp;&amp; this._tilesAuth._authConfig) {
+    cfg.tilesAuth = this._tilesAuth._authConfig;
+  } else if (this.ctx &amp;&amp; typeof this.ctx.getTilesAuth === 'function') {
+    cfg.tilesAuth = this.ctx.getTilesAuth();
+  }
+  if (this._browserCache) {
+    cfg.serviceWorker = {
+      enabled: (typeof this._browserCache.isEnabled === 'function') ? this._browserCache.isEnabled() : true,
+      path: this._browserCache.swPath || null
+    };
+  }
+  return cfg;
+};
+
+/**
+ * Live-toggle the resilience gate (concurrency cap + timeout + retry) WITHOUT a
+ * reload — the slice source reads it per request. Fires `onTileGateChange` and
+ * any `'tilegatechange'` listeners. This is the SDK-supported way to build a
+ * diagnostic on/off button (the demo/bemaputnik call this).
+ * @public
+ * @since 2.0.0
+ * @param {Boolean} active
+ * @return {bemap.MapLibreMap} this
+ */
+bemap.MapLibreMap.prototype.setTileGateActive = function (active) {
+  var state = (active !== false);
+  if (typeof bemap.PMTilesSliceSource === 'function' &amp;&amp; bemap.PMTilesSliceSource.defaultGate) {
+    bemap.PMTilesSliceSource.defaultGate.setActive(state);
+    state = bemap.PMTilesSliceSource.defaultGate.isActive();
+  }
+  if (typeof this._onTileGateChange === 'function') { try { this._onTileGateChange(state); } catch (e) {} }
+  return this;
+};
+
+/** @public @since 2.0.0 @return {Boolean} */
+bemap.MapLibreMap.prototype.getTileGateActive = function () {
+  return (typeof bemap.PMTilesSliceSource === 'function' &amp;&amp; bemap.PMTilesSliceSource.defaultGate)
+    ? bemap.PMTilesSliceSource.defaultGate.isActive() : false;
+};
+
+/**
+ * Set the tile fetch mode (`'200'` | `'range'`) for archives wired AFTER this
+ * call. Archives already registered keep their source; call before loading a
+ * style, or reload the style, for a live A/B. Returns this.
+ * @public
+ * @since 2.0.0
+ * @param {String} mode `'200'` or `'range'` (`'206'` accepted as an alias for `'range'`)
+ * @return {bemap.MapLibreMap} this
+ */
+bemap.MapLibreMap.prototype.setTilesSliceMode = function (mode) {
+  if (mode === '200' || mode === 'range' || mode === '206') {
+    bemap.MapLibreMap._tilesSliceMode = (mode === '206') ? 'range' : mode;
+  }
+  return this;
+};
+
+/**
+ * Classify a MapLibre 'error' payload as a RECOVERABLE tile failure — one a
+ * debounced source refresh can heal. Auth statuses (401/403) are excluded
+ * (TilesAuth owns those); other definite HTTP statuses except 408/429/5xx
+ * (e.g. 404) are permanent and excluded too. Status-less errors count when
+ * they look like a timeout / abort / network blip.
+ * @private
+ * @param {Object} err the `e.error` from MapLibre's 'error' event
+ * @return {Boolean}
+ */
+bemap.MapLibreMap._isRecoverableTileError = function (err) {
+  if (!err) return false;
+  var status = err.status || (err.statusText ? parseInt(err.statusText, 10) : 0) || 0;
+  if (status === 401 || status === 403) return false;   // auth — TilesAuth owns these
+  // Transient server: 429 (rate limit), 5xx (incl. the Worker's 3 s deadline
+  // → 504), 408 (request timeout). The gate already retried; refresh heals.
+  if (status === 408 || status === 429 || (status >= 500 &amp;&amp; status &lt;= 599)) return true;
+  if (status > 0) return false;                         // other definite HTTP status (404…) — permanent
+  var name = err.name || '';
+  if (name === 'AbortError' || name === 'TimeoutError') return true;   // gate TTFB timeout / aborted fetch
+  if (name === 'TypeError') return true;                               // fetch network failure
+  var msg = String(err.message || '');
+  // Status-less wrapped messages (pmtiles / slice source): transient codes or
+  // timeout / abort / network wording.
+  return /\b(?:408|429|5\d\d)\b/.test(msg) ||
+    /\btime[d]?[\s-]?out\b|\btimeout\b|\baborted?\b|failed to fetch|networkerror|network error|load failed/i.test(msg);
+};
+
+/**
+ * Schedule ONE debounced (`tilesErrorRefreshMs`, default 4000 ms) refresh of
+ * the tile-backed sources — the terminal safety net after a recoverable tile
+ * failure. Repeated errors inside the window coalesce into the single pending
+ * refresh; `tilesErrorRefreshMs: 0` disables the net entirely.
+ * @private
+ * @return {bemap.MapLibreMap} this
+ */
+bemap.MapLibreMap.prototype._scheduleTileRefresh = function () {
+  if (!(this._tilesErrorRefreshMs > 0)) return this;    // disabled by config
+  if (this._tileRefreshTimer) return this;              // one pending refresh at a time
+  var self = this;
+  this._tileRefreshTimer = setTimeout(function () {
+    self._tileRefreshTimer = null;
+    self._refreshTileSources();
+  }, this._tilesErrorRefreshMs);
+  return this;
+};
+
+/**
+ * Re-request errored tiles on every tile-backed source of the current style:
+ * `map.refreshTiles(sourceId)` (MapLibre ≥ 5) with a `source.setUrl(url)`
+ * fallback. GeoJSON overlays are skipped — they cannot grey out. Best-effort:
+ * every step is guarded, a failure on one source never blocks the others.
+ * @private
+ * @return {bemap.MapLibreMap} this
+ */
+bemap.MapLibreMap.prototype._refreshTileSources = function () {
+  var map = this.native;
+  if (!map || typeof map.getStyle !== 'function') return this;
+  var style = null;
+  try { style = map.getStyle(); } catch (e) { return this; }
+  var sources = (style &amp;&amp; style.sources) || {};
+  for (var id in sources) {
+    if (!Object.prototype.hasOwnProperty.call(sources, id)) continue;
+    var type = sources[id] &amp;&amp; sources[id].type;
+    if (type !== 'vector' &amp;&amp; type !== 'raster' &amp;&amp; type !== 'raster-dem') continue;
+    var refreshed = false;
+    try {
+      if (typeof map.refreshTiles === 'function') { map.refreshTiles(id); refreshed = true; }
+    } catch (e2) { /* fall through to setUrl below */ }
+    if (refreshed) continue;
+    try {
+      var src = (typeof map.getSource === 'function') ? map.getSource(id) : null;
+      if (src &amp;&amp; typeof src.setUrl === 'function' &amp;&amp; src.url) src.setUrl(src.url);
+    } catch (e3) { /* best-effort only */ }
+  }
+  return this;
+};
+
+// =========================================================================
+// PMT-66 — BeNomad Tiles unreachable → BeMap WMS background, then back
+// =========================================================================
+
+/** @private */
+bemap.MapLibreMap._tilesFallbackWmsId = 'bemap-tiles-fallback-wms';
+/** @private Tile failures in a row (network / 5xx) that switch to the WMS. */
+bemap.MapLibreMap._tilesFallbackErrorCount = 5;
+/** @private First login probe delay; doubles up to the max. */
+bemap.MapLibreMap._tilesFallbackProbeMs = 10000;
+/** @private */
+bemap.MapLibreMap._tilesFallbackProbeMaxMs = 300000;
+
+/**
+ * Is this error "BeNomad Tiles unreachable"? HTTP 5xx (incl. Cloudflare
+ * 520–526), a rejected fetch (network), a timeout. Never 401 / 403 / 429 or
+ * OFFLINE: the host answered, or the browser itself is offline.
+ * @private
+ * @param {Object} err
+ * @return {Boolean}
+ */
+bemap.MapLibreMap._isTilesOutageError = function (err) {
+  if (!err) return false;
+  var code = err.code;
+  if (code === 'UNAUTHORIZED' || code === 'FORBIDDEN' || code === 'RATE_LIMITED' || code === 'OFFLINE') return false;
+  var status = err.status || (err.statusText ? parseInt(err.statusText, 10) : 0) || 0;
+  if (status > 0) return status >= 500 &amp;&amp; status &lt;= 599;
+  var name = err.name || '';
+  if (name === 'TypeError' || name === 'AbortError' || name === 'TimeoutError') return true;
+  var msg = String(err.message || '');
+  // 5xx only right after "HTTP" / "code" ("Bad response code: 503"), never in a URL (?r=512-1023).
+  return /\b(?:HTTP|code:?)\s*5\d\d\b/i.test(msg) ||
+    /\btime[d]?[\s-]?out\b|\btimeout\b|failed to fetch|networkerror|network error|load failed/i.test(msg);
+};
+
+/**
+ * Does a MapLibre 'error' / 'data' event come from a vector source served by
+ * `ctx.tilesHost`?
+ * @private
+ */
+bemap.MapLibreMap.prototype._isTilesHostSource = function (e) {
+  var host = this.ctx &amp;&amp; this.ctx.tilesHost;
+  if (!host || !e) return false;
+  var src = e.source;
+  if (!src &amp;&amp; e.sourceId &amp;&amp; this.native &amp;&amp; typeof this.native.getSource === 'function') {
+    try { src = this.native.getSource(e.sourceId); } catch (x) { src = null; }
+  }
+  return !!(src &amp;&amp; src.type === 'vector' &amp;&amp; String(src.url || '').indexOf(host) !== -1);
+};
+
+/** @private */
+bemap.MapLibreMap._isBrowserOffline = function () {
+  return typeof navigator !== 'undefined' &amp;&amp; navigator.onLine === false;
+};
+
+/**
+ * Wire the outage detection on a new map (constructor, `tilesFallbackToWms` on):
+ * the watchdog, the first login, MapLibre 'error' / 'data', window 'online'.
+ * @private
+ * @param {Promise} [initLogin] the first login, when the constructor started one
+ * @return {bemap.MapLibreMap} this
+ */
+bemap.MapLibreMap.prototype._startTilesFallback = function (initLogin) {
+  var self = this;
+  this._armTilesWatchdog();
+  if (initLogin) this._watchTilesLogin(initLogin);
+  this.native.on('error', function (e) { self._onTilesFallbackTileError(e); });
+  this.native.on('data', function (e) { self._onTilesFallbackData(e); });
+  // After MapLibre's 'load', a waiting add (isStyleLoaded() false while tiles load) is never run
+  // by MapLibre: it must not be kept for a later outage either (_whenMapLoaded).
+  this.native.once('load', function () { self._nativeLoadFired = true; });
+  if (typeof window !== 'undefined' &amp;&amp; typeof window.addEventListener === 'function') {
+    this._tilesOnlineHandler = function () { self._onTilesOnline(); };
+    window.addEventListener('online', this._tilesOnlineHandler);
+  }
+  return this;
+};
+
+/**
+ * Switch to the WMS when no tilesHost archive has answered (no 'metadata' data
+ * event) after `tilesFallbackDelayMs`. Works with a stored token too, where no
+ * login runs at construction.
+ * @private
+ * @return {bemap.MapLibreMap} this
+ */
+bemap.MapLibreMap.prototype._armTilesWatchdog = function () {
+  var self = this;
+  this._clearTilesWatchdog();
+  this._tilesWatchdogTimer = setTimeout(function () {
+    self._tilesWatchdogTimer = null;
+    // A hidden tab runs no requestAnimationFrame, so MapLibre loads no style or
+    // metadata there: wait until the tab is visible, then give it a full delay.
+    if (bemap.MapLibreMap._isDocumentHidden()) {
+      self._tilesVisibleHandler = function () {
+        if (bemap.MapLibreMap._isDocumentHidden()) return;
+        self._removeTilesVisibleHandler();
+        self._armTilesWatchdog();
+      };
+      document.addEventListener('visibilitychange', self._tilesVisibleHandler);
+      return;
+    }
+    // No tilesHost source in the style (e.g. a provider without a vector map): nothing to wait for.
+    if (self._hasTilesHostSourceInStyle()) self._enterTilesFallback();
+  }, this._tilesFallbackDelayMs);
+  return this;
+};
+
+/** @private */
+bemap.MapLibreMap.prototype._clearTilesWatchdog = function () {
+  if (this._tilesWatchdogTimer) { clearTimeout(this._tilesWatchdogTimer); this._tilesWatchdogTimer = null; }
+  this._removeTilesVisibleHandler();
+  return this;
+};
+
+/** @private */
+bemap.MapLibreMap.prototype._removeTilesVisibleHandler = function () {
+  if (this._tilesVisibleHandler &amp;&amp; typeof document !== 'undefined') {
+    document.removeEventListener('visibilitychange', this._tilesVisibleHandler);
+  }
+  this._tilesVisibleHandler = null;
+  return this;
+};
+
+/** @private */
+bemap.MapLibreMap._isDocumentHidden = function () {
+  return typeof document !== 'undefined' &amp;&amp; document.hidden === true;
+};
+
+/**
+ * Does the live style have a source on `ctx.tilesHost`? `true` when the style
+ * cannot be read yet.
+ * @private
+ * @return {Boolean}
+ */
+bemap.MapLibreMap.prototype._hasTilesHostSourceInStyle = function () {
+  var nat = this.native;
+  if (!nat || typeof nat.getStyle !== 'function') return false;
+  var style = null;
+  try { style = nat.getStyle(); } catch (e) { style = null; }
+  if (!style) return true;
+  var sources = style.sources || {};
+  for (var id in sources) {
+    if (Object.prototype.hasOwnProperty.call(sources, id) &amp;&amp; this._isTilesHostSource({ source: sources[id] })) return true;
+  }
+  return false;
+};
+
+/**
+ * MapLibre 'error' listener: count tile failures in a row. A failed source load
+ * (no `e.tile`: the archive header) counts as all of them — MapLibre never
+ * retries it, so no further tile error would ever come.
+ * @private
+ */
+bemap.MapLibreMap.prototype._onTilesFallbackTileError = function (e) {
+  if (!this._tilesFallbackEnabled || this._tilesFallbackActive) return;
+  if (!e || !this._isTilesHostSource(e)) return;
+  if (!bemap.MapLibreMap._isTilesOutageError(e.error)) {
+    // The host answered (401, 403, 404…): not an outage, stop waiting for it.
+    this._clearTilesWatchdog();
+    return;
+  }
+  // Offline: the WMS could not load either — keep the vector tiles already painted.
+  if (bemap.MapLibreMap._isBrowserOffline()) return;
+  this._tilesErrorStreak = e.tile ? (this._tilesErrorStreak || 0) + 1 : bemap.MapLibreMap._tilesFallbackErrorCount;
+  if (this._tilesErrorStreak >= bemap.MapLibreMap._tilesFallbackErrorCount) this._enterTilesFallback();
+};
+
+/**
+ * MapLibre 'data' listener. A tilesHost archive that answers ('metadata') stops
+ * the watchdog and ends an outage; a loaded tile resets the error count and,
+ * after a restore, the probe backoff.
+ * @private
+ */
+bemap.MapLibreMap.prototype._onTilesFallbackData = function (e) {
+  if (!e || !this._isTilesHostSource(e)) return this;
+  if (e.sourceDataType === 'metadata') {
+    // MapLibre also fires 'metadata' when it REMOVES a source (a diff setStyle
+    // with another archive): the source is gone, nothing answered.
+    if (e.sourceId &amp;&amp; this.native &amp;&amp; typeof this.native.getSource === 'function' &amp;&amp; !this.native.getSource(e.sourceId)) return this;
+    this._clearTilesWatchdog();
+    if (this._tilesFallbackActive) this._exitTilesFallback(e.sourceId);
+  } else if (e.tile) {
+    this._tilesErrorStreak = 0;
+    if (!this._tilesFallbackActive) { this._tilesProbeKeep = false; this._tilesProbeDelay = null; }
+  }
+  return this;
+};
+
+/**
+ * Switch to the WMS when the first tiles login fails with an outage error. Any
+ * other failure (401, 403, 429, missing credentials) means the host answered.
+ * @private
+ * @param {Promise} promise the login promise
+ */
+bemap.MapLibreMap.prototype._watchTilesLogin = function (promise) {
+  var self = this;
+  promise.then(function () {
+    // Login done: the archive header gets its own full delay.
+    if (self._tilesWatchdogTimer &amp;&amp; !self._tilesFallbackActive) self._armTilesWatchdog();
+  }, function (err) {
+    if (bemap.MapLibreMap._isTilesOutageError(err)) self._enterTilesFallback();
+    else if (!(err &amp;&amp; err.code === 'OFFLINE')) self._clearTilesWatchdog();
+  });
+  return this;
+};
+
+/**
+ * Back online during an outage: probe at once instead of waiting for the backoff.
+ * @private
+ */
+bemap.MapLibreMap.prototype._onTilesOnline = function () {
+  if (!this._tilesFallbackActive) return this;
+  if (this._tilesProbeTimer) { clearTimeout(this._tilesProbeTimer); this._tilesProbeTimer = null; }
+  this._probeTiles();
+  return this;
+};
+
+/**
+ * Can the BeMap WMS be authenticated? `login`/`password` (appid/appcode in the
+ * URL) or a proxy (adds them server-side). Not in session-only mode.
+ * @private
+ * @return {Boolean}
+ */
+bemap.MapLibreMap.prototype._canTilesFallbackWms = function () {
+  var ctx = this.ctx;
+  if (!ctx) return false;
+  var proxy = (typeof ctx.getProxy === 'function') ? ctx.getProxy() : ctx.proxy;
+  return !!(proxy || (ctx.login &amp;&amp; ctx.password));
+};
+
+/**
+ * Enter the outage: show the WMS (when it can be authenticated), fire
+ * `tiles:fallback` once, start the login probes.
+ * @private
+ * @return {bemap.MapLibreMap} this
+ */
+bemap.MapLibreMap.prototype._enterTilesFallback = function () {
+  if (!this._tilesFallbackEnabled || this._tilesFallbackActive) return this;
+  if (bemap.MapLibreMap._isBrowserOffline()) return this;
+  // A style without a tilesHost source (opts.tiles, an explicit style) has nothing to replace.
+  if (!this._hasTilesHostSourceInStyle()) return this;
+  this._tilesFallbackActive = true;
+  this._tilesErrorStreak = 0;
+  this._clearTilesWatchdog();
+  var wms = this._canTilesFallbackWms();
+  this._tilesFallbackWms = wms;
+  this._tilesFallbackSince = Date.now();
+  if (wms) this._showTilesFallbackWms(false);
+  // Overlays waiting for the tiles to settle are drawn now, over the WMS.
+  this._flushTilesFallbackWaiters();
+  this._fireTilesEvent('tiles:fallback', { wms: wms });
+  // A new outage right after a restore (no tile loaded since) keeps the backoff.
+  if (!this._tilesProbeKeep || !this._tilesProbeDelay) this._tilesProbeDelay = bemap.MapLibreMap._tilesFallbackProbeMs;
+  // One line per outage, so the developer knows why the map looks different.
+  console.warn('[bemap] BeNomad Tiles unreachable — ' + (wms
+    ? 'showing the BeMap WMS background'
+    : 'no BeMap WMS background (it needs `login`/`password` or `proxy` on the Context)') +
+    '. Next try in ' + Math.round(this._tilesProbeDelay / 1000) + ' s.');
+  this._scheduleTilesProbe();
+  return this;
+};
+
+/**
+ * Show the WMS now. Does not wait for 'idle' (it needs every tile settled, so
+ * never comes while Cloudflare hangs); only a style still loading waits for
+ * its 'style.load'.
+ * @private
+ * @param {Boolean} fresh
+ * @return {bemap.MapLibreMap} this
+ */
+bemap.MapLibreMap.prototype._showTilesFallbackWms = function (fresh) {
+  if (!this._tilesFallbackActive || !this._tilesFallbackWms || !this.native) return this;
+  if (this._applyTilesFallbackWms(fresh)) return this;
+  if (this._tilesFallbackWaitStyle || typeof this.native.once !== 'function') return this;
+  var self = this;
+  this._tilesFallbackWaitStyle = true;
+  this.native.once('style.load', function () {
+    self._tilesFallbackWaitStyle = false;
+    self._showTilesFallbackWms(true);
+  });
+  return this;
+};
+
+/**
+ * Add the WMS raster right above the basemap (its last tilesHost or
+ * 'background' layer, so under every overlay) and hide the tilesHost layers.
+ * Idempotent. `fresh` (new style) forgets the visibilities of the old style.
+ * @private
+ * @param {Boolean} fresh
+ * @return {Boolean} false when the style is not done loading
+ */
+bemap.MapLibreMap.prototype._applyTilesFallbackWms = function (fresh) {
+  if (!this._tilesFallbackActive || !this._tilesFallbackWms) return true;
+  var nat = this.native;
+  if (!nat || typeof nat.getStyle !== 'function') return true;
+  var id = bemap.MapLibreMap._tilesFallbackWmsId;
+  var style = null;
+  try { style = nat.getStyle(); } catch (e) { style = null; }
+  var layers = (style &amp;&amp; style.layers) || [];
+  var sources = (style &amp;&amp; style.sources) || {};
+  var isTiles = [];
+  var beforeId = null;
+  for (var i = 0; i &lt; layers.length; i++) {
+    var l = layers[i];
+    isTiles[i] = !!(l.source &amp;&amp; this._isTilesHostSource({ source: sources[l.source] }));
+    // First layer from the bottom that is not basemap: the WMS goes under it.
+    if (beforeId === null &amp;&amp; l.id !== id &amp;&amp; !isTiles[i] &amp;&amp; l.type !== 'background') beforeId = l.id;
+  }
+  try {
+    if (!nat.getSource(id)) {
+      nat.addSource(id, { type: 'raster', tiles: [bemap.MapLibreMap._bemapWmsUrl(this.ctx, { geoserver: this._backgroundGeoserver })], tileSize: 256 });
+    }
+    if (!nat.getLayer(id)) nat.addLayer({ id: id, type: 'raster', source: id }, beforeId || undefined);
+    else if (beforeId) nat.moveLayer(id, beforeId);
+  } catch (e2) {
+    return false;   // "Style is not done loading" — _showTilesFallbackWms retries on 'style.load'
+  }
+  if (fresh || !this._tilesFallbackHidden) this._tilesFallbackHidden = {};
+  for (var k = 0; k &lt; layers.length; k++) {
+    if (!isTiles[k]) continue;
+    var lid = layers[k].id;
+    if (!Object.prototype.hasOwnProperty.call(this._tilesFallbackHidden, lid)) {
+      this._tilesFallbackHidden[lid] = (layers[k].layout &amp;&amp; layers[k].layout.visibility) || 'visible';
+    }
+    try { nat.setLayoutProperty(lid, 'visibility', 'none'); } catch (e3) {}
+  }
+  return true;
+};
+
+/**
+ * Leave the outage: remove the WMS, show the tilesHost layers again, reload
+ * the archives, load the init style if it never could, fire `tiles:restored`.
+ * @private
+ * @param {String} [loadedSourceId] source whose archive just answered ('metadata'): not reloaded
+ * @return {bemap.MapLibreMap} this
+ */
+bemap.MapLibreMap.prototype._exitTilesFallback = function (loadedSourceId) {
+  if (!this._tilesFallbackActive) return this;
+  this._tilesFallbackActive = false;
+  this._tilesErrorStreak = 0;
+  this._clearTilesProbe();
+  // Backoff kept until a tile loads (_onTilesFallbackData): no restore/fallback flapping.
+  this._tilesProbeKeep = true;
+  var nat = this.native;
+  var id = bemap.MapLibreMap._tilesFallbackWmsId;
+  var reloaded = 0;
+  if (nat) {
+    try {
+      if (nat.getLayer(id)) nat.removeLayer(id);
+      if (nat.getSource(id)) nat.removeSource(id);
+    } catch (e) {}
+    var hidden = this._tilesFallbackHidden || {};
+    for (var lid in hidden) {
+      if (!Object.prototype.hasOwnProperty.call(hidden, lid)) continue;
+      try { if (nat.getLayer(lid)) nat.setLayoutProperty(lid, 'visibility', hidden[lid]); } catch (e2) {}
+    }
+    // Reload every tilesHost archive. After a failed header MapLibre marks the
+    // source loaded anyway, so refreshTiles alone would load nothing.
+    try {
+      var sources = (nat.getStyle() || {}).sources || {};
+      for (var sid in sources) {
+        if (!Object.prototype.hasOwnProperty.call(sources, sid) || !this._isTilesHostSource({ sourceId: sid })) continue;
+        if (sid === loadedSourceId) continue;
+        var s = nat.getSource(sid);
+        if (s &amp;&amp; typeof s.setUrl === 'function' &amp;&amp; s.url) { s.setUrl(s.url); reloaded++; }
+        else if (typeof nat.refreshTiles === 'function') nat.refreshTiles(sid);
+      }
+    } catch (e3) {}
+  }
+  this._tilesFallbackHidden = null;
+  // The latest init style request failed during the outage (and no developer
+  // style came after it): load it now.
+  var failed = this._initStyleFailed;
+  if (failed &amp;&amp; failed.seq === (this._styleAskSeq || 0)) {
+    this._initStyleFailed = null;
+    if (failed.name) this.setStyle(failed.name);
+    else this._refreshDefaultStyleFromServer();
+  }
+  // The reloaded archives must answer too; their 'metadata' clears this.
+  if (reloaded &amp;&amp; this._tilesFallbackEnabled) this._armTilesWatchdog();
+  var since = this._tilesFallbackSince;
+  this._tilesFallbackSince = null;
+  console.info('[bemap] BeNomad Tiles back — vector tiles restored' +
+    (since ? ' after ' + Math.round((Date.now() - since) / 1000) + ' s' : '') + '.');
+  this._fireTilesEvent('tiles:restored', {});
+  return this;
+};
+
+/**
+ * Next login probe, 10 s → 20 s → 40 s… up to 5 min.
+ * @private
+ */
+bemap.MapLibreMap.prototype._scheduleTilesProbe = function () {
+  if (!this._tilesFallbackActive || this._tilesProbeTimer) return this;
+  var self = this;
+  var delay = this._tilesProbeDelay || bemap.MapLibreMap._tilesFallbackProbeMs;
+  this._tilesProbeDelay = Math.min(delay * 2, bemap.MapLibreMap._tilesFallbackProbeMaxMs);
+  this._tilesProbeTimer = setTimeout(function () {
+    self._tilesProbeTimer = null;
+    self._probeTiles();
+  }, delay);
+  return this;
+};
+
+/**
+ * One login probe. Success → restore. Failure, or no answer within
+ * `tilesFallbackDelayMs` → next probe. A late success still restores.
+ * @private
+ */
+bemap.MapLibreMap.prototype._probeTiles = function () {
+  if (!this._tilesFallbackActive || !this._tilesAuth) return this;
+  var self = this;
+  var gen = this._tilesProbeGen = (this._tilesProbeGen || 0) + 1;
+  var clearCap = function () {
+    if (self._tilesProbeCap) { clearTimeout(self._tilesProbeCap); self._tilesProbeCap = null; }
+  };
+  var retry = function () {
+    clearCap();
+    if (gen !== self._tilesProbeGen || !self._tilesFallbackActive || self._tilesProbeTimer) return;
+    console.info('[bemap] BeNomad Tiles still unreachable — next try in ' +
+      Math.round((self._tilesProbeDelay || bemap.MapLibreMap._tilesFallbackProbeMs) / 1000) + ' s.');
+    self._scheduleTilesProbe();
+  };
+  var p;
+  try { p = this._tilesAuth.login(); } catch (e) { p = Promise.reject(e); }
+  clearCap();
+  this._tilesProbeCap = setTimeout(retry, this._tilesFallbackDelayMs);
+  // The login alone is not enough (the Worker can answer while the archive
+  // bytes fail): read one byte of the archive too.
+  p.then(function () {
+    if (gen !== self._tilesProbeGen || !self._tilesFallbackActive) return;   // stale: no archive read
+    return self._probeTilesArchive();
+  }).then(function () {
+    if (gen !== self._tilesProbeGen) return;   // stale: this outage already ended
+    clearCap();
+    self._exitTilesFallback();
+  }, retry);
+  return this;
+};
+
+/**
+ * Read one byte of this map's archive the way the map reads it, through the
+ * normal fetch so the tiles auth applies. '200' slice mode: `?r=0-0`, no Range
+ * header (no CORS preflight), `cache:'no-store'`. 'range' mode: `Range:
+ * bytes=0-0` with `cache:'reload'`, which the tile Service Worker never answers
+ * from its cache. Rejects on a network error or a non-2xx answer.
+ * @private
+ * @return {Promise}
+ */
+bemap.MapLibreMap.prototype._probeTilesArchive = function () {
+  var url = (this.ctx &amp;&amp; typeof this.ctx.getTilesFileUrl === 'function') ? this.ctx.getTilesFileUrl(this._tilesFile) : null;
+  if (!url || typeof fetch !== 'function') return Promise.resolve();
+  var init;
+  if (bemap.MapLibreMap._tilesSliceMode === 'range') {
+    init = { headers: { 'Range': 'bytes=0-0' }, cache: 'reload' };
+  } else {
+    url = url + (url.indexOf('?') === -1 ? '?' : '&amp;') + 'r=0-0';
+    init = { cache: 'no-store' };
+  }
+  return fetch(url, init).then(function (resp) {
+    try { if (resp &amp;&amp; resp.body &amp;&amp; typeof resp.body.cancel === 'function') resp.body.cancel(); } catch (e) { /* ignore */ }
+    if (!resp || !resp.ok) {
+      var err = new Error('BeNomad Tiles archive probe: HTTP ' + (resp &amp;&amp; resp.status));
+      err.status = resp &amp;&amp; resp.status;
+      throw err;
+    }
+  });
+};
+
+/** @private */
+bemap.MapLibreMap.prototype._clearTilesProbe = function () {
+  if (this._tilesProbeTimer) { clearTimeout(this._tilesProbeTimer); this._tilesProbeTimer = null; }
+  if (this._tilesProbeCap) { clearTimeout(this._tilesProbeCap); this._tilesProbeCap = null; }
+  this._tilesProbeGen = (this._tilesProbeGen || 0) + 1;
+  return this;
+};
+
+/**
+ * Map destroyed: no more switch, every timer and listener cleared, no event.
+ * @private
+ */
+bemap.MapLibreMap.prototype._stopTilesFallback = function () {
+  this._tilesFallbackEnabled = false;
+  this._tilesFallbackActive = false;
+  this._clearTilesWatchdog();
+  this._clearTilesProbe();
+  this._tilesProbeDelay = null;
+  this._tilesProbeKeep = false;
+  this._tilesFallbackWaiters = null;
+  if (this._tilesOnlineHandler &amp;&amp; typeof window !== 'undefined' &amp;&amp; typeof window.removeEventListener === 'function') {
+    window.removeEventListener('online', this._tilesOnlineHandler);
+  }
+  this._tilesOnlineHandler = null;
+  return this;
+};
+
+/**
+ * Run `fn` as soon as the style is parsed (`_isStyleParsed`). Not
+ * `isStyleLoaded()`: it stays false while any source loads, e.g. an animated
+ * GeoJSON source, or the tiles during an outage ('load' never comes again then).
+ * @private
+ * @param {Function} fn
+ * @return {bemap.MapLibreMap} this
+ */
+bemap.MapLibreMap.prototype._whenMapLoaded = function (fn) {
+  if (this._isStyleParsed()) { fn(); return this; }
+  var run = function () {
+    if (run._done) return;
+    run._done = true;
+    fn();
+  };
+  this.native.once('load', run);
+  this.native.once('style.load', run);
+  if (this._tilesFallbackEnabled &amp;&amp; !this._nativeLoadFired) this._addTilesFallbackWaiter(run);
+  return this;
+};
+
+/**
+ * Keep a waiting overlay add, to be run by `_flushTilesFallbackWaiters` if an
+ * outage starts before MapLibre's own event. Each waiter runs once (`_done`).
+ * @private
+ * @param {Function} fn
+ */
+bemap.MapLibreMap.prototype._addTilesFallbackWaiter = function (fn) {
+  var list = this._tilesFallbackWaiters || [];
+  var keep = [];
+  for (var i = 0; i &lt; list.length; i++) { if (!list[i]._done) keep.push(list[i]); }
+  keep.push(fn);
+  this._tilesFallbackWaiters = keep;
+  if (this._tilesFallbackActive) this._flushTilesFallbackWaiters();
+  return this;
+};
+
+/**
+ * During an outage, run the waiting overlay adds once the style is parsed
+ * (now, or on its 'style.load').
+ * @private
+ */
+bemap.MapLibreMap.prototype._flushTilesFallbackWaiters = function () {
+  var list = this._tilesFallbackWaiters;
+  if (!this._tilesFallbackActive || !list || !list.length || !this.native) return this;
+  if (!this._isStyleParsed()) {
+    if (!this._tilesFallbackWaitersWait &amp;&amp; typeof this.native.once === 'function') {
+      var self = this;
+      this._tilesFallbackWaitersWait = true;
+      this.native.once('style.load', function () {
+        self._tilesFallbackWaitersWait = false;
+        self._flushTilesFallbackWaiters();
+      });
+    }
+    return this;
+  }
+  this._tilesFallbackWaiters = [];
+  for (var i = 0; i &lt; list.length; i++) {
+    if (list[i]._done) continue;
+    try { list[i](); } catch (e) { /* one overlay failing never blocks the others */ }
+  }
+  return this;
+};
+
+/**
+ * After a setStyle during an outage: replay the overlay catalogue once the new
+ * style is parsed (the usual replay waits for 'idle', which a hang never gives).
+ * The caller's 'idle' replay is skipped once this one ran (`_done`): a raster
+ * gets a new id on each add, so replaying twice would draw it twice.
+ * @private
+ * @return {Function|null} the replay, or null when there is none
+ */
+bemap.MapLibreMap.prototype._replayOverlaysInOutage = function () {
+  var self = this;
+  if (!this._tilesFallbackActive || !this._overlayCatalog) return null;
+  var replay = function () {
+    if (replay._done) return;
+    replay._done = true;
+    if (self._overlayCatalog) self._overlayCatalog.replayOnto(self);
+  };
+  this._addTilesFallbackWaiter(replay);
+  return replay;
+};
+
+/**
+ * Rebuild the outage WMS (e.g. another geoserver on the same archive).
+ * @private
+ */
+bemap.MapLibreMap.prototype._resetTilesFallbackWms = function () {
+  var nat = this.native;
+  var id = bemap.MapLibreMap._tilesFallbackWmsId;
+  var src = nat ? nat.getSource(id) : null;
+  // serialize() has the tiles at once; MapLibre fills src.tiles only after a frame.
+  var cur = src &amp;&amp; (typeof src.serialize === 'function' ? (src.serialize() || {}).tiles : src.tiles);
+  if (cur &amp;&amp; cur[0] === bemap.MapLibreMap._bemapWmsUrl(this.ctx, { geoserver: this._backgroundGeoserver })) return this;
+  if (nat) {
+    try {
+      if (nat.getLayer(id)) nat.removeLayer(id);
+      if (nat.getSource(id)) nat.removeSource(id);
+    } catch (e) {}
+  }
+  return this._showTilesFallbackWms(false);
+};
+
+/** @private */
+bemap.MapLibreMap.prototype._fireTilesEvent = function (name, payload) {
+  var list = (this._tilesListeners &amp;&amp; this._tilesListeners[name]) ? this._tilesListeners[name].slice() : [];
+  for (var i = 0; i &lt; list.length; i++) {
+    try { list[i](payload); } catch (e) { /* swallow listener errors */ }
+  }
+  return this;
+};
+
+/**
+ * Load BeMap PMTiles vector tiles. Auto-authenticates using bemap.Context credentials.
+ *
+ * Usage:
+ *   map.loadBeMapTiles();  // uses defaults + context credentials
+ *   map.loadBeMapTiles({ url: 'https://mptiles-api.benomad.net', tilesFile: 'Europe.pmtiles', style: 'style_liberty.json' });
+ *   map.loadBeMapTiles({ token: 'existing-jwt' });  // skip login
+ *
+ * **NOT SUPPORTED behind a `proxy`** (EVMOVE-307): this legacy path sends
+ * `Authorization: Basic` from the browser by design, which is exactly what
+ * `ctx.proxy` exists to prevent, and it errors without credentials. Use
+ * `ctx.tilesHost` (+ `ctx.proxy`) instead — no house app calls this helper.
+ *
+ * @deprecated Since 2.0.0 — prefer `ctx.tilesHost` on the Context, which
+ *             routes through `bemap.TilesAuth` + the fetch interceptor
+ *             instead of a one-shot login + setStyle.
+ * @public
+ * @param {Object} options
+ * @param {String} options.url Tiles API base URL — REQUIRED unless `ctx.tilesHost` is set.
+ * @param {String} options.tilesFile PMTiles map alias or tileset name (default: 'default' — the Worker chooses).
+ * @param {String} options.style Style name (default: 'openfreemap_graylevel.json').
+ * @param {String} options.token JWT token — if provided, skips login.
+ * @param {String} options.login Override context login.
+ * @param {String} options.password Override context password.
+ * @param {function} options.onSuccess callback(map, token).
+ * @param {function} options.onError callback(errorMessage).
+ * @return {bemap.MapLibreMap} this
+ */
+bemap.MapLibreMap.prototype.loadBeMapTiles = function(options) {
+  var opts = options || {};
+  var _this = this;
+  // Derive the tiles base from `ctx.tilesHost` when present — the
+  // staging hostname that lived here in the prototype has been removed
+  // because it leaked customer credentials to a non-production host.
+  var tilesApi = opts.url
+    || (this.ctx &amp;&amp; typeof this.ctx.getTilesBaseUrl === 'function' &amp;&amp; this.ctx.getTilesBaseUrl())
+    || null;
+  if (!tilesApi) {
+    var msg = 'loadBeMapTiles: no URL provided and ctx.tilesHost not set on Context. Pass options.url or set Context.tilesHost.';
+    console.error('[bemap] ' + msg);
+    if (typeof opts.onError === 'function') opts.onError(msg);
+    return this;
+  }
+  // Precedence opts.tilesFile -> ctx.tilesFile -> ctx.geoserver -> 'default';
+  // with no explicit map and no geoserver the Worker picks the tileset
+  // server-side (via _config/maps.json). HERE-licensed tilesets are gated
+  // server-side and would 403 for accounts without ACL.
+  var tilesFile = (this.ctx &amp;&amp; typeof this.ctx.resolveTilesFile === 'function')
+    ? this.ctx.resolveTilesFile(opts.tilesFile)
+    : (opts.tilesFile || 'default');
+  var styleName = opts.style || 'openfreemap_graylevel.json';
+
+  if (typeof pmtiles === 'undefined') {
+    console.error('[bemap] loadBeMapTiles: pmtiles.js not loaded');
+    if (opts.onError) opts.onError('PMTiles library not loaded');
+    return this;
+  }
+
+  var doLoad = function(token) {
+    // Tile caching is owned by bemap.BrowserCache (the tile Service Worker,
+    // gated by opts.serviceWorker/browserCache and auto-off under 200-slice) — not
+    // here. The old inline `navigator.serviceWorker.register('sw-tiles.js')` was
+    // removed (PMT-26): that filename was wrong (real file: bemap-sw-tiles.js) and
+    // path-less, so it always 404'd — "A bad HTTP response code (404) was received
+    // when fetching the script." — with no functional effect.
+
+    var tiles = new bemap.PMTilesLayer({
+      url: tilesApi + '/' + tilesFile,
+      style: tilesApi + '/styles/' + styleName,
+      token: token,
+      tokenHeader: 'X-Session-Token',
+      sourceName: 'tiles',
+      maxZoom: 14
+    });
+    _this.loadPMTiles(tiles, function(map) {
+      if (opts.onSuccess) opts.onSuccess(map, token);
+    });
+  };
+
+  // If token already provided, use it directly
+  if (opts.token) {
+    doLoad(opts.token);
+    return this;
+  }
+
+  // PROXY MODE (EVMOVE-307) — REFUSE before touching credentials. This legacy
+  // path posts `Authorization: Basic` straight from the browser, which would
+  // break the documented invariant ("with `proxy` set, no BeMap credential is
+  // sent on any request") for a mixed `{ proxy, login, password }` config.
+  // Documentation alone is not a security boundary, so this is enforced in code:
+  // no credential is read, no XHR is opened.
+  if (this.ctx &amp;&amp; (typeof this.ctx.getProxy === 'function' ? this.ctx.getProxy() : this.ctx.proxy)) {
+    var proxyMsg = 'loadBeMapTiles is not supported when ctx.proxy is set — it would send '
+      + 'Authorization: Basic from the browser. Use ctx.tilesHost (the tiles login then goes '
+      + 'through your proxy). See docs/integration-proxy.md.';
+    if (typeof console !== 'undefined' &amp;&amp; console.error) console.error('[bemap] ' + proxyMsg);
+    if (opts.onError) opts.onError(proxyMsg);
+    return this;
+  }
+
+  // Auto-login using context credentials
+  var login = opts.login || this.ctx.login;
+  var password = opts.password || this.ctx.password;
+  if (!login || !password) {
+    console.error('[bemap] loadBeMapTiles: no credentials — set login/password in Context or options');
+    if (opts.onError) opts.onError('No credentials');
+    return this;
+  }
+
+  var xhr = new XMLHttpRequest();
+  xhr.open('POST', tilesApi + '/api/login', true);
+  xhr.setRequestHeader('Authorization', 'Basic ' + btoa(login + ':' + password));
+  xhr.onload = function() {
+    try {
+      var data = JSON.parse(xhr.responseText);
+      if (data.ok &amp;&amp; data.token) {
+        doLoad(data.token);
+      } else {
+        if (opts.onError) opts.onError('Login failed');
+      }
+    } catch(e) {
+      if (opts.onError) opts.onError('Parse error');
+    }
+  };
+  xhr.onerror = function() {
+    if (opts.onError) opts.onError('Network error');
+  };
+  xhr.send();
+
+  return this;
+};
+
+bemap.MapLibreMap.prototype.removeLayer = function(layer) {
+  if (layer &amp;&amp; bemap.inheritsof(layer, bemap.Layer) &amp;&amp; layer._maplibreId) {
+    // 1. Clear the layer's CONTENTS first — HTML markers (DOM elements
+    //    stored in layer.native.markers), GeoJSON sub-layers, feature
+    //    registry entries. Without this, addMarker(m, {layer}) markers
+    //    would remain visible after the parent layer was removed.
+    try { this.clearLayer(layer); } catch (e) {}
+
+    // 2. Remove the native layer + source for this layer's own
+    //    raster/vector backing (e.g. WMS BemapLayer, RasterLayer).
+    try {
+      if (this.native.getLayer(layer._maplibreId)) this.native.removeLayer(layer._maplibreId);
+      if (this.native.getSource(layer._maplibreId)) this.native.removeSource(layer._maplibreId);
+    } catch(e) {}
+    // 3. Defensive sweep — clearLayer above usually handles these, but
+    //    re-run to catch any GeoJSON IDs that escaped (e.g. polygons
+    //    that registered both `-fill` and `-stroke` ids).
+    if (layer.native &amp;&amp; layer.native.geoJsonIds) {
+      for (var i = 0; i &lt; layer.native.geoJsonIds.length; i++) {
+        try {
+          var gid = layer.native.geoJsonIds[i];
+          if (this.native.getLayer(gid)) this.native.removeLayer(gid);
+          if (this.native.getSource(gid)) this.native.removeSource(gid);
+        } catch(e2) {}
+      }
+    }
+    layer.map = null;
+  }
+  return this;
+};
+
+bemap.MapLibreMap.prototype.clearLayer = function(layer) {
+  if (!layer || !layer.native) return this;
+  // Determine the catalog type for a given bemap feature so we can unregister
+  // on clear (otherwise the next setStyle replays cleared polylines/markers
+  // and they pop back up — root cause of "first polyline always on top in
+  // true colour even after clicking another route" in evsmartrouting).
+  var _cat = this._overlayCatalog;
+  function _catalogTypeFor(feat) {
+    if (!feat) return null;
+    if (bemap.Polyline    &amp;&amp; bemap.inheritsof(feat, bemap.Polyline))    return 'polyline';
+    if (bemap.Polygon     &amp;&amp; bemap.inheritsof(feat, bemap.Polygon))     return 'polygon';
+    if (bemap.Circle      &amp;&amp; bemap.inheritsof(feat, bemap.Circle))      return 'circle';
+    if (bemap.Popup       &amp;&amp; bemap.inheritsof(feat, bemap.Popup))       return 'popup';
+    if (bemap.MultiMarker &amp;&amp; bemap.inheritsof(feat, bemap.MultiMarker)) return 'multimarker';
+    if (bemap.Marker      &amp;&amp; bemap.inheritsof(feat, bemap.Marker))      return 'marker';
+    return null;
+  }
+  // Clear HTML markers + registries
+  if (layer.native.markers) {
+    for (var i = 0; i &lt; layer.native.markers.length; i++) {
+      var m = layer.native.markers[i];
+      if (m.remove) m.remove();
+    }
+    layer.native.markers = [];
+  }
+  // Clean up feature registry + catalog entries for features in this layer.
+  if (layer.native.features) {
+    for (var f = 0; f &lt; layer.native.features.length; f++) {
+      var feat = layer.native.features[f];
+      if (feat &amp;&amp; feat._bemapId) {
+        delete this._featureRegistry[feat._bemapId];
+        delete this._markerElements[feat._bemapId];
+        if (feat._maplibreSourceId) delete this._geoJsonData[feat._maplibreSourceId];
+      }
+      // Unregister from the overlay catalogue so a future setStyle replay
+      // doesn't resurrect this feature.
+      if (_cat &amp;&amp; feat &amp;&amp; feat.__catalogId) {
+        var _ct = _catalogTypeFor(feat);
+        if (_ct) _cat.unregister(_ct, feat.__catalogId);
+      }
+    }
+  }
+  // Clear GeoJSON layers/sources
+  if (layer.native.geoJsonIds) {
+    for (var j = 0; j &lt; layer.native.geoJsonIds.length; j++) {
+      try {
+        var gid = layer.native.geoJsonIds[j];
+        if (this.native.getLayer(gid)) this.native.removeLayer(gid);
+        var srcId = gid.replace('-fill', '-src').replace('-layer', '-src');
+        if (this.native.getSource(srcId)) this.native.removeSource(srcId);
+        // Also clean the map-level tracking array
+        var idx = this._geoJsonLayerIds.indexOf(gid);
+        if (idx > -1) this._geoJsonLayerIds.splice(idx, 1);
+      } catch(e) {}
+    }
+    layer.native.geoJsonIds = [];
+  }
+  layer.native.features = [];
+  // Clear cluster source/layers if this is a ClusterLayer
+  if (layer._clusterLayerIds) {
+    for (var ci = 0; ci &lt; layer._clusterLayerIds.length; ci++) {
+      try { if (this.native.getLayer(layer._clusterLayerIds[ci])) this.native.removeLayer(layer._clusterLayerIds[ci]); } catch(e3) {}
+    }
+    layer._clusterLayerIds = [];
+  }
+  if (layer._clusterSourceId) {
+    if (_cat) _cat.unregister('cluster', layer._clusterSourceId);
+    try { if (this.native.getSource(layer._clusterSourceId)) this.native.removeSource(layer._clusterSourceId); } catch(e4) {}
+    layer._clusterSourceId = null;
+  }
+  if (layer._clusterFeatures) layer._clusterFeatures = [];
+  if (layer._clusterMarkerNatives) layer._clusterMarkerNatives = {};
+  if (layer._clusterBubbles) {
+    for (var bi = 0; bi &lt; layer._clusterBubbles.length; bi++) {
+      layer._clusterBubbles[bi].remove();
+    }
+    layer._clusterBubbles = [];
+  }
+  layer._lastClusterKey = null;
+  if (layer._clusterBemapObjects) layer._clusterBemapObjects = {};
+  return this;
+};
+
+bemap.MapLibreMap.prototype.visibleLayer = function(layer, visible) {
+  if (layer &amp;&amp; bemap.inheritsof(layer, bemap.Layer)) {
+    layer.visible = visible;
+    if (layer._maplibreId &amp;&amp; this.native.getLayer(layer._maplibreId)) {
+      try { this.native.setLayoutProperty(layer._maplibreId, 'visibility', visible ? 'visible' : 'none'); } catch(e) {}
+    }
+    if (layer.native &amp;&amp; layer.native.markers) {
+      for (var i = 0; i &lt; layer.native.markers.length; i++) {
+        var el = layer.native.markers[i].getElement ? layer.native.markers[i].getElement() : null;
+        if (el) el.style.display = visible ? '' : 'none';
+      }
+    }
+    if (layer.native &amp;&amp; layer.native.geoJsonIds) {
+      for (var j = 0; j &lt; layer.native.geoJsonIds.length; j++) {
+        try { this.native.setLayoutProperty(layer.native.geoJsonIds[j], 'visibility', visible ? 'visible' : 'none'); } catch(e2) {}
+      }
+    }
+  }
+  return this;
+};
+
+/**
+ * Re-stack a layer relative to the others. MapLibre keeps layers in an
+ * ordered array on the native style; later entries paint on top of earlier
+ * ones. To raise a bemap Layer, walk its tracked sub-layers (`geoJsonIds`)
+ * and `moveLayer` each to the top. To lower, move them before the first
+ * non-base layer. HTML markers (DOM elements, no style-array entry) get a
+ * matching CSS `z-index` so DOM stacking follows the same intent.
+ *
+ * Threshold: zIndex ≥ 50 counts as "on top", everything else "behind".
+ * @public
+ * @param {bemap.Layer} layer
+ * @param {Number} zIndex
+ * @return {bemap.MapLibreMap} this
+ */
+bemap.MapLibreMap.prototype.zIndexLayer = function(layer, zIndex) {
+  if (!layer) return this;
+  layer.zIndex = zIndex;
+  var high = (zIndex >= 50);
+  var nat = this.native;
+  if (!nat || !nat.getStyle) return this;
+
+  // --- GeoJSON sub-layers (polygons / polylines / circles / heatmaps) ---
+  var ids = (layer.native &amp;&amp; layer.native.geoJsonIds) ? layer.native.geoJsonIds.slice() : [];
+  for (var i = 0; i &lt; ids.length; i++) {
+    try {
+      if (!nat.getLayer(ids[i])) continue;
+      if (high) {
+        nat.moveLayer(ids[i]);                // no beforeId = move to top
+      } else {
+        // Move BEFORE the first non-base layer (lowest possible without
+        // sinking into the base map layers). Best-effort.
+        var styleLayers = nat.getStyle().layers || [];
+        var beforeId = null;
+        for (var sl = 0; sl &lt; styleLayers.length; sl++) {
+          var lid = styleLayers[sl].id;
+          if (this._geoJsonLayerIds &amp;&amp; this._geoJsonLayerIds.indexOf(lid) > -1 &amp;&amp; ids.indexOf(lid) === -1) {
+            beforeId = lid;
+            break;
+          }
+        }
+        if (beforeId) nat.moveLayer(ids[i], beforeId);
+      }
+    } catch (e) { /* layer might be mid-style-reload */ }
+  }
+
+  // --- HTML markers (maplibregl.Marker DOM elements) ---
+  // MapLibre markers are DOM siblings of the WebGL canvas. The canvas is
+  // OPAQUE (base-map tiles render with a non-transparent background), so
+  // a negative z-index would sink markers behind the canvas and they'd
+  // become invisible — not "below the polyline", just gone. Therefore
+  // markers always stay above the canvas; their CSS z-index only orders
+  // them relative to OTHER HTML markers. The polyline-vs-polyline canvas
+  // reordering above still works, but markers vs polyline is a hard
+  // architectural limit in MapLibre with HTML markers. Symbol-layer
+  // markers (canvas) would lift this, but that's a separate refactor.
+  var domZ = high ? '1000' : '500';   // both positive — never sink below canvas
+  var markers = (layer.native &amp;&amp; layer.native.markers) ? layer.native.markers : [];
+  for (var mi = 0; mi &lt; markers.length; mi++) {
+    var m = markers[mi];
+    if (m &amp;&amp; typeof m.getElement === 'function') {
+      var el = m.getElement();
+      if (el) el.style.zIndex = domZ;
+    }
+  }
+  return this;
+};
+
+bemap.MapLibreMap.prototype.refreshLayer = function(layer) {
+  return this;
+};
+
+// =========================================================================
+// GeoJSON Feature Dragging
+// =========================================================================
+
+bemap.MapLibreMap.prototype._draggableFeature = function(declaredObj, callback, options, mode) {
+  var _this = this;
+  var opts = options || {};
+  var dragging = false;
+  var dragFeature = null;
+  var dragBemapObj = null;
+  var startLngLat = null;
+  var prevLngLat = null;
+  var canvas = this.native.getCanvasContainer();
+
+  if (declaredObj) {
+    if (!declaredObj.events) declaredObj.events = {};
+    if (!declaredObj.callback) declaredObj.callback = {};
+    declaredObj.events.draggable = true;
+    declaredObj.callback.draggable = callback;
+  }
+
+  if (!this.events.dragFeature) {
+    var onMouseDown = function(evt) {
+      if (!_this._geoJsonLayerIds.length) return;
+      var existingLayers = [];
+      for (var i = 0; i &lt; _this._geoJsonLayerIds.length; i++) {
+        try { if (_this.native.getLayer(_this._geoJsonLayerIds[i])) existingLayers.push(_this._geoJsonLayerIds[i]); } catch(e) {}
+      }
+      if (!existingLayers.length) return;
+
+      var features = _this.native.queryRenderedFeatures(evt.point, { layers: existingLayers });
+      if (!features || !features.length) return;
+
+      var bemapObj = _this._getOwnFromProperties(features[0]);
+      if (!bemapObj) return;
+
+      // Check if this object has draggable enabled
+      if (bemapObj.events &amp;&amp; bemapObj.events.draggable) {
+        dragFeature = features[0];
+        dragBemapObj = bemapObj;
+        startLngLat = evt.lngLat;
+        prevLngLat = evt.lngLat;
+        dragging = true;
+        _this.native.dragPan.disable();
+        canvas.style.cursor = 'grabbing';
+        evt.preventDefault();
+      }
+    };
+
+    var onMouseMove = function(evt) {
+      if (!dragging || !dragBemapObj) return;
+
+      var dLng = evt.lngLat.lng - prevLngLat.lng;
+      var dLat = evt.lngLat.lat - prevLngLat.lat;
+      prevLngLat = evt.lngLat;
+
+      // Translate the GeoJSON geometry
+      var sourceId = dragBemapObj._maplibreSourceId;
+      if (!sourceId) return;
+
+      var src = _this.native.getSource(sourceId);
+      if (!src) return;
+
+      var storedData = _this._geoJsonData[sourceId];
+      if (!storedData) return;
+
+      var geojson = JSON.parse(JSON.stringify(storedData));
+      _translateGeojsonCoords(geojson.geometry, dLng, dLat);
+      _this._geoJsonData[sourceId] = geojson;
+      src.setData(geojson);
+
+      // Update bemap coordinates
+      if (bemap.inheritsof(dragBemapObj, bemap.Polyline) || bemap.inheritsof(dragBemapObj, bemap.Polygon)) {
+        var coords = dragBemapObj.getCoordinates();
+        for (var i = 0; i &lt; coords.length; i++) {
+          coords[i].setLon(coords[i].getLon() + dLng).setLat(coords[i].getLat() + dLat);
+        }
+      } else if (bemap.inheritsof(dragBemapObj, bemap.Circle)) {
+        var c = dragBemapObj.getCoordinate();
+        c.setLon(c.getLon() + dLng).setLat(c.getLat() + dLat);
+      }
+    };
+
+    var onMouseUp = function(evt) {
+      if (!dragging) return;
+      dragging = false;
+      _this.native.dragPan.enable();
+      canvas.style.cursor = '';
+
+      if (dragBemapObj &amp;&amp; dragBemapObj.callback &amp;&amp; dragBemapObj.callback.draggable) {
+        var coord = evt.lngLat ? new bemap.Coordinate(evt.lngLat.lng, evt.lngLat.lat) : new bemap.Coordinate();
+        dragBemapObj.callback.draggable(new bemap.MapEvent({
+          native: evt,
+          bemapObject: dragBemapObj,
+          coordinate: coord,
+          startCoordinate: startLngLat ? new bemap.Coordinate(startLngLat.lng, startLngLat.lat) : new bemap.Coordinate(),
+          map: _this
+        }));
+      }
+
+      dragFeature = null;
+      dragBemapObj = null;
+    };
+
+    this.native.on('mousedown', onMouseDown);
+    this.native.on('mousemove', onMouseMove);
+    this.native.on('mouseup', onMouseUp);
+
+    this.events.dragFeature = new bemap.Listener({
+      native: { down: onMouseDown, move: onMouseMove, up: onMouseUp },
+      key: 'dragFeature',
+      bemapObject: declaredObj
+    });
+  }
+
+  return this.events.dragFeature;
+};
+
+// Helper: translate all coordinates in a GeoJSON geometry
+function _translateGeojsonCoords(geometry, dLng, dLat) {
+  if (geometry.type === 'Point') {
+    geometry.coordinates[0] += dLng;
+    geometry.coordinates[1] += dLat;
+  } else if (geometry.type === 'LineString') {
+    for (var i = 0; i &lt; geometry.coordinates.length; i++) {
+      geometry.coordinates[i][0] += dLng;
+      geometry.coordinates[i][1] += dLat;
+    }
+  } else if (geometry.type === 'Polygon') {
+    for (var r = 0; r &lt; geometry.coordinates.length; r++) {
+      for (var j = 0; j &lt; geometry.coordinates[r].length; j++) {
+        geometry.coordinates[r][j][0] += dLng;
+        geometry.coordinates[r][j][1] += dLat;
+      }
+    }
+  }
+}
+
+// =========================================================================
+// Camera / Navigation
+// =========================================================================
+
+bemap.MapLibreMap.prototype.move = function(lon, lat, zoom, options) {
+  var opts = options || {};
+  var o = { center: [lon, lat] };
+  if (zoom) o.zoom = zoom;
+  if (opts.animate === false) {
+    this.native.jumpTo(o);
+  } else {
+    o.duration = opts.duration || 800;
+    o.essential = true;
+    this.native.easeTo(o);
+  }
+  return this;
+};
+
+bemap.MapLibreMap.prototype.flyTo = function(lon, lat, zoom, options) {
+  var opts = options || {};
+  this.native.flyTo({
+    center: [lon, lat],
+    zoom: zoom || this.native.getZoom(),
+    duration: opts.duration || 2000,
+    essential: true,
+    curve: 1.42,
+    speed: 1.2
+  });
+  return this;
+};
+
+bemap.MapLibreMap.prototype.moveToBoundingBox = function(boundingBox, options) {
+  if (boundingBox &amp;&amp; bemap.inheritsof(boundingBox, bemap.BoundingBox)) {
+    var opts = options || {};
+    // Normalize: ensure min &lt; max (callers may pass points in any order)
+    var west = Math.min(boundingBox.minLon, boundingBox.maxLon);
+    var south = Math.min(boundingBox.minLat, boundingBox.maxLat);
+    var east = Math.max(boundingBox.minLon, boundingBox.maxLon);
+    var north = Math.max(boundingBox.minLat, boundingBox.maxLat);
+    var fitOpts = { padding: opts.padding || 50 };
+    if (opts.fly) {
+      fitOpts.duration = opts.duration || 2000;
+      fitOpts.essential = true;
+    } else {
+      fitOpts.duration = opts.duration || 500;
+    }
+    this.native.fitBounds([[west, south], [east, north]], fitOpts);
+  }
+  return this;
+};
+
+bemap.MapLibreMap.prototype.moveToLayerData = function(layer, options) {
+  // Compute bounds from registered features
+  if (!layer || !layer.native || !layer.native.features) return this;
+  var minLon = 180, minLat = 90, maxLon = -180, maxLat = -90;
+  var found = false;
+  for (var i = 0; i &lt; layer.native.features.length; i++) {
+    var obj = layer.native.features[i];
+    if (obj &amp;&amp; obj.coordinate) {
+      var lon = obj.coordinate.getLon ? obj.coordinate.getLon() : obj.coordinate.lon;
+      var lat = obj.coordinate.getLat ? obj.coordinate.getLat() : obj.coordinate.lat;
+      if (lon &lt; minLon) minLon = lon;
+      if (lat &lt; minLat) minLat = lat;
+      if (lon > maxLon) maxLon = lon;
+      if (lat > maxLat) maxLat = lat;
+      found = true;
+    }
+  }
+  if (found) {
+    this.native.fitBounds([[minLon, minLat], [maxLon, maxLat]], { padding: 50 });
+  }
+  return this;
+};
+
+bemap.MapLibreMap.prototype.zoom = function(zoom, options) {
+  this.native.setZoom(zoom);
+  return this;
+};
+
+bemap.MapLibreMap.prototype.getZoom = function() {
+  return Math.round(this.native.getZoom());
+};
+
+/**
+ * @deprecated Since 2.0 — use setBearing(deg) for a cross-engine API.
+ *             rotation() stays callable but emits a one-time warn so
+ *             customer code can migrate without surprises.
+ */
+bemap.MapLibreMap.prototype.rotation = function(angle, options) {
+  bemap.MapLibreMap._rotationDeprecationWarned = bemap.MapLibreMap._rotationDeprecationWarned || false;
+  if (!bemap.MapLibreMap._rotationDeprecationWarned) {
+    bemap.MapLibreMap._rotationDeprecationWarned = true;
+    console.warn('bemap.MapLibreMap.rotation() is deprecated since 2.0 — use setBearing(deg) for the cross-engine API.');
+  }
+  this.native.setBearing(angle);
+  return this;
+};
+
+bemap.MapLibreMap.prototype.getRotation = function() {
+  return this.native.getBearing();
+};
+
+// resize() fires the native 'resize' event, whose listener (see constructor)
+// nudges the camera so the resized viewport re-requests its tiles.
+bemap.MapLibreMap.prototype.refresh = function(options) {
+  if (this.native) this.native.resize();
+  return this;
+};
+
+/**
+ * Fetch the Worker's map config — `GET /api/maps` — resolving with
+ * `{ default, aliases, tilesets }` so an app can build a map-picker. Requires
+ * `ctx.tilesHost`; the session token is attached automatically by the TilesAuth
+ * fetch interceptor (it waits for login to complete first).
+ * @public
+ * @since 2.0.0
+ * @return {Promise&lt;Object>}
+ */
+bemap.MapLibreMap.prototype.fetchAvailableMaps = function() {
+  return this._fetchTilesApi(this.ctx &amp;&amp; this.ctx.getTilesMapsUrl &amp;&amp; this.ctx.getTilesMapsUrl(), 'fetchAvailableMaps');
+};
+
+/**
+ * Fetch the Worker's allow-listed styles — `GET /api/styles` — resolving with
+ * `{ styles: [...] }`. See {@link bemap.MapLibreMap#fetchAvailableMaps}.
+ * @public
+ * @since 2.0.0
+ * @return {Promise&lt;Object>}
+ */
+bemap.MapLibreMap.prototype.fetchAvailableStyles = function() {
+  return this._fetchTilesApi(this.ctx &amp;&amp; this.ctx.getTilesStylesUrl &amp;&amp; this.ctx.getTilesStylesUrl(), 'fetchAvailableStyles');
+};
+
+/**
+ * Fetch the filename the `default` alias currently resolves to —
+ * `GET /api/default` — resolving with `{ default: '&lt;file>'|null }`.
+ * @public
+ * @since 2.0.0
+ * @return {Promise&lt;Object>}
+ */
+bemap.MapLibreMap.prototype.fetchDefaultMap = function() {
+  return this._fetchTilesApi(this.ctx &amp;&amp; this.ctx.getTilesDefaultUrl &amp;&amp; this.ctx.getTilesDefaultUrl(), 'fetchDefaultMap');
+};
+
+/**
+ * Fetch the name of the Worker's default MapLibre style — `GET /api/default-style`
+ * — resolving with `{ default: '&lt;style-name>'|null }`. This is the style applied
+ * when the developer pins none; see {@link bemap.MapLibreMap#fetchAvailableStyles}.
+ * @public
+ * @since 2.0.0
+ * @return {Promise&lt;Object>}
+ */
+bemap.MapLibreMap.prototype.fetchDefaultStyle = function() {
+  return this._fetchTilesApi(this.ctx &amp;&amp; this.ctx.getTilesDefaultStyleUrl &amp;&amp; this.ctx.getTilesDefaultStyleUrl(), 'fetchDefaultStyle');
+};
+
+/**
+ * Default-style "fallback then load": the constructor already painted the tiny
+ * `bemap.fallbackStyle` for an instant first frame; once login has completed
+ * this fetches the Worker's current default style name and swaps the live charte
+ * in via `setStyle()` (overlay-preserving). Failures are swallowed so the tiny
+ * fallback simply stays. Called once, on init, only when the developer pinned
+ * no `style`.
+ * @private
+ */
+bemap.MapLibreMap.prototype._refreshDefaultStyleFromServer = function() {
+  var self = this;
+  var url = this.ctx &amp;&amp; typeof this.ctx.getTilesDefaultStyleUrl === 'function' &amp;&amp; this.ctx.getTilesDefaultStyleUrl();
+  if (!url || typeof fetch !== 'function') return;
+  // _fetchTilesApi awaits whenTokenReady() → the call goes out AFTER login.
+  this._fetchTilesApi(url, 'defaultStyle')
+    .then(function(cfg) {
+      var name = cfg &amp;&amp; (cfg.default || cfg.defaultStyle);
+      // Only swap if the server names a style AND the map wasn't re-styled in
+      // the meantime (developer called setStyle() during the async gap).
+      if (name &amp;&amp; !self._userSetStyle) {
+        self._initStyleName = name;   // PMT-66: re-applied on a tiles restore if its load fails
+        self.setStyle(name);
+      }
+    })
+    .catch(function() {
+      // Keep the bundled bootstrap. PMT-66: retried on a tiles restore.
+      if (!self._userSetStyle) self._initStyleFailed = { seq: self._styleAskSeq || 0, name: null };
+    });
+};
+
+/**
+ * EVMOVE-457 — best-effort resolve THIS map's BeNomad-Tiles version token from
+ * the Worker's `/api/maps` (after login) and record it on the Context, so
+ * `getTilesFileUrl()` starts emitting `?v=&lt;token>`. Strictly best-effort: it
+ * ALWAYS resolves (never rejects, never hangs) — a short timeout races the fetch
+ * so a slow/stalled `/api/maps` can never block the real style swap. Any failure
+ * (old Worker with no version fields, offline, 4xx, bad JSON) leaves the map
+ * unversioned, i.e. exactly today's behaviour.
+ * @private
+ * @return {Promise}
+ */
+bemap.MapLibreMap.prototype._discoverTilesVersion = function() {
+  var self = this;
+  var name = this._tilesFile;
+  var url = this.ctx &amp;&amp; typeof this.ctx.getTilesMapsUrl === 'function' &amp;&amp; this.ctx.getTilesMapsUrl();
+  if (!url || typeof fetch !== 'function' || !name
+      || typeof this._fetchTilesApi !== 'function'
+      || !(this.ctx &amp;&amp; typeof this.ctx.setTilesVersion === 'function')) {
+    return Promise.resolve();
+  }
+  // Best-effort, and MUST always resolve (so the style swap is never blocked).
+  // TWO capped phases so slow authentication doesn't eat the /api/maps budget
+  // AND a hung login/fetch can't block forever:
+  //   1. wait for login (whenTokenReady) — capped, so a hung login still proceeds;
+  //   2. GET /api/maps — its OWN ~3.5s budget, starting AFTER login is ready.
+  // `settled` gates the write: a result arriving after either cap is ignored, so
+  // a late /api/maps can never desync getTilesFileUrl from the already-applied
+  // (unversioned) style.
+  var settled = false;
+  var auth = this._tilesAuth;
+  var ready = (auth &amp;&amp; typeof auth.whenTokenReady === 'function') ? auth.whenTokenReady() : Promise.resolve();
+  var loginCap = new Promise(function(res) { setTimeout(res, 4000); });
+  return Promise.race([ready.then(null, function() {}), loginCap]).then(function() {
+    if (settled) return;
+    // Case-insensitive lookup — the Worker matches aliases case-insensitively,
+    // so validation and token lookup must too (an exact hit is tried first).
+    function ciGet(obj, key) {
+      if (!obj || typeof obj !== 'object') return undefined;
+      if (Object.prototype.hasOwnProperty.call(obj, key)) return obj[key];
+      var lk = String(key).toLowerCase();
+      for (var k in obj) {
+        if (Object.prototype.hasOwnProperty.call(obj, k) &amp;&amp; k.toLowerCase() === lk) return obj[k];
+      }
+      return undefined;
+    }
+    var discovery = self._fetchTilesApi(url, 'discoverTilesVersion').then(function(cfg) {
+      if (settled) return;
+      // A geoserver name is not necessarily a PMTiles map — e.g. 'herehlp' is
+      // WMS-only, yet resolveTilesFile() (tilesFile → geoserver → 'default')
+      // faithfully asks the Worker for it and gets a guaranteed 403. When the
+      // name was merely INHERITED from ctx.geoserver (never for an explicit
+      // opts.tilesFile / ctx.tilesFile pin — those must keep surfacing their
+      // own 403) and the Worker's catalog says it does NOT exist, fall back to
+      // the server-resolved 'default' map so the background keeps rendering
+      // (the geoserver setting still applies to WMS + services). Old Workers
+      // without a catalog are left untouched (no false fallback).
+      var aliases  = cfg &amp;&amp; cfg.aliases;
+      var tilesets = cfg &amp;&amp; cfg.tilesets;
+      if (name !== 'default' &amp;&amp; !self._tilesFileExplicit &amp;&amp;
+          ((aliases &amp;&amp; typeof aliases === 'object') || (tilesets &amp;&amp; tilesets.length))) {
+        var known = (ciGet(aliases, name) !== undefined) ||
+          (ciGet(cfg.aliasVersions, name) !== undefined) ||
+          (ciGet(cfg.versions, name) !== undefined);
+        if (!known &amp;&amp; tilesets &amp;&amp; tilesets.length) {
+          var lname = String(name).toLowerCase();
+          for (var i = 0; i &lt; tilesets.length; i++) {
+            var t = String(tilesets[i]).toLowerCase();
+            if (t === lname || t === lname + '.pmtiles') { known = true; break; }
+          }
+        }
+        if (!known) {
+          // Only swap in the server-resolved 'default' map if the app asked for
+          // it (ctx.tilesFallbackToDefault, off by default): the user
+          // picked geoserver X, so quietly rendering ANOTHER provider's map is
+          // worse UX than rendering none. Default → render none.
+          var useDefault = !!(self.ctx &amp;&amp; self.ctx.tilesFallbackToDefault);
+          try {
+            console.info('[bemap] BeNomad Tiles: no map named "' + name + '" on this Worker — ' +
+              (useDefault ? 'using the server default map instead' : 'showing an empty vector basemap') +
+              ' (the geoserver setting still applies to WMS layers and services).');
+          } catch (e) { /* ignore */ }
+          if (useDefault) {
+            name = 'default';
+            self._tilesFile = 'default';   // registration + style follow this (key identity)
+          } else {
+            // A source-free style: nothing references the absent archive any
+            // more, so no slice is requested. The pending init style has to be
+            // cancelled too — _applyInitStyle() runs when this promise settles,
+            // and the server default would paint straight over the empty map.
+            // The last real spec is kept so switchBackgroundLayer() can restore
+            // it as soon as a provider that HAS a map is selected.
+            self._tilesFileMissing = true;
+            self._tilesLastStyleSpec = self._currentStyleSpec;
+            self._refreshDefaultOnInit = false;
+            self._pendingStyleName = null;
+            self.setStyle({ version: 8, sources: {}, layers: [] }, { _internal: true });
+            return;   // no map → no version token to resolve
+          }
+        }
+      }
+      var token = cfg ? (ciGet(cfg.aliasVersions, name) || ciGet(cfg.versions, name) || null) : null;
+      if (typeof token === 'string' &amp;&amp; token) self.ctx.setTilesVersion(name, token);
+    });
+    var fetchCap = new Promise(function(res) { setTimeout(res, 3500); });
+    return Promise.race([discovery.then(null, function() {}), fetchCap]);
+  }).then(function() { settled = true; });
+};
+
+/**
+ * Shared authenticated GET against a Worker `/api/*` discovery endpoint.
+ * @private
+ */
+bemap.MapLibreMap.prototype._fetchTilesApi = function(url, label) {
+  if (!url) {
+    return Promise.reject(new Error('bemap.MapLibreMap.' + label + ': no tilesHost configured on the Context.'));
+  }
+  if (typeof fetch !== 'function') {
+    return Promise.reject(new Error('bemap.MapLibreMap.' + label + ': fetch is not available in this environment.'));
+  }
+  // Wait for login so the first call after construction isn't unauthenticated;
+  // auth rides the Worker's HttpOnly session cookie (credentials:'include' below),
+  // not a header — no X-Session-Token means no CORS preflight.
+  var auth = this._tilesAuth;
+  var ready = (auth &amp;&amp; typeof auth.whenTokenReady === 'function') ? auth.whenTokenReady() : Promise.resolve();
+  return ready.then(function() {
+    return fetch(url, { credentials: 'include' });
+  }).then(function(resp) {
+    if (!resp.ok) {
+      throw new Error('bemap.MapLibreMap.' + label + ': HTTP ' + resp.status + ' from ' + url);
+    }
+    return resp.json();
+  });
+};
+
+bemap.MapLibreMap.prototype.getCenter = function() {
+  var c = this.native.getCenter();
+  return new bemap.Coordinate(c.lng, c.lat);
+};
+
+bemap.MapLibreMap.prototype.getBoundingBox = function() {
+  var b = this.native.getBounds();
+  return new bemap.BoundingBox(b.getWest(), b.getSouth(), b.getEast(), b.getNorth());
+};
+
+bemap.MapLibreMap.prototype.isDragPan = function() {
+  return this.native.dragPan ? this.native.dragPan.isEnabled() : true;
+};
+
+bemap.MapLibreMap.prototype.setDragPan = function(active) {
+  if (active) { this.native.dragPan.enable(); } else { this.native.dragPan.disable(); }
+  return this;
+};
+
+// =========================================================================
+// 3D Features (MapLibre-exclusive)
+// =========================================================================
+
+bemap.MapLibreMap.prototype.setPitch = function(pitch) { this.native.setPitch(pitch); return this; };
+bemap.MapLibreMap.prototype.getPitch = function() { return this.native.getPitch(); };
+bemap.MapLibreMap.prototype.setBearing = function(bearing) { this.native.setBearing(bearing); return this; };
+bemap.MapLibreMap.prototype.getBearing = function() { return this.native.getBearing(); };
+
+bemap.MapLibreMap.prototype.setTerrain = function(options) {
+  try { this.native.setTerrain(options); } catch(e) {}
+  var self = this;
+  if (typeof this._registerEffect === 'function') {
+    this._registerEffect('terrain', function () { self.removeTerrain(); });
+  }
+  return this;
+};
+bemap.MapLibreMap.prototype.removeTerrain = function() {
+  try { this.native.setTerrain(null); } catch(e) {}
+  if (typeof this._unregisterEffect === 'function') this._unregisterEffect('terrain');
+  return this;
+};
+
+bemap.MapLibreMap.prototype.setProjection = function(type) {
+  // Remember the explicit choice so it survives later style swaps (the server
+  // default-style refresh, a customer setStyle, etc.) — see _applyDesiredProjection.
+  this._desiredProjection = (type === 'globe') ? 'globe' : 'mercator';
+  try { this.native.setProjection({ type: type }); } catch(e) {}
+  var self = this;
+  // Only register the 'globe' state as an effect — mercator is the
+  // default and has nothing to tear down.
+  if (typeof this._registerEffect === 'function') {
+    if (type === 'globe') {
+      this._registerEffect('globe', function () { self.setProjection('mercator'); });
+    } else {
+      if (typeof this._unregisterEffect === 'function') this._unregisterEffect('globe');
+    }
+  }
+  return this;
+};
+
+/**
+ * Force a style object's root `projection` to the SDK-owned value
+ * (`this._desiredProjection`, default `mercator`; `globe` only when the
+ * developer opted in via `opts.projection` / `setProjection`). Called
+ * synchronously on every style spec before it reaches `native.setStyle`.
+ *
+ * MapLibre v5 applies a style's root `projection` on BOTH a full load AND a
+ * diff update (the diff emits `setProjection`, unlike camera keys which it
+ * skips), so a server/charte style shipping `"projection":{"type":"globe"}`
+ * would otherwise silently switch the map to a globe — which curves the view
+ * at low zoom and reads as a map "at the wrong angle". Overwriting the key
+ * here (rather than in a post-load event) is deterministic: it works for the
+ * diff path, where neither `style.load` nor `idle` reliably fires. Mirrors how
+ * the SDK already ignores a style's own `sources` (TilesStyle.resolvePlaceholders).
+ * @private
+ */
+bemap.MapLibreMap.prototype._normalizeStyleProjection = function(style) {
+  if (style &amp;&amp; typeof style === 'object') {
+    var want = this._desiredProjection || 'mercator';
+    var declared = style.projection &amp;&amp; style.projection.type;
+    // One-time, per-map heads-up when we actually override a projection the
+    // style asked for (e.g. a server charte shipping globe) — confirms the
+    // source of a "wrong angle" and points at the opt-in.
+    if (declared &amp;&amp; declared !== want &amp;&amp; !this._projectionOverrideNoted) {
+      this._projectionOverrideNoted = true;
+      if (typeof console !== 'undefined' &amp;&amp; console.info) {
+        console.info("bemap.MapLibreMap: style requested projection '" + declared +
+          "' — kept the SDK default '" + want + "'. Call map.setProjection('" + declared +
+          "') to opt in.");
+      }
+    }
+    style.projection = { type: want };
+  }
+  return style;
+};
+
+bemap.MapLibreMap.prototype.setSky = function(options) {
+  try {
+    if (this.native.setSky) {
+      // Pass null/undefined/false straight through so MapLibre removes the
+      // sky entirely. The previous `options || {}` converted null → {} which
+      // sets an EMPTY sky config rather than disabling — the "Disable Sky"
+      // button was a no-op as a result.
+      this.native.setSky(options || undefined);
+    } else {
+      var s = this.native.getStyle();
+      if (options) { s.sky = options; } else { delete s.sky; }
+      this.native.setStyle(s);
+    }
+  } catch(e) {}
+  if (typeof this._requiresGlobe === 'function') this._requiresGlobe('setSky');
+  var self = this;
+  if (typeof this._registerEffect === 'function') {
+    if (options) {
+      this._registerEffect('setSky', function () {
+        try { if (self.native.setSky) self.native.setSky({}); } catch (e) {}
+      });
+    } else {
+      if (typeof this._unregisterEffect === 'function') this._unregisterEffect('setSky');
+    }
+  }
+  return this;
+};
+
+// setStyle is defined later in this file as the overlay-preserving v2.0
+// implementation (search for "// v2.0 — BeNomad Tiles surgical").
+bemap.MapLibreMap.prototype.jumpTo = function(options) { this.native.jumpTo(options); return this; };
+bemap.MapLibreMap.prototype.easeTo = function(options) { this.native.easeTo(options); return this; };
+
+bemap.MapLibreMap.prototype.queryRenderedFeatures = function(point, options) {
+  return this.native.queryRenderedFeatures(point, options);
+};
+
+bemap.MapLibreMap.prototype.addGeoJsonSource = function(id, data) {
+  var _this = this;
+  var add = function() {
+    if (!_this.native.getSource(id)) {
+      _this.native.addSource(id, { type: 'geojson', data: data });
+    }
+  };
+  this._whenMapLoaded(add);
+  return this;
+};
+
+bemap.MapLibreMap.prototype.updateGeoJsonSource = function(id, data) {
+  var src = this.native.getSource(id);
+  if (src) src.setData(data);
+  return this;
+};
+
+bemap.MapLibreMap.prototype.addImage = function(id, image) {
+  var _this = this;
+  var add = function() { if (!_this.native.hasImage(id)) _this.native.addImage(id, image); };
+  this._whenMapLoaded(add);
+  return this;
+};
+
+bemap.MapLibreMap.prototype.removeImage = function(id) {
+  try { this.native.removeImage(id); } catch(e) {}
+  return this;
+};
+
+// =========================================================================
+// Build Style Methods (translate bemap styles to MapLibre paint properties)
+// =========================================================================
+
+bemap.MapLibreMap.prototype.buildIcon = function(icon, options) { return this; };
+bemap.MapLibreMap.prototype.buildLineStyle = function(style, options) { return this; };
+bemap.MapLibreMap.prototype.buildTextStyle = function(textStyle, name, options) { return this; };
+bemap.MapLibreMap.prototype.buildPolygonStyle = function(style, options) { return this; };
+bemap.MapLibreMap.prototype.buildCircleStyle = function(style, options) { return this; };
+
+// =========================================================================
+// Light / Raster (MapLibre-exclusive advanced features)
+// =========================================================================
+
+// MapLibre's documented default light specification. Used as the reset
+// target when setLight() is called with no argument / null / undefined —
+// passing {} (the previous behaviour) overrode the active light with
+// nothing rather than restoring the defaults.
+bemap.MapLibreMap.DEFAULT_LIGHT = {
+  anchor:    'viewport',
+  color:     'white',
+  intensity: 0.5,
+  position:  [1.15, 210, 30]
+};
+
+bemap.MapLibreMap.prototype.setLight = function(options) {
+  // Use the native MapLibre setLight API directly. The old impl did
+  // `setStyle(getStyle() + {light})` which wipes every user-added layer
+  // and source — devastating for live demos where the user just placed
+  // markers / polylines / heatmap.
+  // Also surface a one-time hint when called on a non-globe projection
+  // because setLight has no visible effect in mercator without pitch.
+  try {
+    if (typeof this.native.setLight === 'function') {
+      this.native.setLight(options || bemap.MapLibreMap.DEFAULT_LIGHT);
+    } else {
+      // Older MapLibre fallback — style mutation, but only the light
+      // field, not the whole style spec.
+      var style = this.native.getStyle();
+      style.light = options;
+      this.native.setStyle(style);
+    }
+  } catch(e) {}
+  if (typeof this._requiresGlobe === 'function') this._requiresGlobe('setLight');
+  if (typeof this._registerEffect === 'function') {
+    var self = this;
+    this._registerEffect('setLight', function () {
+      try { if (typeof self.native.setLight === 'function') self.native.setLight({}); } catch (e) {}
+    });
+  }
+  return this;
+};
+
+bemap.MapLibreMap.prototype.addRasterLayer = function(layer) {
+  if (!layer || !bemap.inheritsof(layer, bemap.RasterLayer)) return this;
+
+  var _this = this;
+  var layerId = this._uniqueId('raster');
+  layer._maplibreId = layerId;
+
+  var addToMap = function() {
+    if (!_this.native.getSource(layerId)) {
+      _this.native.addSource(layerId, {
+        type: 'raster',
+        tiles: [layer.url],
+        tileSize: layer.tileSize || 256,
+        attribution: layer.attribution || ''
+      });
+      _this.native.addLayer({
+        id: layerId,
+        type: 'raster',
+        source: layerId,
+        paint: { 'raster-opacity': layer.opacity !== undefined ? layer.opacity : 1 }
+      });
+    }
+  };
+
+  this._whenMapLoaded(addToMap);
+
+  layer.native = { id: layerId, type: 'raster' };
+  if (layer.map === null) layer.map = this;
+  bemap.Map.prototype.addLayer.call(this, layer);
+
+  return this;
+};
+
+// =========================================================================
+// v2.0 — BeNomad Tiles surgical + camera + cache methods
+// =========================================================================
+
+/**
+ * Called right after `native.setStyle`: clear `_setStyleInFlight` and replay
+ * the overlay catalogue ONCE, as soon as the new style is applied. A diff
+ * setStyle updates the current Style synchronously and fires no 'style.load',
+ * and 'idle' never fires while an animation keeps a source busy — so take
+ * whichever comes first: style already parsed (diff), 'style.load', or 'idle'.
+ * The generation counter keeps a stale clear from an earlier setStyle from
+ * clearing the flag of a newer one.
+ * @private
+ */
+bemap.MapLibreMap.prototype._onStyleApplied = function () {
+  var self = this;
+  var native = this.native;
+  var gen = this._setStyleGen = (this._setStyleGen || 0) + 1;
+  // PMT-66: during a tiles outage, show the WMS on the new style and replay the
+  // overlays now (the new style's tiles may never settle).
+  var outageReplay = this._tilesFallbackActive ? this._showTilesFallbackWms(true)._replayOverlaysInOutage() : null;
+  var cleared = false;
+  var clear = function () {
+    if (cleared) return;
+    cleared = true;
+    try {
+      native.off('style.load', clear);
+      native.off('idle', clear);
+    } catch (e) { /* ignore */ }
+    var replayedInOutage = !!(outageReplay &amp;&amp; outageReplay._done);
+    if (outageReplay) outageReplay._done = true;   // a replay still pending must not run at a later outage
+    if (gen !== self._setStyleGen) return;   // a newer setStyle owns the flag
+    self._setStyleInFlight = false;
+    // Already replayed during the outage: a second replay would add rasters twice.
+    if (self._overlayCatalog &amp;&amp; !replayedInOutage) self._overlayCatalog.replayOnto(self);
+  };
+  native.once('style.load', clear);
+  native.once('idle', clear);
+  if (native.style &amp;&amp; native.style._loaded) setTimeout(clear, 0);
+};
+
+/**
+ * Replace `bemap.Map.prototype.setStyle` for MapLibre — accepts either a
+ * URL or an inline style object, fetches + resolves placeholders via
+ * `bemap.TilesStyle`, calls native `setStyle`, and **replays the overlay
+ * catalogue** so user markers / polylines / polygons survive the swap.
+ *
+ * @public
+ * @since 2.0.0
+ */
+bemap.MapLibreMap.prototype.setStyle = function (urlOrObject, options) {
+  var self = this;
+  var opts = options || {};
+  // Mark that a style was chosen explicitly, so the init-time default-style
+  // refresh (_refreshDefaultStyleFromServer) won't overwrite it.
+  if (!opts._internal) this._userSetStyle = true;
+  // PMT-66: which style request is the latest (a failed init style is re-applied on restore).
+  if (!opts._internal) this._styleAskSeq = (this._styleAskSeq || 0) + 1;
+  var _askSeq = this._styleAskSeq;
+  // Same precedence as the constructor (opts.tilesFile -> ctx.tilesFile ->
+  // ctx.geoserver -> 'default') — without this the TILES_SOURCE placeholder
+  // stays a literal string when the customer calls `map.setStyle(obj)` without
+  // an explicit tilesFile. On the internal/refresh path (no opts.tilesFile),
+  // reuse this map's stored name so the style url === the registered archive
+  // key + ?v= token (EVMOVE-457 key-identity).
+  var tilesFile;
+  if (opts.tilesFile &amp;&amp; this.ctx &amp;&amp; typeof this.ctx.resolveTilesFile === 'function') {
+    tilesFile = this.ctx.resolveTilesFile(opts.tilesFile);
+  } else if (this._tilesFile) {
+    tilesFile = this._tilesFile;
+  } else if (this.ctx &amp;&amp; typeof this.ctx.resolveTilesFile === 'function') {
+    tilesFile = this.ctx.resolveTilesFile();
+  } else {
+    tilesFile = opts.tilesFile || 'default';
+  }
+  // Register the (possibly versioned) slice source under the SAME url the style
+  // will reference, so pmtiles reuses PMTilesSliceSource + the recoverable cache
+  // instead of silently auto-creating a stock Range source. Idempotent per url;
+  // no-op for non-tiles maps (getTilesFileUrl → null).
+  if (this.ctx &amp;&amp; typeof this.ctx.getTilesFileUrl === 'function') {
+    var _archiveUrl = this.ctx.getTilesFileUrl(tilesFile);
+    if (_archiveUrl) {
+      var _versioned = !!(typeof this.ctx.getTilesVersion === 'function' &amp;&amp; this.ctx.getTilesVersion(tilesFile));
+      bemap.MapLibreMap._addTilesArchive(_archiveUrl, bemap.MapLibreMap._tilesSliceMode, _versioned);
+    }
+  }
+  // Inline style object → apply immediately and return `this` for chaining
+  // (matches the v1 contract and the cross-engine `.setStyle(...).move(...)`
+  // pattern customer apps rely on).
+  if (urlOrObject &amp;&amp; typeof urlOrObject === 'object') {
+    var resolved = urlOrObject;
+    if (typeof bemap.TilesStyle !== 'undefined') {
+      try {
+        resolved = JSON.parse(JSON.stringify(urlOrObject));
+        bemap.TilesStyle.resolvePlaceholders(resolved, self.ctx, tilesFile);
+        bemap.TilesStyle.hardenSymbolCollisions(resolved);
+      } catch (e) { resolved = urlOrObject; }
+    }
+    this._normalizeStyleProjection(resolved);   // SDK owns projection, not the style
+    this._currentStyleSpec = resolved;
+    // Flag the in-flight setStyle so _whenStyleReady can refuse the fast
+    // path (isStyleLoaded() returns true for the OLD style during the gap).
+    this._setStyleInFlight = true;
+    this.native.setStyle(resolved);
+    this._onStyleApplied();
+    return this;
+  }
+  // Resolve a Worker style reference against the tilesHost. This covers both a
+  // bare NAME ('openfreemap_graylevel') AND a Worker-relative path as returned
+  // by /api/styles ('styles/openfreemap_graylevel.json'); either way it must hit
+  // &lt;tilesHost>/styles/…, NOT a page-relative URL. Only an ABSOLUTE URL
+  // (http(s):// or //host) is passed through untouched.
+  var styleUrl = urlOrObject;
+  if (typeof urlOrObject === 'string' &amp;&amp; !/^(?:https?:)?\/\//i.test(urlOrObject)
+      &amp;&amp; this.ctx &amp;&amp; typeof this.ctx.getTilesStyleUrl === 'function') {
+    styleUrl = this.ctx.getTilesStyleUrl(urlOrObject) || urlOrObject;
+  }
+  // URL → fetch + resolve asynchronously, but still return `this` sync so
+  // method chaining works. Errors flow to the map's error channel.
+  var getToken = this._tilesAuth ? function () { return self._tilesAuth.getToken(); } : null;
+  if (typeof bemap.TilesStyle !== 'undefined') {
+    bemap.TilesStyle.fetch(this.ctx, styleUrl, {
+      getToken: getToken,
+      // Use the auth's RESOLVED config so a per-map tilesAuth override applies to
+      // the style/glyph JSON fetch too (falls back to ctx.getTilesAuth()).
+      tilesAuth: self._tilesAuth ? self._tilesAuth._authConfig : null
+    })
+      .then(function (style) {
+        bemap.TilesStyle.resolvePlaceholders(style, self.ctx, tilesFile);
+        bemap.TilesStyle.hardenSymbolCollisions(style);
+        self._normalizeStyleProjection(style);   // SDK owns projection, not the style
+        self._currentStyleSpec = style;
+        self._setStyleInFlight = true;
+        self.native.setStyle(style);
+        self._onStyleApplied();
+      })
+      .catch(function (err) {
+        if (urlOrObject &amp;&amp; (urlOrObject === self._pendingStyleName || urlOrObject === self._initStyleName) &amp;&amp; _askSeq === self._styleAskSeq) {
+          self._initStyleFailed = { seq: _askSeq, name: urlOrObject };
+        }
+        self._fireError(err instanceof bemap.Error ? err : new bemap.Error({
+          code: bemap.Error.STYLE_LOAD_FAILED, message: 'setStyle failed: ' + (err &amp;&amp; err.message)
+        }));
+      });
+  } else {
+    try { this.native.setStyle(styleUrl); } catch (e) {}
+  }
+  return this;
+};
+
+/**
+ * Get the current MapLibre style spec (the one resolved and applied by the
+ * library — same shape `getStyle()` would return).
+ * @public
+ * @since 2.0.0
+ * @return {Object}
+ */
+bemap.MapLibreMap.prototype.getStyle = function () { return this._currentStyleSpec || this.native.getStyle(); };
+
+/* --- Token introspection --- */
+bemap.MapLibreMap.prototype.getToken = function () { return this._tilesAuth ? this._tilesAuth.getToken() : null; };
+bemap.MapLibreMap.prototype.isTokenValid = function () { return !!(this._tilesAuth &amp;&amp; this._tilesAuth.isValid()); };
+bemap.MapLibreMap.prototype.refreshToken = function () {
+  if (!this._tilesAuth) return Promise.resolve(null);
+  return this._tilesAuth.refresh();
+};
+
+/* --- Browser cache --- */
+bemap.MapLibreMap.prototype.enableBrowserCache = function () {
+  if (this._browserCache) this._browserCache.enable();
+  return this;
+};
+bemap.MapLibreMap.prototype.disableBrowserCache = function () {
+  if (this._browserCache) this._browserCache.disable();
+  return this;
+};
+bemap.MapLibreMap.prototype.getBrowserCacheStats = function () {
+  return this._browserCache ? this._browserCache.getStats()
+    : { enabled: false, hits: 0, misses: 0, entries: 0, bytesEstimated: 0 };
+};
+bemap.MapLibreMap.prototype.clearBrowserCache = function () {
+  if (this._browserCache) return this._browserCache.clear();
+  return Promise.resolve();
+};
+bemap.MapLibreMap.prototype.onCacheStats = function (fn) {
+  if (typeof fn !== 'function') return;
+  this._cacheStatsListeners = this._cacheStatsListeners || [];
+  this._cacheStatsListeners.push(fn);
+};
+bemap.MapLibreMap.prototype.offCacheStats = function (fn) {
+  if (!this._cacheStatsListeners) return;
+  for (var i = this._cacheStatsListeners.length - 1; i >= 0; i--) {
+    if (!fn || this._cacheStatsListeners[i] === fn) this._cacheStatsListeners.splice(i, 1);
+  }
+};
+
+/* --- Surgical layer mutation --- */
+bemap.MapLibreMap.prototype.setPaintProperty = function (layerId, name, value) {
+  try { this.native.setPaintProperty(layerId, name, value); } catch (e) { /* ignore */ }
+  return this;
+};
+bemap.MapLibreMap.prototype.setLayoutProperty = function (layerId, name, value) {
+  try { this.native.setLayoutProperty(layerId, name, value); } catch (e) { /* ignore */ }
+  return this;
+};
+bemap.MapLibreMap.prototype.setFilter = function (layerId, filter) {
+  try { this.native.setFilter(layerId, filter); } catch (e) { /* ignore */ }
+  return this;
+};
+bemap.MapLibreMap.prototype.setLayerZoomRange = function (layerId, minzoom, maxzoom) {
+  try { this.native.setLayerZoomRange(layerId, minzoom, maxzoom); } catch (e) { /* ignore */ }
+  return this;
+};
+
+/* ============================================================
+ * Cross-engine camera tour (v2.0) — MapLibre real-animation
+ *
+ * Same waypoint shape as the Leaflet and OL impls. MapLibre gets
+ * full pitch + bearing per waypoint.
+ * ============================================================ */
+bemap.MapLibreMap.prototype.cameraTour = function (options) {
+  var opts = options || {};
+  var waypoints = opts.waypoints || [];
+  if (!waypoints.length) return { stop: function () {}, resume: function () {} };
+  var self = this;
+  var i = 0, stopped = false;
+  function next() {
+    if (stopped) return;
+    if (i >= waypoints.length) {
+      if (opts.loop) i = 0;
+      else { if (typeof opts.onComplete === 'function') opts.onComplete(); return; }
+    }
+    var wp = waypoints[i++];
+    self.native.easeTo({
+      center: [wp.lon, wp.lat],
+      zoom: wp.zoom,
+      pitch: wp.pitch,
+      bearing: wp.bearing,
+      duration: wp.duration || 2000
+    });
+    setTimeout(next, wp.duration || 2000);
+  }
+  next();
+  var controller = {
+    stop: function () { stopped = true; if (typeof self._unregisterEffect === 'function') self._unregisterEffect('cameraTour'); },
+    resume: function () { if (stopped) { stopped = false; next(); } }
+  };
+  if (typeof self._registerEffect === 'function') self._registerEffect('cameraTour', function () { controller.stop(); });
+  return controller;
+};
+
+/* --- Globe spinner --- */
+bemap.MapLibreMap.prototype.spinGlobe = function (options) {
+  var self = this;
+  var opts = options || {};
+  var speed = typeof opts.speed === 'number' ? opts.speed : 0.05; // deg/s
+  this.stopSpinGlobe();
+  this._globeSpinTimer = setInterval(function () {
+    if (!self.native) return;
+    var c = self.native.getCenter();
+    self.native.setCenter([c.lng + speed, c.lat]);
+  }, 50);
+  if (typeof this._registerEffect === 'function') {
+    this._registerEffect('spinGlobe', function () { self.stopSpinGlobe(); });
+  }
+  return { stop: function () { self.stopSpinGlobe(); }, resume: function () { self.spinGlobe(opts); } };
+};
+bemap.MapLibreMap.prototype.stopSpinGlobe = function () {
+  if (this._globeSpinTimer) {
+    clearInterval(this._globeSpinTimer);
+    this._globeSpinTimer = null;
+  }
+  if (typeof this._unregisterEffect === 'function') this._unregisterEffect('spinGlobe');
+  return this;
+};
+
+/* --- 3D buildings (real implementation) --- */
+bemap.MapLibreMap.prototype.add3DBuildings = function (options) {
+  var self = this;
+  var opts = options || {};
+  var layerId = opts.layerId || 'bemap-3d-buildings';
+  // Per-add cancellation token. When `remove3DBuildings` fires while
+  // the queued `fn` is still pending (style hasn't loaded yet), the
+  // token is flipped so the deferred add bails out instead of
+  // resurrecting the layer the user just removed.
+  var token = { cancelled: false };
+  var fn = function () {
+    if (token.cancelled) return;
+    if (self.native.getLayer(layerId)) return;
+    var src = opts.source || 'tiles';
+    if (!self.native.getSource(src)) return;
+    self.native.addLayer({
+      id: layerId,
+      type: 'fill-extrusion',
+      source: src,
+      'source-layer': opts.sourceLayer || 'building',
+      minzoom: opts.minzoom || 13,
+      paint: {
+        'fill-extrusion-color': opts.color || '#bdbdbd',
+        'fill-extrusion-height': opts.height || ['coalesce', ['get', 'render_height'], ['get', 'height'], 10],
+        'fill-extrusion-base': opts.base || 0,
+        'fill-extrusion-opacity': opts.opacity != null ? opts.opacity : 0.7
+      }
+    });
+  };
+  self._3dBuildingsTokens = self._3dBuildingsTokens || {};
+  self._3dBuildingsTokens[layerId] = token;
+  if (this._isStyleParsed()) fn();
+  else this.native.once('load', fn);
+  if (this._overlayCatalog) this._overlayCatalog.register('3dbuildings', layerId, function (map) {
+    if (!map.native.getLayer(layerId)) fn();
+  });
+  if (typeof this._registerEffect === 'function') {
+    this._registerEffect('3DBuildings', function () { self.remove3DBuildings({ layerId: layerId }); });
+  }
+  return this;
+};
+bemap.MapLibreMap.prototype.remove3DBuildings = function (options) {
+  var opts = options || {};
+  var layerId = opts.layerId || 'bemap-3d-buildings';
+  // Cancel any pending deferred add so it can't resurrect the layer.
+  if (this._3dBuildingsTokens &amp;&amp; this._3dBuildingsTokens[layerId]) {
+    this._3dBuildingsTokens[layerId].cancelled = true;
+    delete this._3dBuildingsTokens[layerId];
+  }
+  try { if (this.native.getLayer(layerId)) this.native.removeLayer(layerId); } catch (e) {}
+  if (this._overlayCatalog) this._overlayCatalog.unregister('3dbuildings', layerId);
+  if (typeof this._unregisterEffect === 'function') this._unregisterEffect('3DBuildings');
+  return this;
+};
+
+/* --- Tear-down extension --- */
+var _origRemoveMapLibre = bemap.MapLibreMap.prototype.remove;
+bemap.MapLibreMap.prototype.remove = function () {
+  // Tear down every active effect first — without this, timers
+  // (spinGlobe), animation frames (animateAlongRoute) and SW handles
+  // (browser cache) leak across SPA navigation.
+  try { this.clearAllEffects(); } catch (e) { /* keep going */ }
+  try { if (this._tilesAuth) this._tilesAuth.destroy(); } catch (e) {}
+  try { if (this._browserCache) this._browserCache.destroy(); } catch (e) {}
+  try { if (this._overlayCatalog) this._overlayCatalog.clear(); } catch (e) {}
+  // Pending recoverable-tile-error refresh — firing after removal would touch
+  // a dead map.
+  try { if (this._tileRefreshTimer) { clearTimeout(this._tileRefreshTimer); this._tileRefreshTimer = null; } } catch (e) {}
+  try { this._stopTilesFallback(); } catch (e) {}
+  try { this._disconnectTargetResizeObserver(); } catch (e) {}
+  this.stopSpinGlobe();
+  if (typeof _origRemoveMapLibre === 'function') return _origRemoveMapLibre.apply(this, arguments);
+  if (this.native &amp;&amp; typeof this.native.remove === 'function') this.native.remove();
+};
+
+// =========================================================================
+// Popup clearPopup (real impl in popup sub-file)
+// =========================================================================
+</code></pre>
+        </article>
+    </section>
+
+
+
+
+</div>
+
+<nav>
+    <h2><a href="index.html">Home</a></h2><h3>Classes</h3><ul><li><a href="bemap.AclDetailsResponse.html">AclDetailsResponse</a></li><li><a href="bemap.AclLabel.html">AclLabel</a></li><li><a href="bemap.AclService.html">AclService</a></li><li><a href="bemap.Address.html">Address</a></li><li><a href="bemap.AttributionWidget.html">AttributionWidget</a></li><li><a href="bemap.Autocomplete.html">Autocomplete</a></li><li><a href="bemap.AutocompleteElement.html">AutocompleteElement</a></li><li><a href="bemap.AutocompleteGeocodingRequest.html">AutocompleteGeocodingRequest</a></li><li><a href="bemap.AutocompleteGeocodingResponse.html">AutocompleteGeocodingResponse</a></li><li><a href="bemap.BemapLayer.html">BemapLayer</a></li><li><a href="bemap.BoundingBox.html">BoundingBox</a></li><li><a href="bemap.BrowserCache.html">BrowserCache</a></li><li><a href="bemap.BuildingsLayer.html">BuildingsLayer</a></li><li><a href="bemap.ChargingPoint.html">ChargingPoint</a></li><li><a href="bemap.ChargingStation.html">ChargingStation</a></li><li><a href="bemap.ChargingStationPool.html">ChargingStationPool</a></li><li><a href="bemap.ChargingStations.html">ChargingStations</a></li><li><a href="bemap.ChargingStationSearchRequest.html">ChargingStationSearchRequest</a></li><li><a href="bemap.ChargingStationSearchResponse.html">ChargingStationSearchResponse</a></li><li><a href="bemap.ChargingStationStep.html">ChargingStationStep</a></li><li><a href="bemap.ChargingTime.html">ChargingTime</a></li><li><a href="bemap.ChargingTimeRequest.html">ChargingTimeRequest</a></li><li><a href="bemap.ChargingTimeResponse.html">ChargingTimeResponse</a></li><li><a href="bemap.Circle.html">Circle</a></li><li><a href="bemap.CircleStyle.html">CircleStyle</a></li><li><a href="bemap.clusterStyle.html">clusterStyle</a></li><li><a href="bemap.Color.html">Color</a></li><li><a href="bemap.CondMaxSpeed.html">CondMaxSpeed</a></li><li><a href="bemap.Context.html">Context</a></li><li><a href="bemap.Coordinate.html">Coordinate</a></li><li><a href="bemap.CoordinateSat.html">CoordinateSat</a></li><li><a href="bemap.Destination.html">Destination</a></li><li><a href="bemap.Error.html">Error</a></li><li><a href="bemap.EvBrand.html">EvBrand</a></li><li><a href="bemap.EvReachableArea.html">EvReachableArea</a></li><li><a href="bemap.EvReachableAreaRequest.html">EvReachableAreaRequest</a></li><li><a href="bemap.EvReachableAreaResponse.html">EvReachableAreaResponse</a></li><li><a href="bemap.EvseRouting.html">EvseRouting</a></li><li><a href="bemap.EvSmartRouting.html">EvSmartRouting</a></li><li><a href="bemap.EvSmartRoutingRequest.html">EvSmartRoutingRequest</a></li><li><a href="bemap.EvSmartRoutingResponse.html">EvSmartRoutingResponse</a></li><li><a href="bemap.EvStepPoint.html">EvStepPoint</a></li><li><a href="bemap.EvVehicle.html">EvVehicle</a></li><li><a href="bemap.EvVehicles.html">EvVehicles</a></li><li><a href="bemap.Exception.html">Exception</a></li><li><a href="bemap.GeoAutocomplete.html">GeoAutocomplete</a></li><li><a href="bemap.Geocoder.html">Geocoder</a></li><li><a href="bemap.GeocodingItem.html">GeocodingItem</a></li><li><a href="bemap.GeocodingRequest.html">GeocodingRequest</a></li><li><a href="bemap.GeocodingResponse.html">GeocodingResponse</a></li><li><a href="bemap.GeoSearchInfo.html">GeoSearchInfo</a></li><li><a href="bemap.GeoServerInfoResponse.html">GeoServerInfoResponse</a></li><li><a href="bemap.GeoServerInfoService.html">GeoServerInfoService</a></li><li><a href="bemap.GeoServerServiceInfo.html">GeoServerServiceInfo</a></li><li><a href="bemap.GeoServerServiceLimit.html">GeoServerServiceLimit</a></li><li><a href="bemap.HeatmapLayer.html">HeatmapLayer</a></li><li><a href="bemap.Icon.html">Icon</a></li><li><a href="bemap.Isochrone.html">Isochrone</a></li><li><a href="bemap.Layer.html">Layer</a></li><li><a href="bemap.LeafletMap.html">LeafletMap</a></li><li><a href="bemap.LineStyle.html">LineStyle</a></li><li><a href="bemap.Listener.html">Listener</a></li><li><a href="bemap.Map.html">Map</a></li><li><a href="bemap.MapEvent.html">MapEvent</a></li><li><a href="bemap.MapLibreMap.html">MapLibreMap</a></li><li><a href="bemap.Marker.html">Marker</a></li><li><a href="bemap.MultiMarker.html">MultiMarker</a></li><li><a href="bemap.NearPoint.html">NearPoint</a></li><li><a href="bemap.NearPoiRequest.html">NearPoiRequest</a></li><li><a href="bemap.NearPoiResponse.html">NearPoiResponse</a></li><li><a href="bemap.NearPoiSearch.html">NearPoiSearch</a></li><li><a href="bemap.Object.html">Object</a></li><li><a href="bemap.Ol3Map.html">Ol3Map</a></li><li><a href="bemap.OlMap.html">OlMap</a></li><li><a href="bemap.OsmLayer.html">OsmLayer</a></li><li><a href="bemap.PMTilesLayer.html">PMTilesLayer</a></li><li><a href="bemap.PMTilesSliceSource.html">PMTilesSliceSource</a></li><li><a href="bemap.Polygon.html">Polygon</a></li><li><a href="bemap.PolygonStyle.html">PolygonStyle</a></li><li><a href="bemap.Polyline.html">Polyline</a></li><li><a href="bemap.Popup.html">Popup</a></li><li><a href="bemap.PostalAddress.html">PostalAddress</a></li><li><a href="bemap.RangeGate.html">RangeGate</a></li><li><a href="bemap.RasterLayer.html">RasterLayer</a></li><li><a href="bemap.RecoverablePromiseCache.html">RecoverablePromiseCache</a></li><li><a href="bemap.ReverseGeocoder.html">ReverseGeocoder</a></li><li><a href="bemap.ReverseGeocodingRequest.html">ReverseGeocodingRequest</a></li><li><a href="bemap.RevGeoSearchInfo.html">RevGeoSearchInfo</a></li><li><a href="bemap.RoadFeature.html">RoadFeature</a></li><li><a href="bemap.Route.html">Route</a></li><li><a href="bemap.Route.Event.html">Event</a></li><li><a href="bemap.Route.RoutesheetInstruction.html">RoutesheetInstruction</a></li><li><a href="bemap.Routing.html">Routing</a></li><li><a href="bemap.RoutingDestination.html">RoutingDestination</a></li><li><a href="bemap.RoutingInstruction.html">RoutingInstruction</a></li><li><a href="bemap.RoutingRequest.html">RoutingRequest</a></li><li><a href="bemap.RoutingResponse.html">RoutingResponse</a></li><li><a href="bemap.RoutingRoute.html">RoutingRoute</a></li><li><a href="bemap.RoutingSummary.html">RoutingSummary</a></li><li><a href="bemap.RoutingV2.html">RoutingV2</a></li><li><a href="bemap.RoutingVehicleProfile.html">RoutingVehicleProfile</a></li><li><a href="bemap.RoutingWaypoint.html">RoutingWaypoint</a></li><li><a href="bemap.Service.html">Service</a></li><li><a href="bemap.TextStyle.html">TextStyle</a></li><li><a href="bemap.TilesAuth.html">TilesAuth</a></li><li><a href="bemap.TilesOverlayCatalog.html">TilesOverlayCatalog</a></li><li><a href="global.html#bemap#.TraceRoute">TraceRoute</a></li><li><a href="bemap.TraceRouteDestination.html">TraceRouteDestination</a></li><li><a href="bemap.TraceRouteRequest.html">TraceRouteRequest</a></li><li><a href="bemap.VectorLayer.html">VectorLayer</a></li><li><a href="bemap.VectorTileLayer.html">VectorTileLayer</a></li><li><a href="bemap.WmsLayer.html">WmsLayer</a></li></ul><h3>Global</h3><ul><li><a href="global.html#_bemapAbortError">_bemapAbortError</a></li><li><a href="global.html#AC">AC</a></li><li><a href="global.html#AC_SINGLE_PHASE">AC_SINGLE_PHASE</a></li><li><a href="global.html#AC_THREE_PHASES">AC_THREE_PHASES</a></li><li><a href="global.html#bemap">bemap</a></li><li><a href="global.html#DC">DC</a></li><li><a href="global.html#NA">NA</a></li></ul>
+</nav>
+
+<br class="clear">
+
+<footer>
+    Documentation generated by <a href="https://github.com/jsdoc/jsdoc">JSDoc 3.6.3</a> on Tue Nov 24 2026 14:56:40 GMT+0100 (Central European Standard Time)
+</footer>
+
+<script> prettyPrint(); </script>
+<script src="scripts/linenumber.js"> </script>
+</body>
+</html>

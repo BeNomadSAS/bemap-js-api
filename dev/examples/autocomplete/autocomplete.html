@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en" dir="ltr">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>BeNomad BeMap JavaScript API</title>
+  <link rel="stylesheet" type="text/css" href="../../lib/jquery-ui/jquery-ui.min.css" media="screen">
+  <link rel="stylesheet" href="../../dist/ol.css" type="text/css">
+  <link rel="stylesheet" href="../../dist/leaflet.css" type="text/css">
+  <link rel="stylesheet" href="../../dist/maplibre-gl.css" type="text/css">
+  <link rel="stylesheet" href="../../dist/MarkerCluster.Default.css" />
+  <link rel="stylesheet" type="text/css" href="../../lib/bootstrap/dist/css/bootstrap.min.css" />
+  <link rel="stylesheet" type="text/css" href="../../dist/bemap-js-api.css" media="screen">
+
+  <script language="JavaScript" type="text/javascript" src="../../lib/jquery/dist/jquery.min.js"></script>
+  <script language="JavaScript" type="text/javascript" src="../../lib/jquery-ui/jquery-ui.min.js"></script>
+  <script language="JavaScript" type="text/javascript" src="../../lib/bootstrap/dist/js/bootstrap.bundle.min.js"></script>
+
+  <script language="JavaScript" src="../../dist/ol.js"></script>
+  <script language="JavaScript" src="../../dist/leaflet.js"></script>
+  <script language="JavaScript" src="../../dist/maplibre-gl.js"></script>
+  <script language="JavaScript" src="../../dist/pmtiles.js"></script>
+  <script language="JavaScript" src="../../dist/leaflet.markercluster.js"></script>
+  <script language="JavaScript" src="../../dist/bemap-js-api.js"></script>
+  <script language="JavaScript" src="../context.js"></script>
+  <!--<script language="JavaScript" src="autocomplete.js"></script>-->
+  <script language="JavaScript" src="autocomplete-example.js"></script>
+  <style media="screen">
+    #map1 {
+      position: fixed;
+      width: 100%;
+      height: 100%;
+      left: 0;
+      top: 0;
+      transition: all .4s;
+    }
+
+    .inputBlock {
+      margin-top: 10px;
+    }
+
+    /* Feedback icon set by bemap.Autocomplete (animation option): Bootstrap 5 has no glyphicons. */
+    .has-feedback .col-md-10 {
+      position: relative;
+    }
+
+    .has-feedback .form-control {
+      padding-right: 2.6rem;
+    }
+
+    .form-control-feedback {
+      position: absolute;
+      top: 0;
+      right: calc(var(--bs-gutter-x) * .5);
+      width: 2.375rem;
+      line-height: 2.375rem;
+      text-align: center;
+      pointer-events: none;
+    }
+
+    .glyphicon-ok::before {
+      content: "\2713";
+    }
+
+    .glyphicon-refresh::before {
+      content: "\21BB";
+    }
+
+    .has-success .form-control-feedback {
+      color: #3c763d;
+    }
+
+    .has-success .form-control {
+      border-color: #3c763d;
+    }
+
+    .has-warning .form-control-feedback {
+      color: #8a6d3b;
+    }
+
+    .has-warning .form-control {
+      border-color: #8a6d3b;
+    }
+  </style>
+</head>
+
+<body>
+  <div id="map1"></div>
+  <div class="inputBlock">
+    <div class="row has-feedback">
+      <div class="col-md-1">
+        <span class="fas fa-home icon-destination"></span>
+      </div>
+      <div class="col-md-10">
+        <input type="search" id="autoInput" class="form-control"><span class="form-control-feedback"></span>
+      </div>
+    </div>
+    <div class="row has-feedback">
+      <div class="col-md-1">
+        <span class="fas fa-home icon-destination"></span>
+      </div>
+      <div class="col-md-10">
+        <input type="search" id="autoInput1" class="form-control"><span class="form-control-feedback"></span>
+      </div>
+    </div>
+    <div class="row has-feedback">
+      <div class="col-md-1">
+        <span class="fas fa-home icon-destination"></span>
+      </div>
+      <div class="col-md-10">
+        <input type="search" id="autoInput2" class="form-control"><span class="form-control-feedback"></span>
+      </div>
+    </div>
+  </div>
+
+</body>
+
+</html>

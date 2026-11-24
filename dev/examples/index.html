@@ -1,0 +1,714 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>BeMap JS API · 2026</title>
+    <link rel="icon" type="image/png" sizes="152x152" href="favicon.png" />
+    <link rel="apple-touch-icon" sizes="152x152" href="favicon.png" />
+
+    <link rel="stylesheet" href="../lib/codemirror/lib/codemirror.css" type="text/css" />
+    <link rel="stylesheet" href="../lib/codemirror/theme/base16-dark.css" type="text/css" />
+    <link rel="stylesheet" href="bn-2026.css" type="text/css" />
+    <link rel="stylesheet" href="active-effects-bar.css" type="text/css" />
+    <link rel="stylesheet" href="../dist/ol.css" type="text/css" />
+    <link rel="stylesheet" href="../dist/leaflet.css" type="text/css" />
+    <link rel="stylesheet" href="../dist/maplibre-gl.css" type="text/css" />
+    <link rel="stylesheet" href="../dist/bemap-js-api.css" type="text/css" />
+
+    <!-- Third-party rendering helpers -->
+    <script src="../lib/marked/index.js"></script>
+    <script src="../lib/codemirror/lib/codemirror.js"></script>
+    <script src="../lib/codemirror/mode/xml/xml.js"></script>
+    <script src="../lib/codemirror/mode/css/css.js"></script>
+    <script src="../lib/codemirror/mode/javascript/javascript.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+
+    <!-- BeMap engines (all three preloaded so SPA navigation can switch freely) -->
+    <script src="../dist/ol.js"></script>
+    <script src="../dist/leaflet.js"></script>
+    <script src="../dist/maplibre-gl.js"></script>
+    <script src="../dist/pmtiles.js"></script>
+    <script src="../dist/bemap-js-api.min.js"></script>
+
+    <!-- BeMap 2026 dashboard shell -->
+    <script src="bn-2026.js"></script>
+    <script src="bn-sidebar-manifest.js"></script>
+    <script src="context.js"></script>
+    <script src="active-effects-bar.js"></script>
+
+    <style>
+        /* Two tiny page-specific styles that don't belong in bn-2026.css */
+        .bn-provider-card .pc-row { margin-bottom: 8px; }
+        .bn-provider-card .pc-info { font-size: 10px; color: rgba(255,255,255,0.75); margin-top: 3px; line-height: 1.3; }
+        .service-unavailable, .csp-unavailable { display: none !important; }
+        body:not(.is-admin) .admin-only { display: none !important; }
+
+        /* Authentication gate (pav-style): full-screen, blocks the dashboard
+           until the BeMap account is verified + its geoservers/CSP are loaded. */
+        .bn-auth-gate { position: fixed; inset: 0; z-index: 100001;
+          background: rgba(13,17,23,0.97); display: flex; align-items: center;
+          justify-content: center; padding: 24px; }
+        .bn-auth__card { width: 340px; max-width: 92vw; background: #161b22;
+          border: 1px solid #30363d; border-radius: 14px; padding: 26px 24px 22px;
+          box-shadow: 0 14px 44px rgba(0,0,0,.55); color: #e6edf3; text-align: center;
+          font: 14px/1.45 system-ui,-apple-system,Segoe UI,Roboto,sans-serif; }
+        .bn-auth__logo { height: 30px; width: auto; margin: 0 auto 14px; display: block; }
+        .bn-auth__title { font-size: 20px; margin: 0 0 4px; font-weight: 700; }
+        .bn-auth__sub { margin: 0 0 16px; opacity: .7; font-size: 13px; }
+        .bn-auth__form label { display: block; text-align: left; font-size: 11px;
+          text-transform: uppercase; letter-spacing: .04em; opacity: .7; margin: 12px 0 4px; }
+        .bn-auth__input { width: 100%; box-sizing: border-box; background: #0d1117;
+          border: 1px solid #30363d; color: #e6edf3; border-radius: 8px;
+          padding: 9px 11px; font-size: 14px; }
+        .bn-auth__input:focus { outline: none; border-color: #58a6ff; }
+        .bn-auth__err { color: #ff7b72; font-size: 13px; min-height: 18px;
+          margin: 12px 0 2px; text-align: left; }
+        .bn-auth__btn { width: 100%; margin-top: 14px; justify-content: center;
+          height: auto; padding: 11px 16px; font-size: 15px; font-weight: 600; }
+        .bn-auth__hint { margin-top: 14px; font-size: 11px; opacity: .55; line-height: 1.4; }
+        .bn-auth__loading { display: flex; flex-direction: column; align-items: center;
+          gap: 14px; padding: 22px 0 8px; }
+        .bn-auth__loadmsg { opacity: .8; font-size: 13px; }
+        .bn-auth__spin { width: 30px; height: 30px; border: 3px solid rgba(255,255,255,.18);
+          border-top-color: #58a6ff; border-radius: 50%; animation: bn-auth-spin .8s linear infinite; }
+        @keyframes bn-auth-spin { to { transform: rotate(360deg); } }
+    </style>
+</head>
+
+<body class="bn-page" data-bn-title="BeMap JS API · 2026 dashboard"
+                     data-bn-subtitle="Vector maps, BeNomad Tiles, geocoding, routing, EV — one SDK, three engines."
+                     data-bn-chips="OL:ol,Leaflet:lf,MapLibre:ml,v2.0:brand">
+<script>
+/* If opened straight from disk (file://) the dashboard can't fetch its doc
+   pages, register the tile-cache Service Worker, or load MapLibre tiles. Show a
+   clear "serve it" banner instead of a silently broken page. */
+(function () {
+  if (location.protocol !== 'file:') return;
+  document.addEventListener('DOMContentLoaded', function () {
+    var b = document.createElement('div');
+    b.setAttribute('role', 'alert');
+    b.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:100000;background:#e94560;color:#fff;' +
+      'padding:12px 18px;font:14px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;text-align:center;' +
+      'box-shadow:0 2px 10px rgba(0,0,0,.35)';
+    b.innerHTML = '⚠️  Open this through a local server, not from disk. On <code>file://</code> the ' +
+      'doc pages, tile cache and MapLibre maps won’t load. Double-click <b>start.bat</b> / <b>start.sh</b>, ' +
+      'or run <code style="background:rgba(0,0,0,.25);padding:1px 6px;border-radius:4px">npx http-server -p 8080</code>, ' +
+      'then open <a href="http://localhost:8080/examples/" style="color:#fff;text-decoration:underline">http://localhost:8080/examples/</a>';
+    document.body.appendChild(b);
+  });
+})();
+</script>
+<script>
+(function () {
+  // Provider card markup is built imperatively so we can wire it to RuntimeConfig.
+  function el(tag, attrs, kids) {
+    var n = document.createElement(tag);
+    if (attrs) for (var k in attrs) {
+      if (k === 'class') n.className = attrs[k];
+      else if (k === 'html') n.innerHTML = attrs[k];
+      else if (k === 'text') n.textContent = attrs[k];
+      else n.setAttribute(k, attrs[k]);
+    }
+    if (kids) for (var i = 0; i < kids.length; i++) if (kids[i]) n.appendChild(kids[i]);
+    return n;
+  }
+  function $(sel) { return document.querySelector(sel); }
+
+  function buildProviderCard() {
+    var card = el('div', { class: 'bn-provider-card', id: 'bnProviderCard' });
+
+    // Map Provider — filters the sidebar (display preference, not Context).
+    var providerSel = el('select', { id: 'providerSelect' }, [
+      el('option', { value: 'openlayers', text: 'OpenLayers v10' }),
+      el('option', { value: 'maplibre',   text: 'MapLibre GL' }),
+      el('option', { value: 'leaflet',    text: 'Leaflet v1.9' })
+    ]);
+    var providerInfo = el('div', { class: 'pc-info', id: 'providerInfo', text: '' });
+
+    // Service version
+    var versionSel = el('select', { id: 'serviceVersionSelect' }, [
+      el('option', { value: 'v2', text: '2.x — Promise-based' }),
+      el('option', { value: 'v1', text: '1.x — Legacy callbacks' })
+    ]);
+    var versionInfo = el('div', { class: 'pc-info', id: 'versionInfo', text: '' });
+
+    // Geoserver
+    var geoSel = el('select', { id: 'geoserverSelect' });
+    var geoInfo = el('div', { class: 'pc-info', id: 'geoserverInfo', text: 'Loading geoservers…' });
+
+    // Charging-station provider
+    var cspSel = el('select', { id: 'cspSelect' });
+    var cspInfo = el('div', { class: 'pc-info', id: 'cspInfo', text: '' });
+
+    // Live Context snippet — collapsed by default so the sidebar tree has room.
+    var snippetPre = el('pre', { class: 'bn-provider-card__snippet', id: 'ctxSnippet', text: '' });
+    var snippetSummary = el('summary', { class: 'bn-provider-card__summary', text: '▸ Live Context snippet' });
+    var snippetDetails = el('details', { class: 'bn-provider-card__details' }, [snippetSummary, snippetPre]);
+    // Rotate the caret on toggle.
+    snippetDetails.addEventListener('toggle', function () {
+      snippetSummary.textContent = (snippetDetails.open ? '▾ ' : '▸ ') + 'Live Context snippet';
+    });
+    var copyBtn = el('button', { class: 'bn-provider-card__copy', type: 'button', id: 'ctxSnippetCopy', text: 'Copy snippet' });
+
+    card.appendChild(el('label', { text: 'Map Provider' }));
+    card.appendChild(providerSel);
+    card.appendChild(providerInfo);
+
+    card.appendChild(el('label', { text: 'BeMap JS API Version' }));
+    card.appendChild(versionSel);
+    card.appendChild(versionInfo);
+
+    card.appendChild(el('label', { text: 'Geoserver' }));
+    card.appendChild(geoSel);
+    card.appendChild(geoInfo);
+
+    card.appendChild(el('label', { text: 'Charging-station Provider' }));
+    card.appendChild(cspSel);
+    card.appendChild(cspInfo);
+
+    // The provider-card already has its own label conventions; the <summary>
+    // doubles as the snippet section label so we don't add a separate <label>.
+    card.appendChild(snippetDetails);
+    var actions = el('div', { class: 'bn-provider-card__snippet-actions' });
+    actions.appendChild(copyBtn);
+    card.appendChild(actions);
+
+    // Wire selects
+    providerSel.addEventListener('change', function () { switchProvider(providerSel.value); });
+    versionSel.addEventListener('change',  function () { switchServiceVersion(versionSel.value); });
+    geoSel.addEventListener('change',      function () { switchGeoserver(geoSel.value); });
+    cspSel.addEventListener('change',      function () { switchCsp(cspSel.value); });
+    copyBtn.addEventListener('click', function () {
+      var txt = snippetPre.textContent;
+      if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(txt).catch(function(){});
+      copyBtn.textContent = 'Copied!';
+      setTimeout(function () { copyBtn.textContent = 'Copy snippet'; }, 1200);
+    });
+
+    return card;
+  }
+
+  function refreshContextSnippet() {
+    var el = document.getElementById('ctxSnippet');
+    if (!el) return;
+    var ctx = (typeof bemapMainCtx !== 'undefined') ? bemapMainCtx : null;
+    if (bemap && bemap.snippet && bemap.snippet.contextLine) {
+      // Include the user-entered credentials. The library default is safe
+      // (placeholders); we opt in here because the dashboard is local and
+      // the user wants ready-to-paste snippets.
+      el.textContent = bemap.snippet.contextLine(ctx, { includeCredentials: true });
+    }
+  }
+
+  // Refresh the provider-card snippet whenever the user saves new
+  // credentials via the topbar Credentials popover.
+  window.addEventListener('bemap:credentials-changed', refreshContextSnippet);
+
+  /* ---- Provider/version filtering ---- */
+  function switchProvider(value) {
+    localStorage.setItem('bemap-provider', value);
+    if (typeof bemap !== 'undefined' && bemap.RuntimeConfig) bemap.RuntimeConfig.set({ mapProvider: value });
+    var info = document.getElementById('providerInfo');
+    info.textContent = ({
+      openlayers: 'Filters the sidebar to OpenLayers / Leaflet rows.',
+      maplibre:   'Filters the sidebar to MapLibre rows (Tiles, 3D, custom style).',
+      leaflet:    'Filters the sidebar to Leaflet rows.'
+    })[value] || '';
+    applySidebarProviderFilter(value);
+    refreshContextSnippet();
+  }
+  function applySidebarProviderFilter(/*value*/) {
+    // No-op for now — every sidebar leaf shows for every provider. Hook left
+    // in place because the V1 dashboard had a hide-by-provider feature we may
+    // restore. (Service-availability + admin-only gates run separately.)
+  }
+
+  function switchServiceVersion(value) {
+    localStorage.setItem('bemap-service-version', value);
+    if (typeof bemap !== 'undefined' && bemap.RuntimeConfig) bemap.RuntimeConfig.set({ serviceVersion: value });
+    document.getElementById('versionInfo').textContent =
+      value === 'v2' ? 'Modern Promise-based service classes (bemap.services.v2.*).'
+                     : 'Legacy callback-based service classes — kept for retrocompat.';
+    applySidebarVersionFilter(value);
+    refreshContextSnippet();
+  }
+
+  /**
+   * Hide sidebar leaves whose version chip doesn't match the current
+   * service-version selection. Every Service leaf in the manifest carries
+   * either a "v1" or "v2" chip; leaves with no version chip stay visible.
+   * Empty parent subsections collapse automatically because we hide the
+   * whole <li>, not just the inner <a>.
+   */
+  function applySidebarVersionFilter(version) {
+    var sidebar = document.getElementById('bnSidebar');
+    if (!sidebar) return;
+    var leaves = sidebar.querySelectorAll('.bn-tree__leaf');
+    for (var i = 0; i < leaves.length; i++) {
+      var leaf  = leaves[i];
+      var chips = leaf.querySelectorAll('.bn-chip');
+      var hasV1 = false, hasV2 = false;
+      for (var j = 0; j < chips.length; j++) {
+        var t = (chips[j].textContent || '').trim().toLowerCase();
+        if (t === 'v1') hasV1 = true;
+        if (t === 'v2') hasV2 = true;
+      }
+      // Leaves without a version chip stay visible for every selection.
+      if (!hasV1 && !hasV2) continue;
+      var hide = (version === 'v2' && hasV1 && !hasV2) ||
+                 (version === 'v1' && hasV2 && !hasV1);
+      // Hide the wrapping <li> so the tree spacing collapses too.
+      var li = leaf.closest ? leaf.closest('li') : leaf.parentElement;
+      if (li) li.style.display = hide ? 'none' : '';
+    }
+  }
+
+  function switchGeoserver(value) {
+    localStorage.setItem('bemap-geoserver', value);
+    if (typeof bemapMainCtx !== 'undefined') bemapMainCtx.geoserver = value;
+    refreshContextSnippet();
+    var info = document.getElementById('geoserverInfo');
+    var label = window._geoserverLabels && window._geoserverLabels[value];
+    info.textContent = label ? ('Using ' + label + ' (' + value + ')') : ('Using ' + value);
+    refreshSidebarForGeoserver(value);
+  }
+
+  function switchCsp(value) {
+    localStorage.setItem('bemap-csp', value || '');
+    if (typeof bemapMainCtx !== 'undefined') bemapMainCtx.chargingStationProvider = value || null;
+    refreshContextSnippet();
+    var info = document.getElementById('cspInfo');
+    var label = window._cspLabels && window._cspLabels[value];
+    info.textContent = value
+      ? ('Using ' + (label || value))
+      : (window._cspLabels && Object.keys(window._cspLabels).length
+          ? 'Used by ChargingStations & EvSmartRouting.'
+          : 'No charging-station provider exposed by your account.');
+    applyCspGate(!!value);
+  }
+
+  /* ---- Service-availability gating (ported from V1) ---- */
+  window._geoserverServices = {};
+  function applySidebarFilter(supportedSet) {
+    var items = document.querySelectorAll('[data-requires-service]');
+    for (var i = 0; i < items.length; i++) {
+      var needed = items[i].getAttribute('data-requires-service');
+      if (supportedSet && !supportedSet[needed]) items[i].classList.add('service-unavailable');
+      else items[i].classList.remove('service-unavailable');
+    }
+  }
+  // Account-level geoserver gate — delegates to the shell's unit-tested
+  // bn.sidebar.applyGeoserverGate (see bn-2026.js). Entries carrying
+  // `data-requires-geoserver="a,b"` (e.g. the Geocoder v2 demo → nominatim/herehlp)
+  // are shown when the ACCOUNT has ANY of those geoservers, independent of the
+  // dashboard's currently-selected geoserver.
+  function applyGeoserverGate() {
+    if (window.bn && bn.sidebar && typeof bn.sidebar.applyGeoserverGate === 'function') {
+      bn.sidebar.applyGeoserverGate(window._availableGeoserverSet || {});
+    }
+  }
+  function refreshSidebarForGeoserver(geoserver) {
+    if (!geoserver) return;
+    if (window._geoserverServices[geoserver]) {
+      applySidebarFilter(window._geoserverServices[geoserver]);
+      return;
+    }
+    if (!bemap.helpers || !bemap.helpers.getGeoServerInfo) return;
+    bemap.helpers.getGeoServerInfo(bemapMainCtx, geoserver)
+      .then(function (info) {
+        var set = {};
+        var hasTransport = info.getTransportTypes().length > 0;
+        if (hasTransport) {
+          set.Routing = true; set.NearPoi = true; set.TraceRoute = true;
+          set.EvSmartRouting = true; set.EvReachableArea = true;
+          set.EvVehicles = true; set.ChargingTime = true; set.RouteHorizon = true;
+          set.Traffic = true; set.Mapping = true; set.ChargingStation = true;
+          set.Isochrone = true; set.POI = true; set.EvRouting = true;
+        } else {
+          set.AutocompleteGeocoding = true; set.Geocoding = true; set.GeocodingNatural = true;
+        }
+        var limits = info.getServiceLimits();
+        for (var i = 0; i < limits.length; i++) {
+          var name = limits[i].getServiceName();
+          if (name === 'BenomadReverseGeocodingService') set.ReverseGeocoding = true;
+          else if (name === 'BenomadNearPoiService') { set.NearPoi = true; set.POI = true; }
+          else if (name === 'BenomadTraceRouteService') set.TraceRoute = true;
+          else if (name === 'BenomadRoutingService') set.Routing = true;
+        }
+        var OVERRIDES = {
+          nominatim: { add: ['AutocompleteGeocoding', 'Geocoding'] },
+          addok:     { add: ['AutocompleteGeocoding', 'Geocoding', 'ReverseGeocoding'] }
+        };
+        if (OVERRIDES[geoserver]) {
+          set = {};
+          OVERRIDES[geoserver].add.forEach(function (s) { set[s] = true; });
+        }
+        // Augment with the geoserver's ACTUALLY-declared services — the API's
+        // `servicesInfo` is already ACL-filtered per account server-side, so it is
+        // the authoritative signal. Its serviceName values match the sidebar's
+        // requiresService keys (Routing, Geocoding, AutocompleteGeocoding, ...).
+        // This only ADDS correctly-detected services (e.g. AutocompleteGeocoding on
+        // herehlp, which the transport heuristic above misses because herehlp also
+        // routes), never removes any — fixing the Geocoder/Autocomplete gate (PMT-33).
+        try {
+          var declared = (typeof info.getServicesInfo === 'function') ? info.getServicesInfo() : [];
+          for (var s = 0; s < declared.length; s++) {
+            var sn = (typeof declared[s].getServiceName === 'function')
+              ? declared[s].getServiceName() : declared[s].serviceName;
+            if (sn) set[sn] = true;
+          }
+        } catch (e) { /* ignore — heuristic set still applies */ }
+        window._geoserverServices[geoserver] = set;
+        applySidebarFilter(set);
+      })
+      .catch(function (err) {
+        console.warn('Could not refresh sidebar for geoserver "' + geoserver + '":', err);
+        applySidebarFilter(null);
+      });
+  }
+  function applyCspGate(hasProvider) {
+    var items = document.querySelectorAll('[data-requires-service]');
+    for (var i = 0; i < items.length; i++) {
+      var needed = items[i].getAttribute('data-requires-service');
+      if (needed === 'ChargingStations' || needed === 'EvSmartRouting' || needed === 'ChargingStation') {
+        if (hasProvider) items[i].classList.remove('csp-unavailable');
+        else items[i].classList.add('csp-unavailable');
+      }
+    }
+  }
+
+  /* ---- ACL load — populates geoserver + CSP dropdowns + admin role ----
+     Split so the auth gate can reuse populateAclUi() with the details it
+     already fetched during verification, and loadGeoserversAndCsp() returns a
+     promise the gate can await (resolve = authenticated, reject = bad creds). */
+  function populateAclUi(details) {
+    var geoSel  = document.getElementById('geoserverSelect');
+    var geoInfo = document.getElementById('geoserverInfo');
+    var cspSel  = document.getElementById('cspSelect');
+    var cspInfo = document.getElementById('cspInfo');
+    var saved    = localStorage.getItem('bemap-geoserver');
+    var savedCsp = localStorage.getItem('bemap-csp') || '';
+    var geoservers = details.getGeoservers();
+    var csps = details.getChargingStationProviders();
+    window._geoserverLabels = {};
+    window._cspLabels = {};
+    window._availableGeoserverSet = {};   // account-level geoserver names (for applyGeoserverGate)
+
+    if (details.hasRight('ROLE_ADMIN_ACCESS')) document.body.classList.add('is-admin');
+
+    geoSel.innerHTML = '';
+    if (!geoservers.length) {
+      geoSel.innerHTML = '<option value="default">default</option>';
+      geoInfo.textContent = 'No geoservers exposed by your account — using "default".';
+    } else {
+      var defaultKey = null;
+      geoservers.forEach(function (gs) {
+        var opt = document.createElement('option');
+        opt.value = gs.getKey();
+        opt.textContent = gs.getValue() + (gs.isDefault() ? ' (default)' : '');
+        window._geoserverLabels[gs.getKey()] = gs.getValue();
+        window._availableGeoserverSet[String(gs.getKey()).toLowerCase()] = true;
+        if (gs.isDefault()) defaultKey = gs.getKey();
+        geoSel.appendChild(opt);
+      });
+      var initial = (saved && window._geoserverLabels[saved]) ? saved
+                   : (defaultKey || geoservers[0].getKey());
+      geoSel.value = initial;
+      switchGeoserver(initial);
+    }
+
+    // The account's geoserver list is now known — gate geoserver-pinned demos
+    // (e.g. the Geocoder v2 entry, which needs nominatim OR herehlp).
+    applyGeoserverGate();
+
+    cspSel.innerHTML = '';
+    if (!csps.length) {
+      cspSel.innerHTML = '<option value="">(none available)</option>';
+      cspInfo.textContent = 'No charging-station provider exposed by your account.';
+      applyCspGate(false);
+    } else {
+      csps.forEach(function (p) {
+        var opt = document.createElement('option');
+        opt.value = p.getKey();
+        opt.textContent = p.getValue();
+        window._cspLabels[p.getKey()] = p.getValue();
+        cspSel.appendChild(opt);
+      });
+      var initialCsp = (savedCsp && window._cspLabels[savedCsp]) ? savedCsp : csps[0].getKey();
+      cspSel.value = initialCsp;
+      switchCsp(initialCsp);
+      applyCspGate(true);
+    }
+  }
+  function loadGeoserversAndCsp(ctx) {
+    if (typeof bemap === 'undefined' || !bemap.AclService) return Promise.reject(new Error('AclService unavailable'));
+    return new bemap.AclService(ctx || bemapMainCtx).getCurrentUserDetails()
+      .then(function (details) { populateAclUi(details); return details; });
+  }
+
+  /* ---- Authentication gate (pav-style "false login") ----
+     Verifies the BeMap account by probing the ACL endpoint
+     (AclService.getCurrentUserDetails — 200 = valid, 401/403 = wrong creds),
+     shows a loader while the geoservers/CSP load, and only reveals the
+     dashboard once that succeeds. */
+  var authState = { gate: null, form: null, loading: null, err: null, login: null, pass: null, env: null, btn: null, loadMsg: null };
+
+  function withTimeout(promise, ms) {
+    return new Promise(function (resolve, reject) {
+      var t = setTimeout(function () { reject({ code: 'timeout', message: 'timeout' }); }, ms || 20000);
+      promise.then(function (v) { clearTimeout(t); resolve(v); }, function (e) { clearTimeout(t); reject(e); });
+    });
+  }
+  function authReason(err) {
+    if (err && err.code === 'timeout') return 'Timed out reaching the server — check your connection.';
+    var s = (err && (err.status || err.code)) || 0;
+    var m = ((err && (err.message || ('' + err))) || '').toLowerCase();
+    if (s === 401 || s === 403 || /401|403|unauthor|forbidden|invalid cred/.test(m)) return 'Wrong credentials — check your login and password.';
+    if (s >= 500 || /50\d/.test(m)) return 'Server error — please try again shortly.';
+    return 'Could not sign in. Check your credentials and your connection.';
+  }
+
+  function buildAuthGate() {
+    if (authState.gate) return;
+    var logo = el('img', { class: 'bn-auth__logo', src: 'https://benomad.com/assets/benomad-logo.svg', alt: 'BeNomad',
+      on: { error: function (e) { var i = e.target || e.srcElement; if (i && !i._fb) { i._fb = 1; i.src = 'benomad-logo.png'; } } } });
+    var envSel = el('select', { class: 'bn-auth__input', id: 'authEnv' });
+    var envs = window.bemapEnvironments || {};
+    for (var k in envs) if (Object.prototype.hasOwnProperty.call(envs, k)) {
+      envSel.appendChild(el('option', { value: k, text: (envs[k].label || k) + ' — ' + envs[k].host }));
+    }
+    envSel.value = window.bemapActiveEnvKey || 'beta';
+    var loginInp = el('input', { class: 'bn-auth__input', id: 'authLogin', type: 'text', placeholder: 'your BeMap login', autocomplete: 'username' });
+    var passInp  = el('input', { class: 'bn-auth__input', id: 'authPass', type: 'password', placeholder: 'your BeMap password', autocomplete: 'current-password' });
+    var errEl = el('div', { class: 'bn-auth__err', id: 'authErr' });
+    var btn   = el('button', { class: 'bn-btn bn-btn--accent bn-auth__btn', type: 'submit', text: 'Connect' });
+
+    function prefill(envKey) {
+      var c = (window.bn && bn.creds && bn.creds.forEnv) ? bn.creds.forEnv(envKey) : { login: '', password: '' };
+      if (!c.login && envKey === (window.bemapActiveEnvKey || 'beta') && bemap.RuntimeConfig) {
+        var cfg = bemap.RuntimeConfig.toJSON() || {}; c = { login: cfg.login || '', password: cfg.password || '' };
+      }
+      loginInp.value = c.login || ''; passInp.value = c.password || '';
+    }
+    prefill(envSel.value);
+    envSel.addEventListener('change', function () { prefill(envSel.value); });
+
+    var form = el('form', { class: 'bn-auth__form' }, [
+      el('label', { text: 'Environment' }), envSel,
+      el('label', { text: 'Login' }),       loginInp,
+      el('label', { text: 'Password' }),     passInp,
+      errEl, btn,
+      el('div', { class: 'bn-auth__hint', text: 'Verified against the selected environment. Credentials are stored locally, per environment.' })
+    ]);
+    form.addEventListener('submit', function (e) {
+      e.preventDefault();
+      verifyAndLoad(envSel.value, (loginInp.value || '').trim(), passInp.value || '');
+    });
+
+    var loadMsg = el('div', { class: 'bn-auth__loadmsg', text: 'Loading…' });
+    var loading = el('div', { class: 'bn-auth__loading' }, [el('div', { class: 'bn-auth__spin' }), loadMsg]);
+    loading.style.display = 'none';
+
+    var card = el('div', { class: 'bn-auth__card' }, [
+      logo,
+      el('h1', { class: 'bn-auth__title', text: 'Sign in to BeMap' }),
+      el('p',  { class: 'bn-auth__sub', text: 'Connect your BeMap account to load the dashboard.' }),
+      loading, form
+    ]);
+    var gate = el('div', { class: 'bn-auth-gate', id: 'bnAuthGate' }, [card]);
+    document.body.appendChild(gate);
+
+    authState.gate = gate; authState.form = form; authState.loading = loading;
+    authState.err = errEl; authState.login = loginInp; authState.pass = passInp;
+    authState.env = envSel; authState.btn = btn; authState.loadMsg = loadMsg;
+  }
+  function authShowLoading(msg) {
+    if (!authState.gate) buildAuthGate();
+    authState.form.style.display = 'none';
+    authState.loading.style.display = '';
+    authState.loadMsg.textContent = msg || 'Loading…';
+  }
+  function authShowLogin(errMsg) {
+    if (!authState.gate) buildAuthGate();
+    authState.loading.style.display = 'none';
+    authState.form.style.display = '';
+    authState.err.textContent = errMsg || '';
+    authState.btn.disabled = false;
+    try { authState.login.focus(); } catch (e) {}
+  }
+  function authHide() {
+    if (authState.gate && authState.gate.parentNode) authState.gate.parentNode.removeChild(authState.gate);
+    authState.gate = null;
+  }
+
+  function verifyAndLoad(envKey, login, password) {
+    var envs = window.bemapEnvironments || {};
+    var env = envs[envKey];
+    if (!login || !password) { authShowLogin('Enter both your login and password.'); return; }
+    if (!env) { authShowLogin('Please choose an environment.'); return; }
+    authShowLoading('Authenticating & loading your account…');
+    var probeCtx;
+    try {
+      probeCtx = new bemap.Context({ host: env.host, secure: true, login: login, password: password, authInPost: false });
+    } catch (e) { authShowLogin('Could not build a Context: ' + e.message); return; }
+
+    withTimeout(new bemap.AclService(probeCtx).getCurrentUserDetails(), 20000)
+      .then(function (details) {
+        // Verified. Remember the creds for this env + the active env.
+        try { if (window.bn && bn.creds && bn.creds.persist) bn.creds.persist(login, password, envKey); } catch (e) {}
+        if (envKey === (window.bemapActiveEnvKey || 'beta')) {
+          // Same env → apply to the live Context AND refresh the topbar
+          // credentials badge / banner (bn.creds.applyLive), populate the UI,
+          // reveal. Falls back to a manual apply if the hook is unavailable.
+          try {
+            if (window.bn && bn.creds && bn.creds.applyLive) {
+              bn.creds.applyLive(login, password);
+            } else {
+              bemapMainCtx.login = login; bemapMainCtx.password = password;
+              bemapMainCtx.cacheBaseUrl = null; bemapMainCtx.cacheUrlAuthParams = null; bemapMainCtx.cacheBase64Auth = null;
+              window.bemapCredentialsAreEmpty = false; window.bemapCredentialsAreDemo = false;
+            }
+          } catch (e) {}
+          try { populateAclUi(details); } catch (e) {}
+          try { refreshContextSnippet(); } catch (e) {}
+          authHide();
+        } else {
+          // Different env → API + tiles host change → clean reload so context.js
+          // rebuilds the Context; the saved creds then verify automatically.
+          window.location.reload();
+        }
+      })
+      .catch(function (err) { authShowLogin(authReason(err)); });
+  }
+
+  /* ---- Boot the SPA shell ---- */
+  document.addEventListener('DOMContentLoaded', function () {
+    // Hydrate provider + service-version dropdowns from localStorage early.
+    var providerSel = document.getElementById('providerSelect');
+    var versionSel  = document.getElementById('serviceVersionSelect');
+
+    // Boot the shell — builds the .bn-topbar, .bn-sidebar, .bn-stage, code+log panes.
+    bn.shell.boot({
+      title: 'BeMap JS API · 2026 dashboard',
+      subtitle: 'Vector maps, BeNomad Tiles, geocoding, routing, EV — one SDK, three engines.',
+      manifest: (typeof bnSidebarManifest === 'object') ? bnSidebarManifest : []
+    });
+
+    // Mount the provider card on top of the sidebar tree.
+    var card = buildProviderCard();
+    bn.sidebar.setProviderCard(card);
+
+    // Now that the card is in the DOM, restore provider + service-version
+    // selections from localStorage before kicking off the ACL load.
+    var savedProvider = localStorage.getItem('bemap-provider') || 'maplibre';
+    var savedVersion  = localStorage.getItem('bemap-service-version') || 'v2';
+    document.getElementById('providerSelect').value = savedProvider;
+    document.getElementById('serviceVersionSelect').value = savedVersion;
+    switchProvider(savedProvider);
+    switchServiceVersion(savedVersion);
+
+    refreshContextSnippet();
+
+    // Auth gate: verify the account + load its geoservers/CSP before revealing
+    // the dashboard. Wrong creds -> error in the gate; no creds -> login form.
+    try {
+      buildAuthGate();
+      var cfg0 = (bemap.RuntimeConfig && bemap.RuntimeConfig.toJSON()) || {};
+      if (cfg0.login && cfg0.password) {
+        authShowLoading('Loading your account…');
+        withTimeout(loadGeoserversAndCsp(), 20000)
+          .then(function () { authHide(); })
+          .catch(function (err) { authShowLogin(authReason(err)); });
+      } else {
+        authShowLogin('');   // first visit — no credentials yet
+      }
+    } catch (e) {
+      // Fail-safe: never let a gate bug permanently hide the dashboard.
+      try { authHide(); } catch (e2) {}
+      if (window.console) window.console.warn('auth gate error:', e);
+    }
+  });
+
+  /* ---- Expose miniweb for legacy markdown links ---- */
+  // Lightweight markdown router — script.js used to define this; now lives
+  // inline so the dashboard works without script.js / jQuery.
+  bemap = window.bemap || {};
+  bemap.miniweb = bemap.miniweb || {};
+  bemap.miniweb.loadMarkdownFile = function (target, url, opts) {
+    target.innerHTML = '';
+    fetch(url).then(function (r) { return r.text(); }).then(function (md) {
+      var ids = {};
+      var conv = new marked.Marked({ renderer: { heading: function (t) {
+        var inner = this.parser.parseInline(t.tokens);
+        var id = inner.replace(/<[^>]*>/g, '').replace(/&[a-z#0-9]+;/gi, '').replace(/[^\w]/g, '').toLowerCase();
+        ids[id] = (ids[id] || 0) + 1;
+        if (ids[id] > 1) id += '-' + (ids[id] - 1);
+        return '<h' + t.depth + ' id="' + id + '">' + inner + '</h' + t.depth + '>\n';
+      } } });
+      md = md.replace(/!\[([^\]]*)\]\(([^)\s]+) =(\d+|\*)x(\d+|\*)\)/g, function (m, alt, src, w, h) {
+        return '<img src="' + src + '" alt="' + alt + '"' + (w !== '*' ? ' width="' + w + '"' : '') + (h !== '*' ? ' height="' + h + '"' : '') + ' />';
+      });
+      target.innerHTML = conv.parse(md);
+
+      // Process bemap-formatted code blocks ({"bemap":{...}}).
+      var codes = target.querySelectorAll('code');
+      for (var ci = 0; ci < codes.length; ci++) {
+        var code = codes[ci];
+        var raw = code.textContent || code.innerText || '';
+        var ESC = '{"bemap":';
+        if (raw.indexOf(ESC) !== 0) continue;
+        var nl = raw.indexOf('\n');
+        if (nl < 0) continue;
+        var options;
+        try { options = JSON.parse(raw.substring(0, nl).trim()).bemap; }
+        catch (e) { continue; }
+        var body = raw.substring(nl).trim();
+        var container = document.createElement('div');
+
+        if (options.language === 'mermaid') {
+          container.className = 'mermaid';
+          container.appendChild(document.createTextNode(body));
+          if (options.graphid) container.id = options.graphid;
+          code.parentNode.replaceWith(container);
+          if (window.mermaid) mermaid.initialize({ startOnLoad: true });
+          continue;
+        }
+
+        if (options.mapid) {
+          var mapEl = document.createElement('div');
+          mapEl.id = options.mapid;
+          mapEl.className = 'map';
+          mapEl.style.cssText = 'width:100%;height:340px;border:1px solid #ddd;border-radius:4px;margin:8px 0;';
+          container.appendChild(mapEl);
+        }
+        var ta = document.createElement('textarea');
+        ta.className = 'codeEdit';
+        ta.appendChild(document.createTextNode(body));
+        container.appendChild(ta);
+        code.parentNode.replaceWith(container);
+        if (!options.hide && window.CodeMirror) {
+          CodeMirror.fromTextArea(ta, {
+            mode: options.language || 'javascript',
+            lineNumbers: true, matchBrackets: true, readOnly: true,
+            theme: 'base16-dark'
+          });
+        }
+        if (options.run) {
+          var s = document.createElement('script');
+          s.text = body;
+          document.body.appendChild(s);
+        }
+      }
+
+      if (opts && opts.success) opts.success();
+    }).catch(function (e) {
+      target.innerHTML = '<div class="bn-empty">Failed to load ' + url + ': ' + e.message + '</div>';
+    });
+  };
+})();
+</script>
+</body>
+
+</html>

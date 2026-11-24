@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>BeMap JS API - MapLibre Clustering</title>
+  <link rel="stylesheet" href="../lib/bootstrap/dist/css/bootstrap.min.css" type="text/css">
+  <link rel="stylesheet" href="../dist/maplibre-gl.css" type="text/css">
+  <script src="../dist/maplibre-gl.js"></script>
+  <script src="../dist/pmtiles.js"></script>
+  <script src="../dist/bemap-js-api.js"></script>
+  <script src="effect-bridge.js"></script>
+  <script src="context.js"></script>
+</head>
+<body style="margin:0;padding:0;">
+  <div style="padding:10px;background:linear-gradient(135deg,#27ae60,#2ecc71);color:#fff;border-bottom:2px solid #1e8449;">
+    <h3 style="margin:0 0 4px 0;font-size:16px;">Point Clustering <span style="font-size:11px;opacity:0.6;">MapLibre only</span></h3>
+    <p style="margin:0;font-size:13px;opacity:0.9;">2000 points auto-clustered with customizable styles. Click clusters to zoom in. Native MapLibre GeoJSON clustering.</p>
+  </div>
+  <div id="map1" style="height:calc(100vh - 70px);"></div>
+
+  <script>
+  var map = new bemap.MapLibreMap(bemapMainCtx, 'map1').move(2.35, 48.85, 4);
+
+  // Generate 2000 random points across Europe
+  var points = [];
+  for (var i = 0; i < 2000; i++) {
+    points.push(new bemap.Coordinate(-10 + Math.random() * 40, 35 + Math.random() * 25));
+  }
+
+  // Create ClusterLayer with custom style
+  var clusterLayer = new bemap.ClusterLayer({
+    name: 'stations',
+    distance: 50,
+    style: new bemap.clusterStyle({
+      color: new bemap.Color(0, 150, 255, 1),
+      borderColor: new bemap.Color(255, 255, 255, 1),
+      textColor: new bemap.Color(255, 255, 255, 1),
+      size: 20,
+      borderSize: 2,
+      textSize: 2,
+      icon: new bemap.Icon({ src: 'images/map-marker-red.svg' })
+    })
+  });
+
+  map.addLayer(clusterLayer);
+  map.addClusterPoints(clusterLayer, points);
+  </script>
+</body>
+</html>

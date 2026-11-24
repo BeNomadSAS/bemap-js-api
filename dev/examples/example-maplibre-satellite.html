@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>BeMap JS API - MapLibre Satellite</title>
+  <link rel="stylesheet" href="../lib/bootstrap/dist/css/bootstrap.min.css" type="text/css">
+  <link rel="stylesheet" href="../dist/maplibre-gl.css" type="text/css">
+  <script src="../dist/maplibre-gl.js"></script>
+  <script src="../dist/pmtiles.js"></script>
+  <script src="../dist/bemap-js-api.js"></script>
+  <script src="effect-bridge.js"></script>
+  <script src="context.js"></script>
+</head>
+<body style="margin:0;padding:0;">
+  <div style="padding:10px;background:linear-gradient(135deg,#2c3e50,#34495e);color:#fff;border-bottom:2px solid #1a252f;">
+    <h3 style="margin:0 0 4px 0;font-size:16px;">Raster &amp; Satellite Layers <span style="font-size:11px;opacity:0.6;">MapLibre only</span></h3>
+    <p style="margin:0;font-size:13px;opacity:0.9;">Add raster tile layers (satellite, custom tile servers) with opacity control using bemap.RasterLayer.</p>
+    <div style="margin-top:6px;">
+      <label style="font-size:12px;">Opacity: <input type="range" id="opacitySlider" min="0" max="100" value="100" style="width:120px;vertical-align:middle;"></label>
+      <button class="btn btn-sm btn-primary" id="btnOSM">OSM</button>
+      <button class="btn btn-sm btn-info" id="btnTopo">Topo</button>
+    </div>
+  </div>
+  <div id="map1" style="height:calc(100vh - 85px);"></div>
+
+  <script>
+  // Base = BeNomad Tiles (via ctx.tilesHost). The satellite raster is
+  // added as an overlay on top using addRasterLayer.
+  var map = new bemap.MapLibreMap(bemapMainCtx, 'map1').move(11.5, 47.3, 8);
+
+  // Satellite raster overlay (Esri World Imagery — free for non-commercial use).
+  var satLayer = new bemap.RasterLayer({
+    name: 'satellite',
+    url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+    attribution: 'Tiles &copy; Esri &mdash; World Imagery'
+  });
+  map.addRasterLayer(satLayer);
+
+  // Opacity slider
+  document.getElementById('opacitySlider').oninput = function() {
+    var val = parseInt(this.value) / 100;
+    try { map.native.setPaintProperty(satLayer._maplibreId, 'raster-opacity', val); } catch(e) {}
+  };
+  </script>
+</body>
+</html>
